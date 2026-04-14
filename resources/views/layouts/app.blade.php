@@ -92,8 +92,8 @@
 
                 <x-menu-sub title="Catalogo" icon="o-wrench-screwdriver">
                     <x-menu-item title="Proveedores" icon="o-truck" link="{{ route('servicios.index') }}" />
-                    <x-menu-item title="Clientes" icon="o-user-group" link="{{ route('servicios.index') }}" />
-                    <x-menu-item title="Usuario" icon="o-user" link="{{ route('servicios.index') }}" />
+                    <x-menu-item title="Clientes" icon="o-user-group" link="{{ route('clientes') }}" />
+                    <x-menu-item title="Usuario" icon="o-user" link="{{ route('usersystem') }}" />
                     <x-menu-item title="Trabajadores" icon="o-users" link="{{ route('servicios.index') }}" />
                 </x-menu-sub>
 
