@@ -21,7 +21,7 @@
         ['label' => 'Compras',                   'route' => 'compras.index'],
         ['label' => 'Productos',                 'route' => 'productos.index'],
         ['label' => 'Salidas de inventario',     'route' => 'salidas.index'],
-        ['label' => 'Devoluciones',              'route' => 'devoluciones.index'],
+        ['label' => 'Devoluciones',              'route' => 'devoluciones'],
         ['label' => 'Gestión de trabajadores',   'route' => 'trabajadores.index'],
         ['label' => 'Servicios',                 'route' => 'servicios.index'],
         ['label' => 'Arqueo de caja',            'route' => 'arqueo.index'],

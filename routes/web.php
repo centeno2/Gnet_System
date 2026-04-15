@@ -13,3 +13,4 @@ Route::livewire('/arqueo', 'pages::arqueo.index')->name('arqueo.index');
 Route::livewire('/mantenimiento', 'pages::mantenimiento.index')->name('mantenimiento.index');
 Route::livewire('/informes', 'pages::informes.index')->name('informes.index');
 Route::livewire('/acerca-de', 'pages::acerca.index')->name('acerca.index');
+Route::livewire('/devoluciones', 'pages::devoluciones')->name('devoluciones');
