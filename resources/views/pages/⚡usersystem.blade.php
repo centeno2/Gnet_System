@@ -98,27 +98,7 @@ new class extends Component
         ];
 
         $users = [
-            [
-                'id' => 1,
-                'username' => 'jperez',
-                'password' => '••••••••',
-                'role' => 'Cajero',
-                'status' => 'Activo',
-            ],
-            [
-                'id' => 2,
-                'username' => 'mlopez',
-                'password' => '••••••••',
-                'role' => 'Administrador',
-                'status' => 'Inactivo',
-            ],
-            [
-                'id' => 3,
-                'username' => 'chernandez',
-                'password' => '••••••••',
-                'role' => 'Gerente',
-                'status' => 'Activo',
-            ],
+
         ];
     @endphp
 
@@ -131,7 +111,11 @@ new class extends Component
             </p>
         </div>
 
-        <x-table :headers="$headers" :rows="$users">
+        <x-table
+            :headers="$headers"
+            :rows="$users"
+            class="[&_thead_th]:text-[#1A2B42] [&_thead_th]:font-semibold [&_thead_th]:bg-[#EAF2FB]"
+        >
             @scope('cell_username', $user)
                 <span class="font-semibold text-[#1A2B42]">{{ $user['username'] }}</span>
             @endscope

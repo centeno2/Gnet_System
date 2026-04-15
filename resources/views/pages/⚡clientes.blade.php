@@ -84,27 +84,7 @@ new class extends Component
         ];
 
         $clientes = [
-            [
-                'id' => 1,
-                'full_name' => 'Juan Pérez',
-                'phone' => '8888-1111',
-                'email' => 'juanperez@email.com',
-                'status' => 'Activo',
-            ],
-            [
-                'id' => 2,
-                'full_name' => 'María López',
-                'phone' => '8888-2222',
-                'email' => '',
-                'status' => 'Inactivo',
-            ],
-            [
-                'id' => 3,
-                'full_name' => 'Carlos Hernández',
-                'phone' => '8888-3333',
-                'email' => 'carlosh@email.com',
-                'status' => 'Activo',
-            ],
+         
         ];
     @endphp
 
@@ -117,7 +97,11 @@ new class extends Component
             </p>
         </div>
 
-        <x-table :headers="$headers" :rows="$clientes">
+        <x-table
+            :headers="$headers"
+            :rows="$clientes"
+            class="[&_thead_th]:text-[#1A2B42] [&_thead_th]:font-semibold [&_thead_th]:bg-[#EAF2FB]"
+        >
             @scope('cell_full_name', $cliente)
                 <span class="font-semibold text-[#1A2B42]">{{ $cliente['full_name'] }}</span>
             @endscope

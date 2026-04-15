@@ -67,7 +67,7 @@
                 activate-by-route hace que MaryUI marque automaticamente
                 el elemento activo según la ruta actual.
             --}}
-            <x-menu activate-by-route class="mt-4 px-2">
+            <x-menu activate-by-route class="mt-4 px-2" active="bg-[#D7E4F3] text-[#1A2B42]">
 
                 {{--
                     Opciones del navegador vertical.

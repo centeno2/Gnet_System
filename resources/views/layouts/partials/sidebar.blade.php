@@ -48,33 +48,31 @@
                     $isActive = request()->routeIs($item['route']);
                 @endphp
 
-                <li>
-                    <a
-                        href="{{ \Illuminate\Support\Facades\Route::has($item['route']) ? route($item['route']) : '#' }}"
+            <li>
+                <a
+                    href="{{ \Illuminate\Support\Facades\Route::has($item['route']) ? route($item['route']) : '#' }}"
+                    @class([
+                        'group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold tracking-[0.01em] transition-all duration-200',
+
+                        // Activo
+                        'bg-[#D7E4F3] text-[#1A2B42] border border-[#B8CBE3] shadow-sm' => $isActive,
+
+                        // Inactivo
+                        'text-[#F0F3F7] hover:bg-white/10 hover:text-white' => ! $isActive,
+                    ])
+                >
+                    <span
                         @class([
-                            // Clases base que siempre tendrá cada botón
-                            'group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold tracking-[0.01em] transition-all duration-200',
+                            'h-2.5 w-2.5 rounded-full transition-all duration-200',
 
-                            // Estilo cuando el boton esta activo
-                            'bg-white text-[#0E48A1] shadow-lg shadow-[#1A2B42]/20' => $isActive,
-
-                            // Estilo cuando NO está activo
-                            'text-[#F0F3F7] hover:bg-white/10 hover:text-white' => ! $isActive,
+                            'bg-[#0B6FE4] shadow-[0_0_0_4px_rgba(11,111,228,0.15)]' => $isActive,
+                            'bg-white/70 group-hover:bg-white' => ! $isActive,
                         ])
-                    >
+                    ></span>
 
-                        <span
-                            @class([
-                                'h-2.5 w-2.5 rounded-full transition-all duration-200',
-
-                                'bg-[#0B6FE4] shadow-[0_0_0_4px_rgba(11,111,228,0.15)]' => $isActive,
-                                'bg-white/70 group-hover:bg-white' => ! $isActive,
-                            ])
-                        ></span>
-
-                        <span>{{ $item['label'] }}</span>
-                    </a>
-                </li>
+                    <span>{{ $item['label'] }}</span>
+                </a>
+            </li>
             @endforeach
         </ul>
     </nav>
