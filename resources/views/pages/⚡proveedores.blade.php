@@ -10,18 +10,18 @@ new class extends Component
 
 <div class="min-h-screen bg-[#F0F3F7] p-6 space-y-6">
     <div>
-        <h1 class="text-3xl font-bold text-[#1A2B42]">Clientes</h1>
+        <h1 class="text-3xl font-bold text-[#1A2B42]">Proveedores</h1>
         <p class="mt-1 text-sm text-[#5F6B7A]">
-            Registro y gestión de clientes del sistema.
+            Registro y gestión de proveedores del sistema.
         </p>
     </div>
 
     {{-- Formulario --}}
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
         <div class="mb-6">
-            <h2 class="text-2xl font-bold text-[#1A2B42]">Registrar cliente</h2>
+            <h2 class="text-2xl font-bold text-[#1A2B42]">Registrar proveedor</h2>
             <p class="text-base text-[#5F6B7A]">
-                Ingrese los datos del cliente. El correo es opcional.
+                Ingrese los datos del proveedor.
             </p>
         </div>
 
@@ -51,17 +51,27 @@ new class extends Component
                     Teléfono
                 </label>
                 <x-input
-                    placeholder="Ingrese el teléfono"
+                    placeholder="Ingrese el número de teléfono"
                     class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
                 />
             </div>
 
             <div>
                 <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    Correo electrónico
+                    Código RUC
                 </label>
                 <x-input
-                    placeholder="Ingrese el correo electrónico (opcional)"
+                    placeholder="Ingrese el código RUC"
+                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
+                />
+            </div>
+
+            <div class="md:col-span-2">
+                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
+                    Nacionalidad
+                </label>
+                <x-input
+                    placeholder="Ingrese la nacionalidad"
                     class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
                 />
             </div>
@@ -69,7 +79,7 @@ new class extends Component
 
         <x-slot:actions>
             <x-button
-                label="Guardar cliente"
+                label="Guardar proveedor"
                 class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4] focus:ring-2 focus:ring-[#0E48A1]/30"
             />
         </x-slot:actions>
@@ -79,60 +89,45 @@ new class extends Component
         $headers = [
             ['key' => 'full_name', 'label' => 'Nombre completo'],
             ['key' => 'phone', 'label' => 'Teléfono'],
-            ['key' => 'email', 'label' => 'Correo'],
-            ['key' => 'status', 'label' => 'Estado'],
+            ['key' => 'ruc', 'label' => 'Código RUC'],
+            ['key' => 'nationality', 'label' => 'Nacionalidad'],
+            ['key' => 'status', 'label' => 'Estado del proveedor'],
         ];
 
-        $clientes = [
-         
-        ];
+        $proveedores = [];
     @endphp
 
     {{-- Tabla --}}
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
         <div class="mb-4">
-            <h2 class="text-2xl font-bold text-[#1A2B42]">Listado de clientes</h2>
-
+            <h2 class="text-2xl font-bold text-[#1A2B42]">Listado de proveedores</h2>
             <x-input
-                placeholder="Buscar clientes"
+                placeholder="Buscar proveedores"
                 class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
             />
         </div>
 
         <x-table
             :headers="$headers"
-            :rows="$clientes"
+            :rows="$proveedores"
             class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl"
         >
-            @scope('cell_full_name', $cliente)
-                <span class="font-semibold text-[#1A2B42]">{{ $cliente['full_name'] }}</span>
+            @scope('cell_full_name', $proveedor)
+                <span class="font-semibold text-[#1A2B42]">{{ $proveedor['full_name'] }}</span>
             @endscope
 
-            @scope('cell_phone', $cliente)
-                <span class="text-[#1A2B42]">{{ $cliente['phone'] }}</span>
+            @scope('cell_phone', $proveedor)
+                <span class="text-[#1A2B42]">{{ $proveedor['phone'] }}</span>
             @endscope
 
-            @scope('cell_email', $cliente)
-                @if ($cliente['email'])
-                    <span class="text-[#5F6B7A]">{{ $cliente['email'] }}</span>
-                @else
-                    <span class="italic text-[#7B8794]">No registrado</span>
-                @endif
+            @scope('cell_ruc', $proveedor)
+                <span class="text-[#1A2B42]">{{ $proveedor['ruc'] }}</span>
             @endscope
 
-            @scope('cell_status', $cliente)
-                @if ($cliente['status'] === 'Activo')
-                    <span class="inline-flex rounded-full bg-[#2ECC71] px-3 py-1 text-xs font-semibold text-white">
-                        Activo
-                    </span>
-                @else
-                    <span class="inline-flex rounded-full bg-[#757E8D] px-3 py-1 text-xs font-semibold text-white">
-                        Inactivo
-                    </span>
-                @endif
+            @scope('cell_nationality', $proveedor)
+                <span class="text-[#1A2B42]">{{ $proveedor['nationality'] }}</span>
             @endscope
-
-            @scope('actions', $cliente)
+            @scope('actions', $proveedor)
                 <div class="flex gap-2">
                     <x-button
                         label="Editar"
