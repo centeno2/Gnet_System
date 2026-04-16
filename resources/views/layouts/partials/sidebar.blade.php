@@ -1,108 +1,51 @@
-{{-- 
-    Sidebar vertical principal del sistema.
-    Este archivo será un componente Blade anónimo, por eso luego lo podremos llamar con:
-    <x-partials.sidebar />
+{{--
+Cabecera del sidebar.
 --}}
-@php
-    /*
-    |--------------------------------------------------------------------------
-    | Ítems del menú
-    |--------------------------------------------------------------------------
-    | Cada elemento tiene:
-    | - label: el texto visible
-    | - route: el nombre de la ruta Laravel
-    |
-    | Usamos nombres de rutas en vez de URLs hardcodeadas para que luego
-    | puedas mover rutas sin reescribir el menú completo.
-    */
-    $items = [
-        ['label' => 'Ventas',                    'route' => 'ventas.index'],
-        ['label' => 'Crédito',                   'route' => 'credito.index'],
-        ['label' => 'Compras',                   'route' => 'compras.index'],
-        ['label' => 'Productos',                 'route' => 'productos.index'],
-        ['label' => 'Salidas de inventario',     'route' => 'salidas.index'],
-        ['label' => 'Devoluciones',              'route' => 'devoluciones.index'],
-        ['label' => 'Gestión de trabajadores',   'route' => 'trabajadores.index'],
-        ['label' => 'Servicios',                 'route' => 'servicios.index'],
-        ['label' => 'Arqueo de caja',            'route' => 'arqueo.index'],
-        ['label' => 'Mantenimiento',             'route' => 'mantenimiento.index'],
-        ['label' => 'Informes',                  'route' => 'informes.index'],
-        ['label' => 'Acerca de',                 'route' => 'acerca.index'],
-    ];
-@endphp
+<div class="rounded-2xl">
+    <img src="{{ asset('img/gnetlogo.png') }}" alt="Logo" class="mt-4 w-32 mx-auto rounded-lg object-cover">
+</div>
 
-<aside class="sticky top-0 flex h-screen w-80 shrink-0 flex-col overflow-hidden border-r border-[#D7E4F3] bg-gradient-to-b from-[#0E48A1] via-[#0B6FE4] to-[#1A2B42] text-white shadow-2xl">
+{{--
+menu principal vertical.
+activate-by-route hace que MaryUI marque automaticamente
+el elemento activo según la ruta actual
+--}}
+<x-menu activate-by-route class="mt-4 px-2" active="bg-[#D7E4F3] text-[#1A2B42]">
 
-    <nav class="flex-1 overflow-y-auto px-4 py-5">
-        <ul class="space-y-2">
-            @foreach ($items as $item)
-                @php
-                    /*
-                    |--------------------------------------------------------------------------
-                    | Estado activo del ítem
-                    |--------------------------------------------------------------------------
-                    | request()->routeIs(...) nos dice si la ruta actual coincide
-                    | con la del botón.
-                    |
-                    */
-                    $isActive = request()->routeIs($item['route']);
-                @endphp
+    {{--
+    Opciones del navegador vertical.
+    Se usan submenús con la logica de MaryUI solo donde corresponde
+    --}}
 
-                <li>
-                    <a
-                        href="{{ \Illuminate\Support\Facades\Route::has($item['route']) ? route($item['route']) : '#' }}"
-                        @class([
-                            // Clases base que siempre tendrá cada botón
-                            'group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold tracking-[0.01em] transition-all duration-200',
+    <x-menu-sub title="Ventas" icon="o-shopping-cart">
+        <x-menu-item title="Facturación" icon="o-receipt-refund" link="{{ route('ventas.index') }}" />
+        <x-menu-item title="Servicio técnico" icon="o-wrench-screwdriver" link="{{ route('ventas.index') }}" />
+        <x-menu-item title="Instalación de camaras" icon="o-wrench-screwdriver" link="{{ route('ventas.index') }}" />
+    </x-menu-sub>
 
-                            // Estilo cuando el boton esta activo
-                            'bg-white text-[#0E48A1] shadow-lg shadow-[#1A2B42]/20' => $isActive,
+    <x-menu-item title="Crédito" icon="o-credit-card" link="{{ route('credito.index') }}" />
+    <x-menu-item title="Compras" icon="o-shopping-bag" link="{{ route('compras.index') }}" />
+    <x-menu-item title="Productos" icon="o-cube" link="{{ route('productos.index') }}" />
+    <x-menu-item title="Salidas de inventario" icon="o-arrow-up-tray" link="{{ route('salidas.index') }}" />
+    <x-menu-item title="Devoluciones" icon="o-arrow-uturn-left" link="{{ route('devoluciones.index') }}" />
 
-                            // Estilo cuando NO está activo
-                            'text-[#F0F3F7] hover:bg-white/10 hover:text-white' => ! $isActive,
-                        ])
-                    >
+    <x-menu-sub title="Gestión de trabajadores" icon="o-users">
+        <x-menu-item title="Planilla de pago" icon="o-document-text" link="{{ route('trabajadores.index') }}" />
+    </x-menu-sub>
 
-                        <span
-                            @class([
-                                'h-2.5 w-2.5 rounded-full transition-all duration-200',
+    <x-menu-sub title="Catalogo" icon="o-wrench-screwdriver">
+        <x-menu-item title="Proveedores" icon="o-truck" link="{{ route('proveedores') }}" />
+        <x-menu-item title="Clientes" icon="o-user-group" link="{{ route('clientes') }}" />
+        <x-menu-item title="Usuario" icon="o-user" link="{{ route('usersystem') }}" />
+        <x-menu-item title="Trabajadores" icon="o-users" link="{{ route('servicios.index') }}" />
+    </x-menu-sub>
 
-                                'bg-[#0B6FE4] shadow-[0_0_0_4px_rgba(11,111,228,0.15)]' => $isActive,
-                                'bg-white/70 group-hover:bg-white' => ! $isActive,
-                            ])
-                        ></span>
+    <x-menu-item title="Arqueo de caja" icon="o-calculator" link="{{ route('arqueo.index') }}" />
+    <x-menu-item title="Mantenimiento" icon="o-cog-6-tooth" link="{{ route('mantenimiento.index') }}" />
+    <x-menu-item title="Informes" icon="o-document-text" link="{{ route('informes.index') }}" />
+    <x-menu-item title="Acerca de" icon="o-information-circle" link="{{ route('acerca.index') }}" />
 
-                        <span>{{ $item['label'] }}</span>
-                    </a>
-                </li>
-            @endforeach
-        </ul>
-    </nav>
+    <x-menu-separator />
 
-        {{-- 
-            Boton Salir
-            Si existe la ruta logout, mostramos un formulario POST.
-        --}}
-        @if (\Illuminate\Support\Facades\Route::has('logout'))
-            <form method="POST" action="{{ route('logout') }}">
-                @csrf
-
-                <button
-                    type="submit"
-                    class="flex w-full items-center justify-between rounded-2xl border border-[#E74C3C]/30 bg-[#E74C3C]/15 px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#E74C3C]/25"
-                >
-                    <span>Salir</span>
-                    <span class="rounded-full bg-white/10 px-2 py-1 text-xs">↩</span>
-                </button>
-            </form>
-        @else
-            <button
-                type="button"
-                class="flex w-full items-center justify-between rounded-2xl border border-[#E74C3C]/30 bg-[#E74C3C]/15 px-4 py-3 text-sm font-semibold text-white/80"
-            >
-                <span>Salir</span>
-                <span class="rounded-full bg-white/10 px-2 py-1 text-xs">↩</span>
-            </button>
-        @endif
-    </div>
-</aside>
+    <x-menu-item title="Salir" icon="o-arrow-left-on-rectangle" link="/logout" no-wire-navigate />
+</x-menu>
