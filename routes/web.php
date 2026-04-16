@@ -5,6 +5,8 @@ Route::livewire('/usersystem', 'pages::usersystem')->name('usersystem');
 Route::livewire('/clientes', 'pages::clientes')->name('clientes');
 Route::livewire('/proveedores', 'pages::proveedores')->name('proveedores');
 
+
+
 Route::livewire('/ventas', 'pages::ventas.index')->name('ventas.index');
 Route::livewire('/credito', 'pages::credito.index')->name('credito.index');
 Route::livewire('/compras', 'pages::compras.index')->name('compras.index');

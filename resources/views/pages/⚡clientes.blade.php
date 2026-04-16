@@ -104,48 +104,7 @@ new class extends Component
             :rows="$clientes"
             class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl"
         >
-            @scope('cell_full_name', $cliente)
-                <span class="font-semibold text-[#1A2B42]">{{ $cliente['full_name'] }}</span>
-            @endscope
 
-            @scope('cell_phone', $cliente)
-                <span class="text-[#1A2B42]">{{ $cliente['phone'] }}</span>
-            @endscope
-
-            @scope('cell_email', $cliente)
-                @if ($cliente['email'])
-                    <span class="text-[#5F6B7A]">{{ $cliente['email'] }}</span>
-                @else
-                    <span class="italic text-[#7B8794]">No registrado</span>
-                @endif
-            @endscope
-
-            @scope('cell_status', $cliente)
-                @if ($cliente['status'] === 'Activo')
-                    <span class="inline-flex rounded-full bg-[#2ECC71] px-3 py-1 text-xs font-semibold text-white">
-                        Activo
-                    </span>
-                @else
-                    <span class="inline-flex rounded-full bg-[#757E8D] px-3 py-1 text-xs font-semibold text-white">
-                        Inactivo
-                    </span>
-                @endif
-            @endscope
-
-            @scope('actions', $cliente)
-                <div class="flex gap-2">
-                    <x-button
-                        label="Editar"
-                        icon="o-pencil-square"
-                        class="btn-sm border-0 bg-[#E67E22] text-white hover:opacity-90"
-                    />
-                    <x-button
-                        label="Eliminar"
-                        icon="o-trash"
-                        class="btn-sm border-0 bg-[#E74C3C] text-white hover:opacity-90"
-                    />
-                </div>
-            @endscope
         </x-table>
     </x-card>
 </div>

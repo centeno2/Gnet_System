@@ -117,44 +117,6 @@ new class extends Component
             :rows="$users"
             class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl"
         >
-            @scope('cell_username', $user)
-                <span class="font-semibold text-[#1A2B42]">{{ $user['username'] }}</span>
-            @endscope
-
-            @scope('cell_password', $user)
-                <span class="tracking-widest text-[#5F6B7A]">{{ $user['password'] }}</span>
-            @endscope
-
-            @scope('cell_role', $user)
-                <span class="font-medium text-[#1A2B42]">{{ $user['role'] }}</span>
-            @endscope
-
-            @scope('cell_status', $user)
-                @if ($user['status'] === 'Activo')
-                    <span class="inline-flex rounded-full px-3 py-1 text-xs font-semibold text-white bg-[#2ECC71]">
-                        Activo
-                    </span>
-                @else
-                    <span class="inline-flex rounded-full px-3 py-1 text-xs font-semibold text-white bg-[#757E8D]">
-                        Inactivo
-                    </span>
-                @endif
-            @endscope
-
-            @scope('actions', $user)
-                <div class="flex gap-2">
-                    <x-button
-                        label="Editar"
-                        icon="o-pencil-square"
-                        class="btn-sm border-0 bg-[#E67E22] text-white hover:opacity-90"
-                    />
-                    <x-button
-                        label="Eliminar"
-                        icon="o-trash"
-                        class="btn-sm border-0 bg-[#E74C3C] text-white hover:opacity-90"
-                    />
-                </div>
-            @endscope
         </x-table>
     </x-card>
 </div>

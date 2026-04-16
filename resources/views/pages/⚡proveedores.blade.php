@@ -16,7 +16,7 @@ new class extends Component
         </p>
     </div>
 
-    {{-- Formulario --}}
+    {{--formulario--}}
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
         <div class="mb-6">
             <h2 class="text-2xl font-bold text-[#1A2B42]">Registrar proveedor</h2>
@@ -97,7 +97,7 @@ new class extends Component
         $proveedores = [];
     @endphp
 
-    {{-- Tabla --}}
+    {{--tabla--}}
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
         <div class="mb-4">
             <h2 class="text-2xl font-bold text-[#1A2B42]">Listado de proveedores</h2>
@@ -112,35 +112,6 @@ new class extends Component
             :rows="$proveedores"
             class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl"
         >
-            @scope('cell_full_name', $proveedor)
-                <span class="font-semibold text-[#1A2B42]">{{ $proveedor['full_name'] }}</span>
-            @endscope
-
-            @scope('cell_phone', $proveedor)
-                <span class="text-[#1A2B42]">{{ $proveedor['phone'] }}</span>
-            @endscope
-
-            @scope('cell_ruc', $proveedor)
-                <span class="text-[#1A2B42]">{{ $proveedor['ruc'] }}</span>
-            @endscope
-
-            @scope('cell_nationality', $proveedor)
-                <span class="text-[#1A2B42]">{{ $proveedor['nationality'] }}</span>
-            @endscope
-            @scope('actions', $proveedor)
-                <div class="flex gap-2">
-                    <x-button
-                        label="Editar"
-                        icon="o-pencil-square"
-                        class="btn-sm border-0 bg-[#E67E22] text-white hover:opacity-90"
-                    />
-                    <x-button
-                        label="Eliminar"
-                        icon="o-trash"
-                        class="btn-sm border-0 bg-[#E74C3C] text-white hover:opacity-90"
-                    />
-                </div>
-            @endscope
         </x-table>
     </x-card>
 </div>
