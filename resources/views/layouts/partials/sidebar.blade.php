@@ -24,20 +24,20 @@ el elemento activo según la ruta actual
     </x-menu-sub>
 
     <x-menu-item title="Crédito" icon="o-credit-card" link="{{ route('credito.index') }}" />
-    <x-menu-item title="Compras" icon="o-shopping-bag" link="{{ route('compras.index') }}" />
-    <x-menu-item title="Productos" icon="o-cube" link="{{ route('productos') }}" />
+    <x-menu-item title="Compras" icon="o-shopping-bag" link="{{ route('compras') }}" />
+    <x-menu-item title="Productos" icon="o-cube" link="{{ route('productos.index') }}" />
     <x-menu-item title="Salidas de inventario" icon="o-arrow-up-tray" link="{{ route('salidas.index') }}" />
     <x-menu-item title="Devoluciones" icon="o-arrow-uturn-left" link="{{ route('devoluciones.index') }}" />
 
     <x-menu-sub title="Gestión de trabajadores" icon="o-users">
-        <x-menu-item title="Planilla de pago" icon="o-document-text" link="{{ route('trabajadores.index') }}" />
+        <x-menu-item title="Planilla de pago" icon="o-document-text" link="{{ route('planillapago') }}" />
     </x-menu-sub>
 
     <x-menu-sub title="Catalogo" icon="o-wrench-screwdriver">
         <x-menu-item title="Proveedores" icon="o-truck" link="{{ route('proveedores') }}" />
         <x-menu-item title="Clientes" icon="o-user-group" link="{{ route('clientes') }}" />
         <x-menu-item title="Usuario" icon="o-user" link="{{ route('usersystem') }}" />
-        <x-menu-item title="Trabajadores" icon="o-users" link="{{ route('trabajadores.index') }}" />
+        <x-menu-item title="Trabajadores" icon="o-users" link="{{ route('trabajadores') }}" />
     </x-menu-sub>
 
     <x-menu-item title="Arqueo de caja" icon="o-calculator" link="{{ route('arqueo.index') }}" />
