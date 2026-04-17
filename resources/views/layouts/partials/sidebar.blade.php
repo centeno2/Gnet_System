@@ -30,7 +30,7 @@ el elemento activo según la ruta actual
     <x-menu-item title="Devoluciones" icon="o-arrow-uturn-left" link="{{ route('devoluciones.index') }}" />
 
     <x-menu-sub title="Gestión de trabajadores" icon="o-users">
-        <x-menu-item title="Planilla de pago" icon="o-document-text" link="{{ route('devoluciones.index') }}" />
+        <x-menu-item title="Planilla de pago" icon="o-document-text" link="{{ route('planillapago') }}" />
     </x-menu-sub>
 
     <x-menu-sub title="Catalogo" icon="o-wrench-screwdriver">
