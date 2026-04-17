@@ -22,7 +22,6 @@ new class extends Component
 
     public function buscarVenta(): void
     {
-        // Datos de ejemplo para visualizar la interfaz.
         $this->venta = [
             'numero_factura' => 'FAC-000245',
             'cliente' => 'María Fernanda López',
@@ -84,7 +83,6 @@ new class extends Component
 
     public function confirmarDevolucion(): void
     {
-        //
     }
 
     public function updated($property): void
@@ -121,256 +119,303 @@ new class extends Component
 };
 ?>
 
-<div class="min-h-screen bg-[#F0F3F7] p-4 md:p-6">
-    <div class="mx-auto max-w-7xl space-y-6">
+@php
+    $fieldClass = 'rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-[#000000] placeholder:text-[#000000] [&_.fieldset-legend]:text-[#000000] [&_.label]:text-[#000000] [&_label]:text-[#000000]';
 
-        <div>
-            <h1 class="text-2xl font-bold text-[#1A2B42] md:text-3xl">
-                Proceso de devoluciones
-            </h1>
-            <p class="mt-1 text-sm text-[#5F6B7A]">
-                Consulta una venta por número de factura o cliente y selecciona los productos aplicables para devolución.
-            </p>
+    $readonlyFieldClass = 'rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-[#000000] [&_.fieldset-legend]:text-[#000000] [&_.label]:text-[#000000] [&_label]:text-[#000000]';
+
+    $cardClass = 'border border-[#D7E4F3] bg-white [&_.text-base-content\\/70]:text-[#000000] [&_.text-sm]:text-[#000000] [&_.text-base-content]:text-[#000000] [&_.card-title]:text-[#000000] [&_label]:text-[#000000] [&_.fieldset-legend]:text-[#000000]';
+
+    $primaryButtonClass = 'btn-sm border-0 bg-[#2E8BC0] text-white hover:bg-[#256f99]';
+    $outlineButtonClass = 'btn-sm border border-[#2E8BC0] bg-white text-[#2E8BC0] hover:bg-[#EAF5FB]';
+
+    $tableInputClass = 'w-28 rounded-xl border border-[#D7E4F3] bg-[#F0F3F7] px-3 py-2 text-sm text-[#000000] outline-none transition focus:border-[#2E8BC0] focus:ring-0 disabled:cursor-not-allowed disabled:opacity-60';
+@endphp
+
+<div class="min-h-screen w-full bg-[#F0F3F7] px-4 py-4 md:px-6 md:py-5">
+    <div class="mx-auto flex w-full max-w-[1600px] flex-col gap-5">
+        <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div class="max-w-4xl">
+                <h1 class="text-2xl font-bold text-[#000000] md:text-3xl">Proceso de devoluciones</h1>
+                <p class="mt-1 text-sm text-[#000000] md:text-base">
+                    Consulta una venta por número de factura o cliente y selecciona los productos aplicables para devolución.
+                </p>
+            </div>
+
+            <div class="flex shrink-0">
+                <x-button
+                    label="Historial"
+                    icon="o-clock"
+                    class="{{ $primaryButtonClass }} h-[44px] px-5"
+                />
+            </div>
         </div>
 
-        <div class="rounded-3xl border border-[#D7E4F3] bg-white p-5 shadow-sm">
-            <div class="grid grid-cols-1 gap-4 lg:grid-cols-4">
-                <div class="lg:col-span-2">
-                    <label class="mb-2 block text-sm font-semibold text-[#5F6B7A]">
-                        Buscar factura o cliente
-                    </label>
-                    <div class="relative">
-                        <span class="pointer-events-none absolute inset-y-0 left-4 flex items-center text-[#7B8794]">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" />
-                            </svg>
-                        </span>
-                        <input
-                            type="text"
+        <x-card
+            title="Consulta de venta"
+            subtitle="Ubica la factura y visualiza la información general antes de procesar la devolución."
+            shadow
+            separator
+            class="{{ $cardClass }}"
+        >
+            <x-form wire:submit="buscarVenta" no-separator>
+                <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
+                    <div class="xl:col-span-5">
+                        <x-input
+                            label="Buscar factura o cliente"
                             wire:model.live.debounce.500ms="busqueda"
                             placeholder="Ej. FAC-000245 o María López"
-                            class="w-full rounded-xl border border-[#D7E4F3] bg-[#F0F3F7] py-3 pl-11 pr-4 text-[#1A2B42] placeholder:text-[#7B8794] outline-none transition focus:border-[#0B6FE4] focus:ring-0"
-                        >
+                            icon="o-magnifying-glass"
+                            class="{{ $fieldClass }}"
+                        />
+                    </div>
+
+                    <div class="xl:col-span-3">
+                        <x-input
+                            label="Número de factura"
+                            wire:model="venta.numero_factura"
+                            readonly
+                            class="{{ $readonlyFieldClass }}"
+                        />
+                    </div>
+
+                    <div class="xl:col-span-4">
+                        <x-input
+                            label="Nombre del cliente"
+                            wire:model="venta.cliente"
+                            readonly
+                            class="{{ $readonlyFieldClass }}"
+                        />
+                    </div>
+
+                    <div class="xl:col-span-4">
+                        <label class="mb-2 block text-sm font-semibold text-[#000000]">Factura física</label>
+
+                        <div class="flex min-h-[58px] items-center rounded-2xl border border-[#D7E4F3] bg-[#F0F3F7] px-4">
+                            <label class="flex cursor-pointer items-center gap-3 text-sm font-medium text-[#000000] select-none">
+                                <input
+                                    type="checkbox"
+                                    wire:model.live="clienteTraeFactura"
+                                    class="peer sr-only"
+                                >
+
+                                <span class="flex h-5 w-5 items-center justify-center rounded-md border-2 border-[#2E8BC0] bg-white transition peer-checked:border-[#2E8BC0] peer-checked:bg-[#2E8BC0]">
+                                    <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        viewBox="0 0 20 20"
+                                        fill="currentColor"
+                                        class="h-3.5 w-3.5 text-white opacity-0 transition peer-checked:opacity-100"
+                                    >
+                                        <path
+                                            fill-rule="evenodd"
+                                            d="M16.704 5.29a1 1 0 0 1 .006 1.414l-7.2 7.261a1 1 0 0 1-1.42.007L3.296 9.178a1 1 0 1 1 1.414-1.414l4.09 4.09 6.49-6.544a1 1 0 0 1 1.414-.02Z"
+                                            clip-rule="evenodd"
+                                        />
+                                    </svg>
+                                </span>
+
+                                <span>El cliente presenta la factura</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="xl:col-span-3">
+                        <label class="mb-2 block text-sm font-semibold text-[#000000]">Total de la venta</label>
+                        <div class="flex min-h-[58px] items-center rounded-xl border border-[#D7E4F3] bg-[#F0F3F7] px-4 text-base font-semibold text-[#000000]">
+                            C$ {{ number_format((float) ($venta['total'] ?? 0), 2) }}
+                        </div>
+                    </div>
+
+                    <div class="xl:col-span-5">
+                        <label class="mb-2 block text-sm font-semibold text-transparent">Acciones</label>
+                        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <x-button
+                                label="Limpiar"
+                                wire:click="limpiarFormulario"
+                                icon="o-arrow-path"
+                                class="{{ $outlineButtonClass }} h-[46px] w-full"
+                            />
+
+                            <x-button
+                                label="Buscar"
+                                type="submit"
+                                spinner="buscarVenta"
+                                icon="o-magnifying-glass"
+                                class="{{ $primaryButtonClass }} h-[46px] w-full"
+                            />
+                        </div>
                     </div>
                 </div>
+            </x-form>
+        </x-card>
 
-                <div>
-                    <label class="mb-2 block text-sm font-semibold text-[#5F6B7A]">
-                        Número de factura
-                    </label>
-                    <input
-                        type="text"
-                        readonly
-                        value="{{ $venta['numero_factura'] }}"
-                        class="w-full rounded-xl border border-[#D7E4F3] bg-[#F0F3F7] px-4 py-3 text-[#1A2B42] placeholder:text-[#7B8794] outline-none"
-                    >
-                </div>
-
-                <div>
-                    <label class="mb-2 block text-sm font-semibold text-[#5F6B7A]">
-                        Nombre del cliente
-                    </label>
-                    <input
-                        type="text"
-                        readonly
-                        value="{{ $venta['cliente'] }}"
-                        class="w-full rounded-xl border border-[#D7E4F3] bg-[#F0F3F7] px-4 py-3 text-[#1A2B42] placeholder:text-[#7B8794] outline-none"
-                    >
-                </div>
-            </div>
-
-            <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-4">
-                <div class="lg:col-span-2">
-                    <div class="flex min-h-[74px] items-center rounded-2xl border border-[#D7E4F3] bg-[#F0F3F7] px-4">
-                        <label class="flex cursor-pointer items-center gap-3 text-sm font-medium text-[#1A2B42]">
-                            <input
-                                type="checkbox"
-                                wire:model.live="clienteTraeFactura"
-                                class="h-5 w-5 rounded border-[#B8C7D9] text-[#0B6FE4] focus:ring-[#0B6FE4]"
-                            >
-                            <span>El cliente presenta la factura</span>
-                        </label>
-                    </div>
-                </div>
-
-                <div>
-                    <label class="mb-2 block text-sm font-semibold text-[#5F6B7A]">
-                        Total de la venta
-                    </label>
-                    <div class="w-full rounded-xl border border-[#D7E4F3] bg-[#F0F3F7] px-4 py-3 text-base font-semibold text-[#1A2B42]">
-                        C$ {{ number_format((float) ($venta['total'] ?? 0), 2) }}
-                    </div>
-                </div>
-
-                <div class="flex items-end justify-end gap-3">
-                    <x-button
-                        label="Limpiar"
-                        wire:click="limpiarFormulario"
-                        icon="o-arrow-path"
-                        class="border-0 bg-[#8B95A5] text-white hover:bg-[#6F7A8A]"
-                    />
-
-                    <x-button
-                        label="Buscar"
-                        wire:click="buscarVenta"
-                        spinner="buscarVenta"
-                        icon="o-magnifying-glass"
-                        class="border-0 bg-[#2ECC71] text-white hover:brightness-95"
-                    />
-                </div>
-            </div>
-        </div>
-
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div class="rounded-3xl border border-[#D7E4F3] bg-white p-4 shadow-sm">
-                <p class="text-sm font-medium text-[#5F6B7A]">Factura</p>
-                <p class="mt-2 text-lg font-bold text-[#1A2B42]">
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div class="min-h-[120px] rounded-3xl border border-[#D7E4F3] bg-white p-5 shadow-sm">
+                <p class="text-sm font-medium text-[#000000]">Factura</p>
+                <p class="mt-4 text-2xl font-bold text-[#000000]">
                     {{ $venta['numero_factura'] ?: 'Sin cargar' }}
                 </p>
             </div>
 
-            <div class="rounded-3xl border border-[#D7E4F3] bg-white p-4 shadow-sm">
-                <p class="text-sm font-medium text-[#5F6B7A]">Cliente</p>
-                <p class="mt-2 text-lg font-bold text-[#1A2B42]">
+            <div class="min-h-[120px] rounded-3xl border border-[#D7E4F3] bg-white p-5 shadow-sm">
+                <p class="text-sm font-medium text-[#000000]">Cliente</p>
+                <p class="mt-4 text-2xl font-bold text-[#000000]">
                     {{ $venta['cliente'] ?: 'Sin cargar' }}
                 </p>
             </div>
 
-            <div class="rounded-3xl border border-[#D7E4F3] bg-white p-4 shadow-sm">
-                <p class="text-sm font-medium text-[#5F6B7A]">Estado de factura</p>
-                <span class="mt-2 inline-flex rounded-full px-3 py-1 text-sm font-semibold {{ $clienteTraeFactura ? 'bg-[#2ECC71]/15 text-[#1D9E55]' : 'bg-[#E74C3C]/12 text-[#E74C3C]' }}">
+            <div class="min-h-[120px] rounded-3xl border border-[#D7E4F3] bg-white p-5 shadow-sm">
+                <p class="text-sm font-medium text-[#000000]">Estado de factura</p>
+                <span class="mt-4 inline-flex rounded-full px-4 py-2 text-sm font-semibold {{ $clienteTraeFactura ? 'bg-[#2E8BC0]/10 text-[#2E8BC0]' : 'bg-[#D7E4F3] text-[#000000]' }}">
                     {{ $clienteTraeFactura ? 'Factura presentada' : 'Sin factura física' }}
                 </span>
             </div>
         </div>
 
-        <div class="overflow-hidden rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
-            <div class="border-b border-[#D7E4F3] px-5 py-5">
-                <h2 class="text-lg font-bold text-[#1A2B42]">
-                    Detalle de la factura
-                </h2>
-                <p class="mt-1 text-sm text-[#5F6B7A]">
-                    Marca si la devolución aplica al producto, indica la cantidad a devolver y el monto se calculará automáticamente.
-                </p>
-            </div>
-
-            <div class="overflow-x-auto">
-                <table class="min-w-full table-auto">
-                    <thead class="bg-[#2E8BC0] text-sm font-semibold text-white">
-                        <tr>
-                            <th class="px-4 py-4 text-left">Código</th>
-                            <th class="px-4 py-4 text-left">Producto</th>
-                            <th class="px-4 py-4 text-left">Precio (C$)</th>
-                            <th class="px-4 py-4 text-left">Cantidad vendida</th>
-                            <th class="px-4 py-4 text-left">Total venta (C$)</th>
-                            <th class="px-4 py-4 text-center">Aplica devolución</th>
-                            <th class="px-4 py-4 text-left">Cantidad a devolver</th>
-                            <th class="px-4 py-4 text-left">Total a devolver (C$)</th>
-                        </tr>
-                    </thead>
-
-                    <tbody class="divide-y divide-[#E6EEF8] bg-white">
-                        @forelse ($detalle as $index => $item)
-                            <tr class="hover:bg-[#F8FBFF]">
-                                <td class="px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                                    {{ $item['codigo'] }}
-                                </td>
-
-                                <td class="px-4 py-3 text-sm text-[#1A2B42]">
-                                    {{ $item['producto'] }}
-                                </td>
-
-                                <td class="px-4 py-3 text-sm text-[#1A2B42]">
-                                    C$ {{ number_format((float) $item['precio'], 2) }}
-                                </td>
-
-                                <td class="px-4 py-3 text-sm text-[#1A2B42]">
-                                    {{ $item['cantidad_vendida'] }}
-                                </td>
-
-                                <td class="px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                                    C$ {{ number_format((float) $item['total_linea'], 2) }}
-                                </td>
-
-                                <td class="px-4 py-3 text-center">
-                                    <input
-                                        type="checkbox"
-                                        wire:model.live="detalle.{{ $index }}.aplica"
-                                        class="h-5 w-5 rounded border-[#B8C7D9] text-[#0B6FE4] focus:ring-[#0B6FE4]"
-                                    >
-                                </td>
-
-                                <td class="px-4 py-3">
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        max="{{ $item['cantidad_vendida'] }}"
-                                        wire:model.live="detalle.{{ $index }}.cantidad_devuelve"
-                                        @disabled(! $item['aplica'])
-                                        class="w-28 rounded-xl border border-[#D7E4F3] bg-[#F0F3F7] px-3 py-2 text-sm text-[#1A2B42] outline-none transition focus:border-[#0B6FE4] focus:ring-0 disabled:cursor-not-allowed disabled:opacity-60"
-                                    >
-                                </td>
-
-                                <td class="px-4 py-3 text-sm font-bold text-[#1A2B42]">
-                                    C$ {{ number_format((float) $item['monto_devuelve'], 2) }}
-                                </td>
-                            </tr>
-                        @empty
+        <x-card
+            title="Detalle de la factura"
+            subtitle="Marca si la devolución aplica al producto, indica la cantidad y el monto se calculará automáticamente."
+            shadow
+            separator
+            class="{{ $cardClass }}"
+        >
+            <div class="overflow-hidden rounded-2xl border border-[#D7E4F3]">
+                <div class="max-h-[460px] overflow-auto">
+                    <table class="min-w-full table-auto">
+                        <thead class="sticky top-0 z-10 bg-[#2E8BC0] text-sm font-semibold">
                             <tr>
-                                <td colspan="8" class="px-4 py-12 text-center text-sm font-medium text-[#6B7280]">
-                                    Busca una factura o un cliente para cargar el detalle de la venta.
-                                </td>
+                                <th class="px-4 py-4 text-left !text-white">Código</th>
+                                <th class="px-4 py-4 text-left !text-white">Producto</th>
+                                <th class="px-4 py-4 text-left !text-white">Precio (C$)</th>
+                                <th class="px-4 py-4 text-left !text-white">Cantidad vendida</th>
+                                <th class="px-4 py-4 text-left !text-white">Total venta (C$)</th>
+                                <th class="px-4 py-4 text-center !text-white">Aplica devolución</th>
+                                <th class="px-4 py-4 text-left !text-white">Cantidad a devolver</th>
+                                <th class="px-4 py-4 text-left !text-white">Total a devolver (C$)</th>
                             </tr>
-                        @endforelse
-                    </tbody>
+                        </thead>
 
-                    @if (count($detalle))
-                        <tfoot class="bg-[#F8FBFF]">
-                            <tr>
-                                <td colspan="4" class="px-4 py-4 text-right text-sm font-bold text-[#1A2B42]">
-                                    Totales
-                                </td>
-                                <td class="px-4 py-4 text-sm font-bold text-[#1A2B42]">
-                                    C$ {{ number_format((float) ($venta['total'] ?? 0), 2) }}
-                                </td>
-                                <td class="px-4 py-4"></td>
-                                <td class="px-4 py-4 text-sm font-bold text-[#1A2B42]">
-                                    {{ collect($detalle)->sum('cantidad_devuelve') }}
-                                </td>
-                                <td class="px-4 py-4 text-sm font-bold text-[#2ECC71]">
-                                    C$ {{ number_format($this->obtenerTotalDevolucion(), 2) }}
-                                </td>
-                            </tr>
-                        </tfoot>
-                    @endif
-                </table>
+                        <tbody class="divide-y divide-[#E6EEF8] bg-white">
+                            @forelse ($detalle as $index => $item)
+                                <tr class="hover:bg-[#F8FBFF]">
+                                    <td class="px-4 py-3 text-sm font-medium text-[#000000]">
+                                        {{ $item['codigo'] }}
+                                    </td>
+
+                                    <td class="px-4 py-3 text-sm text-[#000000]">
+                                        {{ $item['producto'] }}
+                                    </td>
+
+                                    <td class="px-4 py-3 text-sm text-[#000000]">
+                                        C$ {{ number_format((float) $item['precio'], 2) }}
+                                    </td>
+
+                                    <td class="px-4 py-3 text-sm text-[#000000]">
+                                        {{ $item['cantidad_vendida'] }}
+                                    </td>
+
+                                    <td class="px-4 py-3 text-sm font-medium text-[#000000]">
+                                        C$ {{ number_format((float) $item['total_linea'], 2) }}
+                                    </td>
+
+                                    <td class="px-4 py-3 text-center">
+                                        <label class="inline-flex cursor-pointer items-center justify-center select-none">
+                                            <input
+                                                type="checkbox"
+                                                wire:model.live="detalle.{{ $index }}.aplica"
+                                                class="peer sr-only"
+                                            >
+
+                                            <span class="flex h-5 w-5 items-center justify-center rounded-md border-2 border-[#2E8BC0] bg-white transition peer-checked:border-[#2E8BC0] peer-checked:bg-[#2E8BC0]">
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    viewBox="0 0 20 20"
+                                                    fill="currentColor"
+                                                    class="h-3.5 w-3.5 text-white opacity-0 transition peer-checked:opacity-100"
+                                                >
+                                                    <path
+                                                        fill-rule="evenodd"
+                                                        d="M16.704 5.29a1 1 0 0 1 .006 1.414l-7.2 7.261a1 1 0 0 1-1.42.007L3.296 9.178a1 1 0 1 1 1.414-1.414l4.09 4.09 6.49-6.544a1 1 0 0 1 1.414-.02Z"
+                                                        clip-rule="evenodd"
+                                                    />
+                                                </svg>
+                                            </span>
+                                        </label>
+                                    </td>
+
+                                    <td class="px-4 py-3">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            max="{{ $item['cantidad_vendida'] }}"
+                                            wire:model.live="detalle.{{ $index }}.cantidad_devuelve"
+                                            @disabled(! $item['aplica'])
+                                            class="{{ $tableInputClass }}"
+                                        >
+                                    </td>
+
+                                    <td class="px-4 py-3 text-sm font-bold text-[#000000]">
+                                        C$ {{ number_format((float) $item['monto_devuelve'], 2) }}
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="8" class="px-4 py-12 text-center text-sm font-medium text-[#000000]">
+                                        Busca una factura o un cliente para cargar el detalle de la venta.
+                                    </td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+
+                        @if (count($detalle))
+                            <tfoot class="bg-[#F8FBFF]">
+                                <tr>
+                                    <td colspan="4" class="px-4 py-4 text-right text-sm font-bold text-[#000000]">
+                                        Totales
+                                    </td>
+                                    <td class="px-4 py-4 text-sm font-bold text-[#000000]">
+                                        C$ {{ number_format((float) ($venta['total'] ?? 0), 2) }}
+                                    </td>
+                                    <td class="px-4 py-4"></td>
+                                    <td class="px-4 py-4 text-sm font-bold text-[#000000]">
+                                        {{ collect($detalle)->sum('cantidad_devuelve') }}
+                                    </td>
+                                    <td class="px-4 py-4 text-sm font-bold text-[#2E8BC0]">
+                                        C$ {{ number_format($this->obtenerTotalDevolucion(), 2) }}
+                                    </td>
+                                </tr>
+                            </tfoot>
+                        @endif
+                    </table>
+                </div>
             </div>
-        </div>
+        </x-card>
 
-        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div class="min-w-[185px] rounded-3xl border border-[#D7E4F3] bg-white px-5 py-4 shadow-sm">
-                <p class="text-sm font-medium text-[#5F6B7A]">Monto total a devolver</p>
-                <p class="mt-2 text-2xl font-bold text-[#2ECC71]">
-                    C$ {{ number_format($this->obtenerTotalDevolucion(), 2) }}
-                </p>
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div class="w-full xl:max-w-sm">
+                <div class="rounded-3xl border border-[#D7E4F3] bg-white px-5 py-5 shadow-sm">
+                    <p class="text-sm font-medium text-[#000000]">Monto total a devolver</p>
+                    <p class="mt-3 text-3xl font-bold text-[#2E8BC0]">
+                        C$ {{ number_format($this->obtenerTotalDevolucion(), 2) }}
+                    </p>
+                </div>
             </div>
 
-            <div class="flex gap-3">
+            <div class="flex w-full flex-col gap-3 sm:flex-row xl:w-auto">
                 <x-button
                     label="Cancelar"
                     wire:click="limpiarFormulario"
                     icon="o-x-circle"
-                    class="border-0 bg-[#E74C3C] text-white hover:brightness-95"
+                    class="{{ $outlineButtonClass }} h-[46px] px-6"
                 />
 
                 <x-button
                     label="Confirmar devolución"
                     wire:click="confirmarDevolucion"
                     icon="o-check-circle"
-                    class="border-0 bg-[#2ECC71] text-white hover:brightness-95"
+                    class="{{ $primaryButtonClass }} h-[46px] px-6"
                 />
             </div>
         </div>
-
     </div>
 </div>

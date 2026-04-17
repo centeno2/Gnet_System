@@ -25,7 +25,7 @@
         ['label' => 'Gestión de trabajadores',   'route' => 'trabajadores.index'],
         ['label' => 'Servicios',                 'route' => 'servicios.index'],
         ['label' => 'Arqueo de caja',            'route' => 'arqueo.index'],
-        ['label' => 'Mantenimiento',             'route' => 'mantenimiento.index'],
+        ['label' => 'Mantenimiento',             'route' => 'mantenimiento'],
         ['label' => 'Informes',                  'route' => 'informes.index'],
         ['label' => 'Acerca de',                 'route' => 'acerca.index'],
     ];
