@@ -1,39 +1,9 @@
 {{--
 Cabecera del sidebar.
 --}}
-<<<<<<< HEAD
-@php
-    /*
-    |--------------------------------------------------------------------------
-    | Ítems del menú
-    |--------------------------------------------------------------------------
-    | Cada elemento tiene:
-    | - label: el texto visible
-    | - route: el nombre de la ruta Laravel
-    |
-    | Usamos nombres de rutas en vez de URLs hardcodeadas para que luego
-    | puedas mover rutas sin reescribir el menú completo.
-    */
-    $items = [
-        ['label' => 'Ventas',                    'route' => 'ventas.index'],
-        ['label' => 'Crédito',                   'route' => 'creditos'],
-        ['label' => 'Compras',                   'route' => 'compras.index'],
-        ['label' => 'Productos',                 'route' => 'productos.index'],
-        ['label' => 'Salidas de inventario',     'route' => 'salidas.index'],
-        ['label' => 'Devoluciones',              'route' => 'devoluciones'],
-        ['label' => 'Gestión de trabajadores',   'route' => 'trabajadores.index'],
-        ['label' => 'Servicios',                 'route' => 'servicios.index'],
-        ['label' => 'Arqueo de caja',            'route' => 'arqueo.index'],
-        ['label' => 'Mantenimiento',             'route' => 'mantenimiento'],
-        ['label' => 'Informes',                  'route' => 'informes.index'],
-        ['label' => 'Acerca de',                 'route' => 'acerca.index'],
-    ];
-@endphp
-=======
 <div class="rounded-2xl">
     <img src="{{ asset('img/gnetlogo.png') }}" alt="Logo" class="mt-4 w-32 mx-auto rounded-lg object-cover">
 </div>
->>>>>>> 1a51bde2d51d1cf87fbf138639605d11933be68d
 
 {{--
 menu principal vertical.
@@ -53,11 +23,11 @@ el elemento activo según la ruta actual
         <x-menu-item title="Instalación de camaras" icon="o-wrench-screwdriver" link="{{ route('ventas.index') }}" />
     </x-menu-sub>
 
-    <x-menu-item title="Crédito" icon="o-credit-card" link="{{ route('credito.index') }}" />
+    <x-menu-item title="Crédito" icon="o-credit-card" link="{{ route('credito.') }}" />
     <x-menu-item title="Compras" icon="o-shopping-bag" link="{{ route('compras') }}" />
     <x-menu-item title="Productos" icon="o-cube" link="{{ route('productos.index') }}" />
-    <x-menu-item title="Salidas de inventario" icon="o-arrow-up-tray" link="{{ route('salidas.index') }}" />
-    <x-menu-item title="Devoluciones" icon="o-arrow-uturn-left" link="{{ route('devoluciones.index') }}" />
+    <x-menu-item title="Salidas de inventario" icon="o-arrow-up-tray" link="{{ route('otras_salidas') }}" />
+    <x-menu-item title="Devoluciones" icon="o-arrow-uturn-left" link="{{ route('devoluciones') }}" />
 
     <x-menu-sub title="Gestión de trabajadores" icon="o-users">
         <x-menu-item title="Planilla de pago" icon="o-document-text" link="{{ route('planillapago') }}" />
@@ -71,7 +41,7 @@ el elemento activo según la ruta actual
     </x-menu-sub>
 
     <x-menu-item title="Arqueo de caja" icon="o-calculator" link="{{ route('arqueo.index') }}" />
-    <x-menu-item title="Mantenimiento" icon="o-cog-6-tooth" link="{{ route('mantenimiento.index') }}" />
+    <x-menu-item title="Mantenimiento" icon="o-cog-6-tooth" link="{{ route('mantenimiento') }}" />
     <x-menu-item title="Informes" icon="o-document-text" link="{{ route('informes.index') }}" />
     <x-menu-item title="Acerca de" icon="o-information-circle" link="{{ route('acerca.index') }}" />
 
