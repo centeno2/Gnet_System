@@ -25,7 +25,7 @@ new class extends Component
 
             <x-button
                 label="Guardar contrato"
-                class="h-10 min-h-10 border-0 bg-[#0E48A1] px-4 text-sm text-white hover:bg-[#0B6FE4]"
+                class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]"
             />
         </div>
     </div>
@@ -178,7 +178,7 @@ new class extends Component
             <div class="flex flex-wrap gap-2">
                 <x-button
                     label="Agregar producto"
-                    class="h-10 min-h-10 border-0 bg-[#0E48A1] px-4 text-sm text-white hover:bg-[#0B6FE4]"
+                    class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]"
                 />
             </div>
         </div>

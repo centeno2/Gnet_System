@@ -41,7 +41,7 @@ new class extends Component
 
             <x-button
                 label="Guardar venta"
-                class="h-10 min-h-10 border-0 bg-[#0E48A1] px-4 text-sm text-white hover:bg-[#0B6FE4]"
+                class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]"
             />
         </div>
     </div>
@@ -177,7 +177,7 @@ new class extends Component
 
                 <x-button
                     label="Agregar producto"
-                    class="h-10 min-h-10 border-0 bg-[#0E48A1] px-4 text-sm text-white hover:bg-[#0B6FE4]"
+                    class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]"
                 />
             </div>
         </div>
@@ -217,7 +217,7 @@ new class extends Component
 
         <x-button
             label="Guardar crédito"
-            class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]"
+            class="border-0 bg-[#0E48A1] text-white hover:bg-[#2E8BC0]"
         />
     </x-slot:actions>
 </x-modal>

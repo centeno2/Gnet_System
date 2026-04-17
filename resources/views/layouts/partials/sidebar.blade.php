@@ -40,9 +40,9 @@ el elemento activo según la ruta actual
         <x-menu-item title="Trabajadores" icon="o-users" link="{{ route('trabajadores') }}" />
     </x-menu-sub>
 
-    <x-menu-item title="Arqueo de caja" icon="o-calculator" link="{{ route('arqueo.index') }}" />
+    <x-menu-item title="Arqueo de caja" icon="o-calculator" link="{{ route('mantenimiento') }}" />
     <x-menu-item title="Mantenimiento" icon="o-cog-6-tooth" link="{{ route('mantenimiento') }}" />
-    <x-menu-item title="Informes" icon="o-document-text" link="{{ route('informes.index') }}" />
+    <x-menu-item title="Informes" icon="o-document-text" link="{{ route('mantenimiento') }}" />
     <x-menu-item title="Acerca de" icon="o-information-circle" link="{{ route('acerca') }}" />
 
     <x-menu-separator />
