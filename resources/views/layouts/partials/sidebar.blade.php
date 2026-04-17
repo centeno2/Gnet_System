@@ -18,14 +18,14 @@ el elemento activo según la ruta actual
     --}}
 
     <x-menu-sub title="Ventas" icon="o-shopping-cart">
-        <x-menu-item title="Facturación" icon="o-receipt-refund" link="{{ route('ventas.index') }}" />
-        <x-menu-item title="Servicio técnico" icon="o-wrench-screwdriver" link="{{ route('ventas.index') }}" />
-        <x-menu-item title="Instalación de camaras" icon="o-wrench-screwdriver" link="{{ route('ventas.index') }}" />
+        <x-menu-item title="Facturación" icon="o-receipt-refund" link="{{ route('ventas.facturacion') }}" />
+        <x-menu-item title="Servicio técnico" icon="o-wrench-screwdriver" link="{{ route('ventas.servicio-tecnico') }}" />
+        <x-menu-item title="Instalación de camaras" icon="o-wrench-screwdriver" link="{{ route('ventas.instalacion-camaras') }}" />
     </x-menu-sub>
 
     <x-menu-item title="Crédito" icon="o-credit-card" link="{{ route('credito.index') }}" />
     <x-menu-item title="Compras" icon="o-shopping-bag" link="{{ route('compras.index') }}" />
-    <x-menu-item title="Productos" icon="o-cube" link="{{ route('productos.index') }}" />
+    <x-menu-item title="Productos" icon="o-cube" link="{{ route('productos') }}" />
     <x-menu-item title="Salidas de inventario" icon="o-arrow-up-tray" link="{{ route('salidas.index') }}" />
     <x-menu-item title="Devoluciones" icon="o-arrow-uturn-left" link="{{ route('devoluciones.index') }}" />
 
@@ -37,7 +37,7 @@ el elemento activo según la ruta actual
         <x-menu-item title="Proveedores" icon="o-truck" link="{{ route('proveedores') }}" />
         <x-menu-item title="Clientes" icon="o-user-group" link="{{ route('clientes') }}" />
         <x-menu-item title="Usuario" icon="o-user" link="{{ route('usersystem') }}" />
-        <x-menu-item title="Trabajadores" icon="o-users" link="{{ route('servicios.index') }}" />
+        <x-menu-item title="Trabajadores" icon="o-users" link="{{ route('trabajadores.index') }}" />
     </x-menu-sub>
 
     <x-menu-item title="Arqueo de caja" icon="o-calculator" link="{{ route('arqueo.index') }}" />
