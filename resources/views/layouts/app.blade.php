@@ -80,7 +80,7 @@
                     <x-menu-item title="Instalación de camaras" icon="o-wrench-screwdriver" link="{{ route('ventas.index') }}" />
                 </x-menu-sub>
 
-                <x-menu-item title="Crédito" icon="o-credit-card" link="{{ route('credito.index') }}" />
+                <x-menu-item title="Crédito" icon="o-credit-card" link="{{ route('creditos') }}" />
                 <x-menu-item title="Compras" icon="o-shopping-bag" link="{{ route('compras.index') }}" />
                 <x-menu-item title="Productos" icon="o-cube" link="{{ route('productos.index') }}" />
                 <x-menu-item title="Salidas de inventario" icon="o-arrow-up-tray" link="{{ route('salidas.index') }}" />

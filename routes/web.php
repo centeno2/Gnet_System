@@ -2,7 +2,7 @@
 
 Route::livewire('/', 'pages::users.index');
 Route::livewire('/ventas', 'pages::ventas.index')->name('ventas.index');
-Route::livewire('/credito', 'pages::credito.index')->name('credito.index');
+Route::livewire('/credito', 'pages::creditos')->name('creditos');
 Route::livewire('/compras', 'pages::compras.index')->name('compras.index');
 Route::livewire('/productos', 'pages::productos.index')->name('productos.index');
 Route::livewire('/salidas', 'pages::salidas.index')->name('salidas.index');

@@ -17,7 +17,7 @@
     */
     $items = [
         ['label' => 'Ventas',                    'route' => 'ventas.index'],
-        ['label' => 'Crédito',                   'route' => 'credito.index'],
+        ['label' => 'Crédito',                   'route' => 'creditos'],
         ['label' => 'Compras',                   'route' => 'compras.index'],
         ['label' => 'Productos',                 'route' => 'productos.index'],
         ['label' => 'Salidas de inventario',     'route' => 'salidas.index'],
