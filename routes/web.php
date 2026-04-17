@@ -10,7 +10,7 @@ Route::livewire('/planillapago', 'pages::planillapago')->name('planillapago');
 
 
 Route::livewire('/ventas', 'pages::ventas.index')->name('ventas.index');
-Route::livewire('/credito', 'pages::credito.index')->name('credito.index');
+Route::livewire('/credito', 'pages::creditos')->name('creditos');
 Route::livewire('/productos', 'pages::productos.index')->name('productos.index');
 Route::livewire('/salidas', 'pages::otras_salidas')->name('otras_salidas');
 
