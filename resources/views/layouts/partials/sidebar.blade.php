@@ -30,14 +30,14 @@ el elemento activo según la ruta actual
     <x-menu-item title="Devoluciones" icon="o-arrow-uturn-left" link="{{ route('devoluciones.index') }}" />
 
     <x-menu-sub title="Gestión de trabajadores" icon="o-users">
-        <x-menu-item title="Planilla de pago" icon="o-document-text" link="{{ route('trabajadores.index') }}" />
+        <x-menu-item title="Planilla de pago" icon="o-document-text" link="{{ route('devoluciones.index') }}" />
     </x-menu-sub>
 
     <x-menu-sub title="Catalogo" icon="o-wrench-screwdriver">
         <x-menu-item title="Proveedores" icon="o-truck" link="{{ route('proveedores') }}" />
         <x-menu-item title="Clientes" icon="o-user-group" link="{{ route('clientes') }}" />
         <x-menu-item title="Usuario" icon="o-user" link="{{ route('usersystem') }}" />
-        <x-menu-item title="Trabajadores" icon="o-users" link="{{ route('servicios.index') }}" />
+        <x-menu-item title="Trabajadores" icon="o-users" link="{{ route('trabajadores') }}" />
     </x-menu-sub>
 
     <x-menu-item title="Arqueo de caja" icon="o-calculator" link="{{ route('arqueo.index') }}" />
