@@ -1,54 +1,23 @@
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+
 <head>
     {{-- Configuración básica del documento --}}
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    {{-- 
-        Título dinámico:
-        Si una vista manda $title, se usa junto al nombre de la app.
-        Si no, solo muestra config('app.name').
-    --}}
-    <title>{{ isset($title) ? $title.' - '.config('app.name') : config('app.name') }}</title>
 
-    {{-- 
-        Carga de assets del proyecto.
-        Se mantiene tal como lo tienes para no romper la estructura actual.
-        No estamos escribiendo JavaScript personalizado para el menú.
-    --}}
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
+
 <body class="min-h-screen font-sans antialiased bg-[#F0F3F7] text-[#1A2B42]">
-
-    {{-- 
-        NAVBAR solo en móviles.
-        Se deja porque el sidebar en pantallas pequeñas suele ir dentro del drawer.
-    --}}
-    <x-nav sticky class="lg:hidden bg-[#0E48A1] text-white shadow-md">
-        <x-slot:brand>
-            {{-- 
-                Marca del sistema.
-            --}}
-            <x-app-brand />
-        </x-slot:brand>
-
-        <x-slot:actions>
-            {{-- 
-                Boton hamburguesa para abrir el drawer del sidebar en móvil.
-            --}}
-            <label for="main-drawer" class="lg:hidden me-3">
-                <x-icon name="o-bars-3" class="cursor-pointer" />
-            </label>
-        </x-slot:actions>
-    </x-nav>
-
-    {{-- 
-        MAIN del layout.
-        x-main organiza sidebar + contenido.
+    {{--
+    MAIN del layout.
+    x-main organiza sidebar + contenido.
     --}}
     <x-main>
+<<<<<<< HEAD
         <x-slot:sidebar
             drawer="main-drawer"
             collapsible
@@ -111,12 +80,13 @@
                     no-wire-navigate
                 />
             </x-menu>
+=======
+        <x-slot:sidebar drawer="main-drawer" collapsible>
+            @include('layouts.partials.sidebar')
+>>>>>>> 1a51bde2d51d1cf87fbf138639605d11933be68d
         </x-slot:sidebar>
 
-        {{-- 
-            CONTENIDO principal de cada página.
-            Aquí es donde Blade/Livewire renderiza la vista hija.
-        --}}
+
         <x-slot:content>
             <div class="min-h-screen p-4 md:p-6">
                 {{ $slot }}
@@ -124,10 +94,10 @@
         </x-slot:content>
     </x-main>
 
-    {{-- 
-        Área de notificaciones toast.
-        Se conserva porque ya forma parte de tu layout actual.
+    {{--
+    area de notificaciones toast
     --}}
     <x-toast />
 </body>
+
 </html>
