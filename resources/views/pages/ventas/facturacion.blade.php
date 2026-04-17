@@ -169,14 +169,11 @@ new class extends Component
     @endphp
 
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-        <div class="mb-3 flex shrink-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div class="mb-3 flex shrink-0 flex-col gap-3 md:flex-row md:items-center md:left-4 md:justify-between">
             <h2 class="text-xl font-bold text-[#1A2B42]">Detalle de la venta</h2>
 
             <div class="flex flex-wrap gap-2">
-                <x-button
-                    label="Agregar servicio"
-                    class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]"
-                />
+               
 
                 <x-button
                     label="Agregar producto"
