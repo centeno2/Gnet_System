@@ -23,11 +23,11 @@ el elemento activo según la ruta actual
         <x-menu-item title="Instalación de camaras" icon="o-wrench-screwdriver" link="{{ route('ventas.instalacion-camaras') }}" />
     </x-menu-sub>
 
-    <x-menu-item title="Crédito" icon="o-credit-card" link="{{ route('credito.index') }}" />
+    <x-menu-item title="Crédito" icon="o-credit-card" link="{{ route('creditos') }}" />
     <x-menu-item title="Compras" icon="o-shopping-bag" link="{{ route('compras') }}" />
     <x-menu-item title="Productos" icon="o-cube" link="{{ route('productos.index') }}" />
-    <x-menu-item title="Salidas de inventario" icon="o-arrow-up-tray" link="{{ route('salidas.index') }}" />
-    <x-menu-item title="Devoluciones" icon="o-arrow-uturn-left" link="{{ route('devoluciones.index') }}" />
+    <x-menu-item title="Salidas de inventario" icon="o-arrow-up-tray" link="{{ route('otras_salidas') }}" />
+    <x-menu-item title="Devoluciones" icon="o-arrow-uturn-left" link="{{ route('devoluciones') }}" />
 
     <x-menu-sub title="Gestión de trabajadores" icon="o-users">
         <x-menu-item title="Planilla de pago" icon="o-document-text" link="{{ route('planillapago') }}" />
@@ -41,7 +41,7 @@ el elemento activo según la ruta actual
     </x-menu-sub>
 
     <x-menu-item title="Arqueo de caja" icon="o-calculator" link="{{ route('arqueo.index') }}" />
-    <x-menu-item title="Mantenimiento" icon="o-cog-6-tooth" link="{{ route('mantenimiento.index') }}" />
+    <x-menu-item title="Mantenimiento" icon="o-cog-6-tooth" link="{{ route('mantenimiento') }}" />
     <x-menu-item title="Informes" icon="o-document-text" link="{{ route('informes.index') }}" />
     <x-menu-item title="Acerca de" icon="o-information-circle" link="{{ route('acerca') }}" />
 
