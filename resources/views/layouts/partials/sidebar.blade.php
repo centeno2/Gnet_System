@@ -24,7 +24,7 @@ el elemento activo según la ruta actual
     </x-menu-sub>
 
     <x-menu-item title="Crédito" icon="o-credit-card" link="{{ route('credito.index') }}" />
-    <x-menu-item title="Compras" icon="o-shopping-bag" link="{{ route('compras.index') }}" />
+    <x-menu-item title="Compras" icon="o-shopping-bag" link="{{ route('compras') }}" />
     <x-menu-item title="Productos" icon="o-cube" link="{{ route('productos.index') }}" />
     <x-menu-item title="Salidas de inventario" icon="o-arrow-up-tray" link="{{ route('salidas.index') }}" />
     <x-menu-item title="Devoluciones" icon="o-arrow-uturn-left" link="{{ route('devoluciones.index') }}" />

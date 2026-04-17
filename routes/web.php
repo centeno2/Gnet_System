@@ -5,11 +5,10 @@ Route::livewire('/usersystem', 'pages::usersystem')->name('usersystem');
 Route::livewire('/clientes', 'pages::clientes')->name('clientes');
 Route::livewire('/proveedores', 'pages::proveedores')->name('proveedores');
 Route::livewire('/trabajadores', 'pages::trabajadores')->name('trabajadores');
-
+Route::livewire('/compras', 'pages::compras')->name('compras');
 
 Route::livewire('/ventas', 'pages::ventas.index')->name('ventas.index');
 Route::livewire('/credito', 'pages::credito.index')->name('credito.index');
-Route::livewire('/compras', 'pages::compras.index')->name('compras.index');
 Route::livewire('/productos', 'pages::productos.index')->name('productos.index');
 Route::livewire('/salidas', 'pages::salidas.index')->name('salidas.index');
 Route::livewire('/devoluciones', 'pages::devoluciones.index')->name('devoluciones.index');
