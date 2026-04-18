@@ -1,8 +1,8 @@
-{{--
-Cabecera del sidebar.
+{{-- 
+    Cabecera del sidebar.
 --}}
 <div class="rounded-2xl">
-    <img src="{{ asset('img/gnetlogo.png') }}" alt="Logo" class="mt-4 w-32 mx-auto rounded-lg object-cover">
+    <img src="{{ asset('img/gnetlogo.png') }}" alt="Logo" class="mx-auto mt-4 w-32 rounded-lg object-cover">
 </div>
 
 {{--
@@ -10,7 +10,10 @@ menu principal vertical.
 activate-by-route hace que MaryUI marque automaticamente
 el elemento activo según la ruta actual
 --}}
-<x-menu activate-by-route class="mt-4 px-2" active="bg-[#D7E4F3] text-[#1A2B42]">
+<x-menu
+    activate-by-route
+    active-bg-color="!bg-[#0B6FE4] !text-white font-semibold shadow-sm"
+>
 
     {{--
     Opciones del navegador vertical.
