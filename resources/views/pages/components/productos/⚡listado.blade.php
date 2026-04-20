@@ -18,7 +18,7 @@ new class extends Component
         </div>
 
         <a
-            href="{{ route('productos') }}"
+            href="{{ route('productos.index') }}"
             class="inline-flex h-10 min-h-10 items-center justify-center rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] transition hover:bg-[#F0F3F7]"
         >
             Volver a productos

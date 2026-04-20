@@ -96,7 +96,8 @@ new class extends Component
 
                 <div class="xl:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Cliente / institución</label>
-                    <x-input type="text" class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+                    <x-input t2
+                    ype="text" class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
                 </div>
 
                 <div>
@@ -173,7 +174,6 @@ new class extends Component
             <h2 class="text-xl font-bold text-[#1A2B42]">Detalle de la venta</h2>
 
             <div class="flex flex-wrap gap-2">
-               
 
                 <x-button
                     label="Agregar producto"
@@ -189,7 +189,7 @@ new class extends Component
                     :rows="$detalleVenta"
                     class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl"
                 >
-                </x-table>
+                </x-table> 
             </div>
         </div>
     </x-card>
