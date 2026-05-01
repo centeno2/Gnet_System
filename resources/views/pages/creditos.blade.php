@@ -150,20 +150,11 @@ new class extends Component
             >
                 <x-form wire:submit="buscarCredito" no-separator>
                     <div class="grid grid-cols-1 gap-3 lg:grid-cols-12">
-                        <div class="lg:col-span-3">
-                            <x-select
-                                label="Tipo de búsqueda"
-                                wire:model="tipoBusqueda"
-                                :options="$tiposBusqueda"
-                                option-value="id"
-                                option-label="name"
-                                class="{{ $fieldClass }}"
-                            />
-                        </div>
+                       
 
                         <div class="lg:col-span-6">
                             <x-input
-                                label="Valor"
+                                label="Buscar crédito"
                                 wire:model="valorBusqueda"
                                 placeholder="Cédula, teléfono, crédito o factura"
                                 icon="o-magnifying-glass"
@@ -171,23 +162,7 @@ new class extends Component
                             />
                         </div>
 
-                        <div class="lg:col-span-2 flex items-end">
-                            <x-button
-                                label="Buscar"
-                                type="submit"
-                                spinner="buscarCredito"
-                                icon="o-magnifying-glass"
-                                class="h-[46px] w-full {{ $primaryButtonClass }}"
-                            />
-                        </div>
-
-                        <div class="lg:col-span-1 flex items-end">
-                            <x-button
-                                icon="o-x-mark"
-                                wire:click="limpiarBusqueda"
-                                class="h-[46px] w-full {{ $primaryButtonClass }}"
-                            />
-                        </div>
+                        
                     </div>
 
                     <div class="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">

@@ -188,90 +188,28 @@ new class extends Component
                         />
                     </div>
 
-                    <div class="xl:col-span-4">
-                        <label class="mb-2 block text-sm font-semibold text-[#000000]">Factura física</label>
-
-                        <div class="flex min-h-[58px] items-center rounded-2xl border border-[#D7E4F3] bg-[#F0F3F7] px-4">
-                            <label class="flex cursor-pointer items-center gap-3 text-sm font-medium text-[#000000] select-none">
-                                <input
-                                    type="checkbox"
-                                    wire:model.live="clienteTraeFactura"
-                                    class="peer sr-only"
-                                >
-
-                                <span class="flex h-5 w-5 items-center justify-center rounded-md border-2 border-[#2E8BC0] bg-white transition peer-checked:border-[#2E8BC0] peer-checked:bg-[#2E8BC0]">
-                                    <svg
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        viewBox="0 0 20 20"
-                                        fill="currentColor"
-                                        class="h-3.5 w-3.5 text-white opacity-0 transition peer-checked:opacity-100"
-                                    >
-                                        <path
-                                            fill-rule="evenodd"
-                                            d="M16.704 5.29a1 1 0 0 1 .006 1.414l-7.2 7.261a1 1 0 0 1-1.42.007L3.296 9.178a1 1 0 1 1 1.414-1.414l4.09 4.09 6.49-6.544a1 1 0 0 1 1.414-.02Z"
-                                            clip-rule="evenodd"
-                                        />
-                                    </svg>
-                                </span>
-
-                                <span>El cliente presenta la factura</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <div class="xl:col-span-3">
-                        <label class="mb-2 block text-sm font-semibold text-[#000000]">Total de la venta</label>
-                        <div class="flex min-h-[58px] items-center rounded-xl border border-[#D7E4F3] bg-[#F0F3F7] px-4 text-base font-semibold text-[#000000]">
-                            C$ {{ number_format((float) ($venta['total'] ?? 0), 2) }}
-                        </div>
-                    </div>
-
                     <div class="xl:col-span-5">
                         <label class="mb-2 block text-sm font-semibold text-transparent">Acciones</label>
                         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                             <x-button
-                                label="Limpiar"
-                                wire:click="limpiarFormulario"
-                                icon="o-arrow-path"
-                                class="{{ $outlineButtonClass }} h-[46px] w-full"
-                            />
+                    label="Cancelar"
+                    wire:click="limpiarFormulario"
+                    icon="o-x-circle"
+                    class="{{ $outlineButtonClass }} h-9.5 px-6"
+                />
 
-                            <x-button
-                                label="Buscar"
-                                type="submit"
-                                spinner="buscarVenta"
-                                icon="o-magnifying-glass"
-                                class="{{ $primaryButtonClass }} h-[46px] w-full"
-                            />
+                <x-button
+                    label="Confirmar devolución"
+                    wire:click="confirmarDevolucion"
+                    icon="o-check-circle"
+                    class="{{ $primaryButtonClass }} h-9.5 px-6"
+                />
                         </div>
                     </div>
                 </div>
             </x-form>
         </x-card>
-
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div class="min-h-[120px] rounded-3xl border border-[#D7E4F3] bg-white p-5 shadow-sm">
-                <p class="text-sm font-medium text-[#000000]">Factura</p>
-                <p class="mt-4 text-2xl font-bold text-[#000000]">
-                    {{ $venta['numero_factura'] ?: 'Sin cargar' }}
-                </p>
-            </div>
-
-            <div class="min-h-[120px] rounded-3xl border border-[#D7E4F3] bg-white p-5 shadow-sm">
-                <p class="text-sm font-medium text-[#000000]">Cliente</p>
-                <p class="mt-4 text-2xl font-bold text-[#000000]">
-                    {{ $venta['cliente'] ?: 'Sin cargar' }}
-                </p>
-            </div>
-
-            <div class="min-h-[120px] rounded-3xl border border-[#D7E4F3] bg-white p-5 shadow-sm">
-                <p class="text-sm font-medium text-[#000000]">Estado de factura</p>
-                <span class="mt-4 inline-flex rounded-full px-4 py-2 text-sm font-semibold {{ $clienteTraeFactura ? 'bg-[#2E8BC0]/10 text-[#2E8BC0]' : 'bg-[#D7E4F3] text-[#000000]' }}">
-                    {{ $clienteTraeFactura ? 'Factura presentada' : 'Sin factura física' }}
-                </span>
-            </div>
-        </div>
-
+        <br>
         <x-card
             title="Detalle de la factura"
             subtitle="Marca si la devolución aplica al producto, indica la cantidad y el monto se calculará automáticamente."
@@ -391,31 +329,6 @@ new class extends Component
             </div>
         </x-card>
 
-        <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-            <div class="w-full xl:max-w-sm">
-                <div class="rounded-3xl border border-[#D7E4F3] bg-white px-5 py-5 shadow-sm">
-                    <p class="text-sm font-medium text-[#000000]">Monto total a devolver</p>
-                    <p class="mt-3 text-3xl font-bold text-[#2E8BC0]">
-                        C$ {{ number_format($this->obtenerTotalDevolucion(), 2) }}
-                    </p>
-                </div>
-            </div>
-
-            <div class="flex w-full flex-col gap-3 sm:flex-row xl:w-auto">
-                <x-button
-                    label="Cancelar"
-                    wire:click="limpiarFormulario"
-                    icon="o-x-circle"
-                    class="{{ $outlineButtonClass }} h-[46px] px-6"
-                />
-
-                <x-button
-                    label="Confirmar devolución"
-                    wire:click="confirmarDevolucion"
-                    icon="o-check-circle"
-                    class="{{ $primaryButtonClass }} h-[46px] px-6"
-                />
-            </div>
-        </div>
+        
     </div>
 </div>

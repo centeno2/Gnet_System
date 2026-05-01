@@ -48,7 +48,7 @@ class extends Component {
 
                         <a
                             href="{{ route('password.request') }}"
-                            class="text-sm font-semibold text-[#0E48A1] hover:underline"
+                            class="text-sm font-semibold text-[#2E8BC0] hover:underline"
                         >
                             ¿Olvidó su contraseña?
                         </a>
@@ -78,7 +78,7 @@ class extends Component {
                     <x-button
                         label="Iniciar sesión"
                         :link="route('main')"
-                        class="h-11 min-h-11 w-full border-0 bg-[#0E48A1] px-8 text-sm text-white hover:bg-[#0B6FE4] focus:ring-2 focus:ring-[#0E48A1]/30"
+                        class="h-11 min-h-11 w-full border-0 bg-[#2E8BC0] px-8 text-sm text-white hover:bg-[#0B6FE4] focus:ring-2 focus:ring-[#0E48A1]/30"
                     />
 
                     <p class="text-center text-sm text-[#5F6B7A]">

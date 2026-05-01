@@ -16,7 +16,6 @@ new class extends Component
         </p>
     </div>
 
-    {{-- Búsqueda y resumen --}}
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
         <div class="grid grid-cols-1 gap-6 xl:grid-cols-4">
             <div class="xl:col-span-2">
@@ -75,7 +74,6 @@ new class extends Component
         </div>
     </x-card>
 
-    {{-- Acciones especiales --}}
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
         <div class="mb-5">
             <h2 class="text-2xl font-bold text-[#1A2B42]">Acciones de planilla</h2>
@@ -94,6 +92,23 @@ new class extends Component
                 label="Pagar aguinaldo"
                 icon="o-banknotes"
                 class="border-0 bg-[#E67E22] text-white hover:opacity-90"
+            />
+
+            <x-button
+                label="Registrar incentivo"
+                icon="o-gift"
+                class="border-0 bg-[#2E8BC0] text-white hover:opacity-90"
+            />
+
+            <x-button
+                label="Calcular planilla"
+                icon="o-calculator"
+                class="border-0 bg-[#2E8BC0] text-white hover:opacity-90"
+            />
+            <x-button
+                label="Generar reporte"
+                icon="o-document-text"
+                class="border-0 bg-[#2E8BC0] text-white hover:opacity-90"
             />
         </div>
     </x-card>
@@ -147,7 +162,7 @@ new class extends Component
         ];
     @endphp
 
-    {{-- Tabla --}}
+    
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
         <div class="mb-4">
             <h2 class="text-2xl font-bold text-[#1A2B42]">Detalle de planilla</h2>
@@ -197,16 +212,7 @@ new class extends Component
         </x-table>
 
         <div class="mt-6 flex flex-wrap justify-end gap-3">
-            <x-button
-                label="Calcular planilla"
-                icon="o-calculator"
-                class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]"
-            />
-            <x-button
-                label="Generar reporte"
-                icon="o-document-text"
-                class="border-0 bg-[#2E8BC0] text-white hover:opacity-90"
-            />
+            
         </div>
     </x-card>
 </div>

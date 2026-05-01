@@ -12,7 +12,7 @@ el elemento activo según la ruta actual
 --}}
 <x-menu
     activate-by-route
-    active-bg-color="!bg-[#0B6FE4] !text-white font-semibold shadow-sm"
+    active-bg-color="!bg-[#2E8BC0] !text-white font-semibold shadow-sm"
 >
 
     {{--

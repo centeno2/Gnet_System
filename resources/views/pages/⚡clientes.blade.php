@@ -70,7 +70,7 @@ new class extends Component
         <x-slot:actions>
             <x-button
                 label="Guardar cliente"
-                class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4] focus:ring-2 focus:ring-[#0E48A1]/30"
+                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4] focus:ring-2 focus:ring-[#0E48A1]/30"
             />
         </x-slot:actions>
     </x-card>
