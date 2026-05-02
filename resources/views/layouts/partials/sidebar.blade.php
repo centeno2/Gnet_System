@@ -40,13 +40,13 @@ el elemento activo según la ruta actual
         <x-menu-item title="Proveedores" icon="o-truck" link="{{ route('proveedores') }}" />
         <x-menu-item title="Clientes" icon="o-user-group" link="{{ route('clientes') }}" />
         <x-menu-item title="Usuario" icon="o-user" link="{{ route('usersystem') }}" />
-        <x-menu-item title="Trabajadores" icon="o-users" link="{{ route('trabajadores') }}" />
+        <x-menu-item title="Trabajadores" icon="o-users" link="{{ route('trabajadores.index') }}" />
     </x-menu-sub>
 
-    <x-menu-item title="Arqueo de caja" icon="o-calculator" link="{{ route('mantenimiento') }}" />
-    <x-menu-item title="Mantenimiento" icon="o-cog-6-tooth" link="{{ route('mantenimiento') }}" />
-    <x-menu-item title="Informes" icon="o-document-text" link="{{ route('mantenimiento') }}" />
-    <x-menu-item title="Acerca de" icon="o-information-circle" link="{{ route('acerca') }}" />
+    <x-menu-item title="Arqueo de caja" icon="o-calculator" link="{{ route('arqueodecaja') }}" />
+    <x-menu-item title="Mantenimiento" icon="o-cog-6-tooth" link="{{ route('mantenimiento.index') }}" />
+    <x-menu-item title="Informes" icon="o-document-text" link="{{ route('informes.index') }}" />
+    <x-menu-item title="Acerca de" icon="o-information-circle" link="{{ route('acerca.index') }}" />
 
     <x-menu-separator />
 
