@@ -40,15 +40,7 @@ new class extends Component
             </div>
 
             <div class="grid grid-cols-1 gap-x-4 gap-y-3 md:grid-cols-2 xl:grid-cols-4">
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">No. contrato</label>
-                    <x-input type="text" class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Fecha</label>
-                    <x-input type="date" class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
+                
 
                 <div class="xl:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Cliente / institución</label>
@@ -59,12 +51,6 @@ new class extends Component
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Teléfono</label>
                     <x-input type="text" class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
                 </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Técnico responsable</label>
-                    <x-input type="text" class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
                 <div>
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Municipio</label>
                     <x-input type="text" class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
@@ -148,10 +134,8 @@ new class extends Component
         </div>
 
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]"><x-checkbox /> Incluye instalación física</label>
+
             <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]"><x-checkbox /> Incluye configuración en app</label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]"><x-checkbox /> Incluye pruebas del sistema</label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]"><x-checkbox /> Incluye capacitación básica</label>
             <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]"><x-checkbox /> Incluye garantía</label>
             <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]"><x-checkbox /> Anticipo recibido</label>
             <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]"><x-checkbox /> Contrato firmado</label>

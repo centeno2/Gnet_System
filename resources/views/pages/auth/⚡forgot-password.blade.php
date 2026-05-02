@@ -42,7 +42,7 @@ new #[Layout('layouts.blank')] class extends Component {
             <div class="mt-6 flex flex-col gap-3">
                 <x-button
                     label="Enviar enlace"
-                    class="h-11 min-h-11 w-full border-0 bg-[#0E48A1] text-sm text-white hover:bg-[#0B6FE4]"
+                    class="h-11 min-h-11 w-full border-0 bg-[#2E8BC0] text-sm text-white hover:bg-[#0B6FE4]"
                 />
 
                 <x-button

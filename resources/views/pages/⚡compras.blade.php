@@ -136,6 +136,16 @@ new class extends Component
 
             <div>
                 <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
+                    Precio de venta
+                </label>
+                <x-input
+                    placeholder="Ingrese el precio de venta"
+                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
+                />
+            </div>
+
+            <div>
+                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
                     Retención
                 </label>
                 <x-input
@@ -193,7 +203,7 @@ new class extends Component
                 <x-button
                     label="Guardar compra"
                     icon="o-check"
-                    class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]"
+                    class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]"
                 />
             </div>
         </x-slot:actions>
@@ -221,7 +231,6 @@ new class extends Component
         ];
     @endphp
 
-    {{-- Tabla --}}
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
         <div class="mb-4">
             <h2 class="text-2xl font-bold text-[#1A2B42]">Detalle de compra</h2>

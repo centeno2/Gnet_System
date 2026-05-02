@@ -90,7 +90,7 @@ new class extends Component
 
                         <div class="relative h-20 w-20 overflow-hidden rounded-2xl border border-[#D7E4F3] bg-[#EAF2FB]">
                             <img
-                                src="{{ asset($persona['    ']) }}"
+                                
                                 alt="{{ $persona['nombre'] }}"
                                 class="h-full w-full object-cover transition duration-300 group-hover:scale-105"
                             />

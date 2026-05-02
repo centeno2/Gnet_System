@@ -16,7 +16,6 @@ new class extends Component
         </p>
     </div>
 
-    {{-- Formulario --}}
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
         <div class="mb-6">
             <h2 class="text-2xl font-bold text-[#1A2B42]">Registrar trabajador</h2>
@@ -126,7 +125,7 @@ new class extends Component
         <x-slot:actions>
             <x-button
                 label="Guardar trabajador"
-                class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]"
+                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]"
             />
         </x-slot:actions>
     </x-card>
@@ -144,7 +143,7 @@ new class extends Component
         ];
     @endphp
 
-    {{-- Tabla --}}
+
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
         <div class="mb-4">
             <h2 class="text-2xl font-bold text-[#1A2B42]">Listado de trabajadores</h2>

@@ -40,15 +40,7 @@ new class extends Component
             </div>
 
             <div class="grid grid-cols-1 gap-x-4 gap-y-3 md:grid-cols-2 xl:grid-cols-4">
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">No. orden</label>
-                    <x-input type="text" class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Fecha de ingreso</label>
-                    <x-input type="datetime-local" class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
+                
 
                 <div class="xl:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Cliente</label>
@@ -60,10 +52,7 @@ new class extends Component
                     <x-input type="text" class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
                 </div>
 
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Documento</label>
-                    <x-input type="text" class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
+               
 
                 <div>
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo de equipo</label>
@@ -106,10 +95,7 @@ new class extends Component
                     <x-textarea rows="3" class="w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
                 </div>
 
-                <div class="xl:col-span-4">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Detalle descriptivo del equipo</label>
-                    <x-textarea rows="3" class="w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
+                
             </div>
         </x-card>
 
@@ -147,10 +133,7 @@ new class extends Component
                     <x-input type="date" class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
                 </div>
 
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Observación técnica</label>
-                    <x-textarea rows="6" class="w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
+               
             </div>
         </x-card>
     </div>
@@ -167,7 +150,7 @@ new class extends Component
             <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]"><x-checkbox /> Enciende</label>
             <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]"><x-checkbox /> Lleva cargador</label>
             <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]"><x-checkbox /> Lleva batería</label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]"><x-checkbox /> Pantalla sana</label>
+            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]"><x-checkbox /> Pantalla en buen estado</label>
             <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]"><x-checkbox /> Teclado completo</label>
             <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]"><x-checkbox /> Touchpad funcional</label>
             <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]"><x-checkbox /> Tiene golpes visibles</label>

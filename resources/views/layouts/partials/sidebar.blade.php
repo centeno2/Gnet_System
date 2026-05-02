@@ -1,4 +1,4 @@
-{{-- 
+{{--
     Cabecera del sidebar.
 --}}
 <div class="rounded-2xl">
@@ -10,10 +10,7 @@ menu principal vertical.
 activate-by-route hace que MaryUI marque automaticamente
 el elemento activo según la ruta actual
 --}}
-<x-menu
-    activate-by-route
-    active-bg-color="!bg-[#0B6FE4] !text-white font-semibold shadow-sm"
->
+<x-menu activate-by-route active-bg-color="!bg-[#2E8BC0] !text-white font-semibold shadow-sm">
 
     {{--
     Opciones del navegador vertical.
@@ -22,8 +19,10 @@ el elemento activo según la ruta actual
 
     <x-menu-sub title="Ventas" icon="o-shopping-cart">
         <x-menu-item title="Facturación" icon="o-receipt-refund" link="{{ route('ventas.facturacion') }}" />
-        <x-menu-item title="Servicio técnico" icon="o-wrench-screwdriver" link="{{ route('ventas.servicio-tecnico') }}" />
-        <x-menu-item title="Instalación de camaras" icon="o-wrench-screwdriver" link="{{ route('ventas.instalacion-camaras') }}" />
+        <x-menu-item title="Servicio técnico" icon="o-wrench-screwdriver"
+            link="{{ route('ventas.servicio-tecnico') }}" />
+        <x-menu-item title="Instalación de camaras" icon="o-wrench-screwdriver"
+            link="{{ route('ventas.instalacion-camaras') }}" />
     </x-menu-sub>
 
     <x-menu-item title="Crédito" icon="o-credit-card" link="{{ route('creditos') }}" />
@@ -43,7 +42,7 @@ el elemento activo según la ruta actual
         <x-menu-item title="Trabajadores" icon="o-users" link="{{ route('trabajadores') }}" />
     </x-menu-sub>
 
-    <x-menu-item title="Arqueo de caja" icon="o-calculator" link="{{ route('mantenimiento') }}" />
+    <x-menu-item title="Arqueo de caja" icon="o-calculator" link="{{ route('arqueodecaja') }}" />
     <x-menu-item title="Mantenimiento" icon="o-cog-6-tooth" link="{{ route('mantenimiento') }}" />
     <x-menu-item title="Informes" icon="o-document-text" link="{{ route('mantenimiento') }}" />
     <x-menu-item title="Acerca de" icon="o-information-circle" link="{{ route('acerca') }}" />
