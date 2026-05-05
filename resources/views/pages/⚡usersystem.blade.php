@@ -76,7 +76,7 @@ new class extends Component
                 <x-password
                     placeholder="Ingrese la contraseña"
                     clearable
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
+                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#111111]"
                 />
             </div>
         </div>
