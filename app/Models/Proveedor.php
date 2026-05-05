@@ -26,8 +26,7 @@ class Proveedor extends Model
         'Id_Proveedor' => 'integer',
         'Id_Persona' => 'integer',
         'Estado' => 'boolean',
-        'Codigo_Ruc' => 'integer',
-        'Salario' => 'decimal:6',
+        'Codigo_Ruc' => 'string',
     ];
 
     public function persona(): BelongsTo
