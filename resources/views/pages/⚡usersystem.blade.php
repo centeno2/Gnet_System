@@ -244,10 +244,75 @@ new class extends Component
             <div class="flex items-start justify-between gap-3">
                 <p class="text-sm font-medium">{{ $toastMensaje }}</p>
 
+<<<<<<< HEAD
                 <button type="button" wire:click="cerrarToast"
                     class="text-lg leading-none text-[#5F6B7A] hover:text-[#1A2B42]">
                     ×
                 </button>
+=======
+    <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
+        <div class="mb-6">
+            <h2 class="text-2xl font-bold text-[#1A2B42]">Registrar usuario</h2>
+            <p class="text-base text-[#5F6B7A]">
+                Complete los campos para crear un nuevo usuario.
+            </p>
+        </div>
+
+        <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <div>
+                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
+                    Trabajador
+                </label>
+                <x-select
+                    placeholder="Seleccione un trabajador"
+                    :options="[
+                        ['id' => 1, 'name' => 'Carlos Hernández'],
+                        ['id' => 2, 'name' => 'María López'],
+                        ['id' => 3, 'name' => 'Juan Pérez'],
+                    ]"
+                    option-value="id"
+                    option-label="name"
+                    
+                />
+            </div>
+
+            <div>
+                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
+                    Nombre de usuario
+                </label>
+                <x-input
+                    placeholder="Ingrese el nombre de usuario"
+                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
+                />
+            </div>
+
+            <div>
+                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
+                    Rol de usuario
+                </label>
+                <x-select
+                    placeholder="Seleccione un rol"
+                    :options="[
+                        ['id' => 'cajero', 'name' => 'Cajero'],
+                        ['id' => 'administrador', 'name' => 'Administrador'],
+                        ['id' => 'gerente', 'name' => 'Gerente'],
+                    ]"
+                    option-value="id"
+                    option-label="name"
+                    class="w-full rounded-xl border border-[#B8CBE3] bg-white text-[#1A2B42] shadow-sm focus:border-[#0E48A1] focus:ring-2 focus:ring-[#0E48A1]/20"
+                />
+            </div>
+
+            <div>
+                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
+                    Contraseña
+                </label>
+                <x-password
+                    placeholder="Ingrese la contraseña"
+                    clearable
+                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#111111]"
+                />
+>>>>>>> 9cf2db1df06eee46fa054fb454bf76bf6b72fbe0
             </div>
         </div>
     </div>
