@@ -238,23 +238,19 @@ new class extends Component
     </div>
 
     @if ($mostrarToast)
-        <div class="fixed right-5 top-5 z-999 w-full max-w-sm">
-            <div
-                class="{{ $toastTipo === 'success' ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#1A2B42]' : 'border-red-200 bg-red-50 text-red-700' }} rounded-2xl border px-4 py-4 shadow-lg"
-            >
-                <div class="flex items-start justify-between gap-3">
-                    <p class="text-sm font-medium">{{ $toastMensaje }}</p>
+    <div class="fixed right-5 top-5 z-999 w-full max-w-sm">
+        <div
+            class="{{ $toastTipo === 'success' ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#1A2B42]' : 'border-red-200 bg-red-50 text-red-700' }} rounded-2xl border px-4 py-4 shadow-lg">
+            <div class="flex items-start justify-between gap-3">
+                <p class="text-sm font-medium">{{ $toastMensaje }}</p>
 
-                    <button
-                        type="button"
-                        wire:click="cerrarToast"
-                        class="text-lg leading-none text-[#5F6B7A] hover:text-[#1A2B42]"
-                    >
-                        ×
-                    </button>
-                </div>
+                <button type="button" wire:click="cerrarToast"
+                    class="text-lg leading-none text-[#5F6B7A] hover:text-[#1A2B42]">
+                    ×
+                </button>
             </div>
         </div>
+    </div>
     @endif
 
     <form wire:submit.prevent="guardarUsuario">
@@ -272,17 +268,12 @@ new class extends Component
                         Trabajador
                     </label>
 
-                    <x-select
-                        wire:model.defer="idPersona"
-                        placeholder="Seleccione un trabajador"
-                        :options="$trabajadores"
-                        option-value="id"
-                        option-label="name"
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
+                    <x-select wire:model.defer="idPersona" placeholder="Seleccione un trabajador"
+                        :options="$trabajadores" option-value="id" option-label="name"
+                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
 
                     @error('idPersona')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                     @enderror
                 </div>
 
@@ -291,14 +282,11 @@ new class extends Component
                         Nombre de usuario
                     </label>
 
-                    <x-input
-                        wire:model.defer="nombreUsuario"
-                        placeholder="Ingrese el nombre de usuario"
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
+                    <x-input wire:model.defer="nombreUsuario" placeholder="Ingrese el nombre de usuario"
+                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
 
                     @error('nombreUsuario')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                     @enderror
                 </div>
 
@@ -307,21 +295,15 @@ new class extends Component
                         Rol de usuario
                     </label>
 
-                    <x-select
-                        wire:model.defer="rol"
-                        placeholder="Seleccione un rol"
-                        :options="[
+                    <x-select wire:model.defer="rol" placeholder="Seleccione un rol" :options="[
                             ['id' => 'cajero', 'name' => 'Cajero'],
                             ['id' => 'administrador', 'name' => 'Administrador'],
                             ['id' => 'gerente', 'name' => 'Gerente'],
-                        ]"
-                        option-value="id"
-                        option-label="name"
-                        class="w-full rounded-xl border border-[#B8CBE3] bg-white text-[#1A2B42] shadow-sm focus:border-[#0E48A1] focus:ring-2 focus:ring-[#0E48A1]/20"
-                    />
+                        ]" option-value="id" option-label="name"
+                        class="w-full rounded-xl border border-[#B8CBE3] bg-white text-[#1A2B42] shadow-sm focus:border-[#0E48A1] focus:ring-2 focus:ring-[#0E48A1]/20" />
 
                     @error('rol')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                     @enderror
                 </div>
 
@@ -330,25 +312,18 @@ new class extends Component
                         Contraseña
                     </label>
 
-                    <x-password
-                        wire:model.defer="password"
-                        placeholder="Ingrese la contraseña"
-                        clearable
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
+                    <x-password wire:model.defer="password" placeholder="Ingrese la contraseña" clearable
+                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"/>
 
                     @error('password')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                     @enderror
                 </div>
             </div>
 
             <x-slot:actions>
-                <x-button
-                    label="Guardar usuario"
-                    type="submit"
-                    class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4] focus:ring-2 focus:ring-[#0E48A1]/30"
-                />
+                <x-button label="Guardar usuario" type="submit"
+                    class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4] focus:ring-2 focus:ring-[#0E48A1]/30" />
             </x-slot:actions>
         </x-card>
     </form>
@@ -357,24 +332,17 @@ new class extends Component
         <div class="mb-4">
             <h2 class="text-2xl font-bold text-[#1A2B42]">Listado de usuarios</h2>
 
-            <x-input
-                wire:model.live.debounce.250ms="buscar"
-                placeholder="Buscar usuario"
-                class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-            />
+            <x-input wire:model.live.debounce.250ms="buscar" placeholder="Buscar usuario"
+                class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
         </div>
 
-        <x-table
-            :headers="$headers"
-            :rows="$usuarios"
-            class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl"
-        >
+        <x-table :headers="$headers" :rows="$usuarios"
+            class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl">
             @scope('cell_status', $usuario)
-                <span
-                    class="{{ $usuario['status'] === 'Activo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold"
-                >
-                    {{ $usuario['status'] }}
-                </span>
+            <span
+                class="{{ $usuario['status'] === 'Activo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">
+                {{ $usuario['status'] }}
+            </span>
             @endscope
         </x-table>
     </x-card>

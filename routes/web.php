@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\FacturaVentaController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/login');
@@ -9,6 +10,7 @@ Route::middleware('guest')->group(function () {
     Route::livewire('/forgot-password', 'pages::auth.forgot-password')->name('password.request');
     Route::livewire('/reset-password/{token}', 'pages::auth.reset-password')->name('password.reset');
 });
+
 Route::livewire('/main', 'pages::main')->name('main');
 Route::livewire('/usersystem', 'pages::usersystem')->name('usersystem');
 Route::livewire('/clientes', 'pages::clientes')->name('clientes');
@@ -22,6 +24,9 @@ Route::livewire('/productos/listado', 'pages::components.productos.listado')->na
 Route::livewire('/ventas/facturacion', 'pages::ventas.facturacion')->name('ventas.facturacion');
 Route::livewire('/ventas/servicio-tecnico', 'pages::ventas.servicio-tecnico')->name('ventas.servicio-tecnico');
 Route::livewire('/ventas/instalacion-camaras', 'pages::ventas.instalacion-camaras')->name('ventas.instalacion-camaras');
+
+Route::get('/ventas/factura/{venta}', [FacturaVentaController::class, 'show'])
+    ->name('ventas.factura');
 
 Route::livewire('/trabajadores', 'pages::trabajadores')->name('trabajadores');
 Route::livewire('/compras', 'pages::compras')->name('compras');

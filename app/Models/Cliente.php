@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Cliente extends Model
 {
@@ -24,7 +25,7 @@ class Cliente extends Model
     ];
 
     protected $casts = [
-        'Id_Cliente' => 'integer',  
+        'Id_Cliente' => 'integer',
         'Id_Persona' => 'integer',
         'Tipo_Cliente' => 'integer',
         'Estado' => 'boolean',
@@ -54,5 +55,15 @@ class Cliente extends Model
     public function ventas(): HasMany
     {
         return $this->hasMany(Venta::class, 'Id_Cliente', 'Id_Cliente');
+    }
+
+    public function creditoGeneral(): HasOne
+    {
+        return $this->hasOne(ClienteCredito::class, 'Id_Cliente', 'Id_Cliente');
+    }
+
+    public function movimientosCredito(): HasMany
+    {
+        return $this->hasMany(ClienteCreditoMovimiento::class, 'Id_Cliente', 'Id_Cliente');
     }
 }

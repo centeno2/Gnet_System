@@ -35,6 +35,10 @@ new class extends Component
 
     public string $buscar = '';
 
+    public ?int $productoBaseSeleccionado = null;
+    public array $coincidenciasProducto = [];
+    public bool $mostrarCoincidenciasProducto = false;
+
     public string $toastMensaje = '';
     public string $toastTipo = 'success';
     public bool $mostrarToast = false;
@@ -60,6 +64,151 @@ new class extends Component
     public function updatedBuscar(): void
     {
         $this->cargarProductos();
+    }
+
+    public function updatedNombreProducto(): void
+    {
+        $this->productoBaseSeleccionado = null;
+        $this->buscarCoincidenciasProducto();
+    }
+
+    public function updatedPrecioCompra($value): void
+    {
+        $this->precioCompra = $this->formatearMonto((string) $value);
+    }
+
+    public function updatedPrecioVenta($value): void
+    {
+        $this->precioVenta = $this->formatearMonto((string) $value);
+    }
+
+    protected function formatearMonto(?string $valor): string
+    {
+        $limpio = preg_replace('/[^\d]/', '', $valor ?? '');
+
+        if ($limpio === '') {
+            return '';
+        }
+
+        return number_format((int) $limpio, 0, '.', ',');
+    }
+
+    protected function desformatearMonto(?string $valor): int
+    {
+        $limpio = preg_replace('/[^\d]/', '', $valor ?? '');
+
+        return $limpio === '' ? 0 : (int) $limpio;
+    }
+
+    protected function buscarCoincidenciasProducto(): void
+    {
+        $busqueda = trim($this->nombreProducto);
+
+        if (strlen($busqueda) < 2) {
+            $this->coincidenciasProducto = [];
+            $this->mostrarCoincidenciasProducto = false;
+            return;
+        }
+
+        $this->coincidenciasProducto = DB::table('producto as p')
+            ->leftJoin('categoria_producto as c', 'p.Id_Categoria', '=', 'c.Id_Categoria')
+            ->leftJoin('marca as m', 'p.Id_Marca', '=', 'm.Id_Marca')
+            ->select(
+                'p.Id_Producto',
+                'p.Nombre_Producto',
+                'p.Modelo',
+                'p.Precio_Venta',
+                'c.Nombre_Categoria as categoria',
+                'm.Nombre_Marca as marca'
+            )
+            ->where(function ($q) use ($busqueda) {
+                $q->where('p.Nombre_Producto', 'like', "%{$busqueda}%")
+                    ->orWhere('p.Modelo', 'like', "%{$busqueda}%")
+                    ->orWhere('m.Nombre_Marca', 'like', "%{$busqueda}%")
+                    ->orWhere('c.Nombre_Categoria', 'like', "%{$busqueda}%");
+            })
+            ->orderByRaw('CASE WHEN p.Nombre_Producto LIKE ? THEN 0 ELSE 1 END', [$busqueda . '%'])
+            ->orderBy('p.Nombre_Producto')
+            ->limit(8)
+            ->get()
+            ->map(function ($producto) {
+                return [
+                    'id_producto' => (int) $producto->Id_Producto,
+                    'nombre' => $producto->Nombre_Producto,
+                    'modelo' => $producto->Modelo ?: 'Sin modelo',
+                    'categoria' => $producto->categoria ?: 'Sin categoría',
+                    'marca' => $producto->marca ?: 'Sin marca',
+                    'precio_venta' => 'C$ ' . number_format((float) $producto->Precio_Venta, 0, '.', ','),
+                ];
+            })
+            ->toArray();
+
+        $this->mostrarCoincidenciasProducto = count($this->coincidenciasProducto) > 0;
+    }
+
+    public function seleccionarProducto(int $idProducto): void
+    {
+        $producto = DB::table('producto')
+            ->select(
+                'Id_Producto',
+                'Id_Categoria',
+                'Id_Marca',
+                'Nombre_Producto',
+                'Modelo',
+                'Stock_Actual',
+                'Stock_Minimo',
+                'Precio_Compra',
+                'Precio_Venta',
+                'Fecha_Vencimiento',
+                'Meses_Garantia_Nuevo',
+                'Meses_Garantia_Usado',
+                'Estado'
+            )
+            ->where('Id_Producto', $idProducto)
+            ->first();
+
+        if (!$producto) {
+            $this->coincidenciasProducto = [];
+            $this->mostrarCoincidenciasProducto = false;
+            $this->mostrarToast('No se encontró el producto seleccionado.', 'error');
+            return;
+        }
+
+        $this->productoBaseSeleccionado = (int) $producto->Id_Producto;
+
+        $this->nombreProducto = $producto->Nombre_Producto ?? '';
+        $this->modelo = $producto->Modelo ?? '';
+        $this->numeroSerie = '';
+
+        $this->idCategoria = $producto->Id_Categoria ? (string) $producto->Id_Categoria : '';
+        $this->idMarca = $producto->Id_Marca ? (string) $producto->Id_Marca : '';
+
+        $this->stockActual = (string) ($producto->Stock_Actual ?? 0);
+        $this->stockMinimo = (string) ($producto->Stock_Minimo ?? 0);
+        $this->precioCompra = number_format((float) ($producto->Precio_Compra ?? 0), 0, '.', ',');
+        $this->precioVenta = number_format((float) ($producto->Precio_Venta ?? 0), 0, '.', ',');
+
+        $this->garantiaNuevo = $producto->Meses_Garantia_Nuevo !== null
+            ? (string) $producto->Meses_Garantia_Nuevo
+            : '';
+
+        $this->garantiaUsado = $producto->Meses_Garantia_Usado !== null
+            ? (string) $producto->Meses_Garantia_Usado
+            : '';
+
+        $this->estado = (string) ($producto->Estado ?? 1);
+
+        $this->fechaVencimiento = $producto->Fecha_Vencimiento
+            ? \Carbon\Carbon::parse($producto->Fecha_Vencimiento)->format('Y-m-d')
+            : '';
+
+        $this->coincidenciasProducto = [];
+        $this->mostrarCoincidenciasProducto = false;
+
+        $this->resetErrorBag();
+        $this->resetValidation();
+
+        $this->mostrarToast('Datos del producto cargados correctamente.');
     }
 
     protected function mostrarToast(string $mensaje, string $tipo = 'success'): void
@@ -162,15 +311,54 @@ new class extends Component
             'idMarca' => 'nullable|exists:marca,Id_Marca',
             'stockActual' => 'required|integer|min:0',
             'stockMinimo' => 'required|integer|min:0',
-            'precioCompra' => 'required|numeric|min:0',
-            'precioVenta' => 'required|numeric|min:0',
+            'precioCompra' => ['required', 'regex:/^\d+(,\d{3})*$/'],
+            'precioVenta' => ['required', 'regex:/^\d+(,\d{3})*$/'],
             'garantiaNuevo' => 'nullable|integer|min:0',
             'garantiaUsado' => 'nullable|integer|min:0',
             'estado' => 'required|in:0,1',
             'fechaVencimiento' => 'nullable|date',
+        ], [
+            'precioCompra.regex' => 'Ingrese el precio sin decimales. Ejemplo: 40,000',
+            'precioVenta.regex' => 'Ingrese el precio sin decimales. Ejemplo: 40,000',
         ]);
 
-        DB::transaction(function () use ($datos) {
+        $precioCompraLimpio = $this->desformatearMonto($datos['precioCompra']);
+        $precioVentaLimpio = $this->desformatearMonto($datos['precioVenta']);
+        $productoBaseId = $this->productoBaseSeleccionado;
+        $esProductoExistente = $productoBaseId !== null;
+
+        DB::transaction(function () use ($datos, $precioCompraLimpio, $precioVentaLimpio, $productoBaseId) {
+            if ($productoBaseId !== null) {
+                Producto::where('Id_Producto', $productoBaseId)->update([
+                    'Id_Categoria' => (int) $datos['idCategoria'],
+                    'Id_Marca' => $datos['idMarca'] !== '' ? (int) $datos['idMarca'] : null,
+                    'Nombre_Producto' => trim($datos['nombreProducto']),
+                    'Modelo' => $datos['modelo'] !== '' ? trim($datos['modelo']) : null,
+                    'Stock_Actual' => (int) $datos['stockActual'],
+                    'Stock_Minimo' => (int) $datos['stockMinimo'],
+                    'Precio_Compra' => $precioCompraLimpio,
+                    'Precio_Venta' => $precioVentaLimpio,
+                    'Fecha_Vencimiento' => $datos['fechaVencimiento'] !== '' ? $datos['fechaVencimiento'] : null,
+                    'Meses_Garantia_Nuevo' => $datos['garantiaNuevo'] !== '' ? (int) $datos['garantiaNuevo'] : null,
+                    'Meses_Garantia_Usado' => $datos['garantiaUsado'] !== '' ? (int) $datos['garantiaUsado'] : null,
+                    'Estado' => (int) $datos['estado'],
+                ]);
+
+                if (!empty($datos['numeroSerie'])) {
+                    $serie = new ProductoSerie();
+                    $serie->Id_Producto = $productoBaseId;
+                    $serie->Numero_Serie = trim($datos['numeroSerie']);
+                    $serie->Fecha_Ingreso = now();
+                    $serie->Estado = 'DISPONIBLE';
+                    $serie->Observacion = null;
+                    $serie->save();
+
+                    Producto::where('Id_Producto', $productoBaseId)->increment('Stock_Actual');
+                }
+
+                return;
+            }
+
             $producto = new Producto();
             $producto->Id_Categoria = (int) $datos['idCategoria'];
             $producto->Id_Marca = $datos['idMarca'] !== '' ? (int) $datos['idMarca'] : null;
@@ -178,8 +366,8 @@ new class extends Component
             $producto->Modelo = $datos['modelo'] !== '' ? trim($datos['modelo']) : null;
             $producto->Stock_Actual = (int) $datos['stockActual'];
             $producto->Stock_Minimo = (int) $datos['stockMinimo'];
-            $producto->Precio_Compra = $datos['precioCompra'];
-            $producto->Precio_Venta = $datos['precioVenta'];
+            $producto->Precio_Compra = $precioCompraLimpio;
+            $producto->Precio_Venta = $precioVentaLimpio;
             $producto->Fecha_Vencimiento = $datos['fechaVencimiento'] !== '' ? $datos['fechaVencimiento'] : null;
             $producto->Meses_Garantia_Nuevo = $datos['garantiaNuevo'] !== '' ? (int) $datos['garantiaNuevo'] : null;
             $producto->Meses_Garantia_Usado = $datos['garantiaUsado'] !== '' ? (int) $datos['garantiaUsado'] : null;
@@ -199,7 +387,12 @@ new class extends Component
 
         $this->resetFormularioProducto();
         $this->cargarProductos();
-        $this->mostrarToast('Producto guardado correctamente.');
+
+        $this->mostrarToast(
+            $esProductoExistente
+                ? 'Producto actualizado correctamente.'
+                : 'Producto guardado correctamente.'
+        );
     }
 
     public function verSeries(int $idProducto): void
@@ -328,6 +521,10 @@ new class extends Component
         $this->estado = '1';
         $this->fechaVencimiento = '';
 
+        $this->productoBaseSeleccionado = null;
+        $this->coincidenciasProducto = [];
+        $this->mostrarCoincidenciasProducto = false;
+
         $this->resetErrorBag();
         $this->resetValidation();
     }
@@ -412,7 +609,7 @@ new class extends Component
                     'modelo' => $producto->Modelo ?: '—',
                     'series_registradas' => (int) $producto->total_series,
                     'stock' => $producto->Stock_Actual,
-                    'precio_venta' => 'C$ ' . number_format((float) $producto->Precio_Venta, 2),
+                    'precio_venta' => 'C$ ' . number_format((float) $producto->Precio_Venta, 0, '.', ','),
                     'estado' => (int) $producto->Estado === 1 ? 'Activo' : 'Inactivo',
                 ];
             })
@@ -474,9 +671,48 @@ new class extends Component
                 <div class="grid grid-cols-1 gap-x-4 gap-y-3 md:grid-cols-2 xl:grid-cols-4">
                     <div class="xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Nombre del producto</label>
-                        <x-input wire:model.defer="nombreProducto" type="text"
-                            placeholder="Ingrese el nombre del producto"
-                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+
+                        <div class="relative">
+                            <x-input wire:model.live.debounce.300ms="nombreProducto" type="text" autocomplete="off"
+                                placeholder="Escriba para buscar coincidencias"
+                                class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+
+                            @if ($mostrarCoincidenciasProducto)
+                            <div
+                                class="absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-y-auto rounded-xl border border-[#D7E4F3] bg-white shadow-lg">
+                                @forelse ($coincidenciasProducto as $coincidencia)
+                                <button type="button"
+                                    wire:key="coincidencia-producto-{{ $coincidencia['id_producto'] }}"
+                                    wire:click="seleccionarProducto({{ $coincidencia['id_producto'] }})"
+                                    class="flex w-full flex-col gap-1 border-b border-[#EAF2FB] px-4 py-3 text-left transition hover:bg-[#EAF4FD] last:border-b-0">
+
+                                    <span class="text-sm font-semibold text-[#1A2B42]">
+                                        {{ $coincidencia['nombre'] }}
+                                    </span>
+
+                                    <span class="text-xs text-[#5F6B7A]">
+                                        {{ $coincidencia['marca'] }}
+                                        · {{ $coincidencia['modelo'] }}
+                                        · {{ $coincidencia['categoria'] }}
+                                        · {{ $coincidencia['precio_venta'] }}
+                                    </span>
+                                </button>
+                                @empty
+                                <div class="px-4 py-3 text-sm text-[#7B8794]">
+                                    No se encontraron coincidencias.
+                                </div>
+                                @endforelse
+                            </div>
+                            @endif
+                        </div>
+
+                        @if ($productoBaseSeleccionado)
+                        <p class="mt-1 text-xs font-medium text-[#0E48A1]">
+                            Producto base seleccionado. Si ingresa un nuevo número de serie, se agregará a este
+                            producto.
+                        </p>
+                        @endif
+
                         @error('nombreProducto')
                         <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                         @enderror
@@ -548,7 +784,8 @@ new class extends Component
 
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Precio de compra</label>
-                        <x-input wire:model.defer="precioCompra" type="number" step="0.01" min="0" placeholder="0.00"
+                        <x-input wire:model.live.debounce.250ms="precioCompra" type="text" inputmode="numeric"
+                            placeholder="0"
                             class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
                         @error('precioCompra')
                         <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
@@ -557,7 +794,8 @@ new class extends Component
 
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Precio de venta</label>
-                        <x-input wire:model.defer="precioVenta" type="number" step="0.01" min="0" placeholder="0.00"
+                        <x-input wire:model.live.debounce.250ms="precioVenta" type="text" inputmode="numeric"
+                            placeholder="0"
                             class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
                         @error('precioVenta')
                         <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
@@ -656,22 +894,30 @@ new class extends Component
                         <tbody>
                             @forelse ($productos as $producto)
                             <tr class="odd:bg-white even:bg-[#F8FBFF]">
-                                <td class="px-3 py-3 align-middle whitespace-nowrap font-semibold">#{{
-                                    $producto['codigo'] }}</td>
-                                <td class="px-3 py-3 align-middle whitespace-nowrap font-medium">{{
-                                    $producto['producto'] }}</td>
-                                <td class="px-3 py-3 align-middle whitespace-nowrap">{{ $producto['marca'] }}</td>
-                                <td class="px-3 py-3 align-middle whitespace-nowrap">{{ $producto['modelo'] }}</td>
+                                <td class="px-3 py-3 align-middle whitespace-nowrap font-semibold">
+                                    #{{ $producto['codigo'] }}
+                                </td>
+                                <td class="px-3 py-3 align-middle whitespace-nowrap font-medium">
+                                    {{ $producto['producto'] }}
+                                </td>
+                                <td class="px-3 py-3 align-middle whitespace-nowrap">
+                                    {{ $producto['marca'] }}
+                                </td>
+                                <td class="px-3 py-3 align-middle whitespace-nowrap">
+                                    {{ $producto['modelo'] }}
+                                </td>
                                 <td class="px-3 py-3 text-center align-middle whitespace-nowrap">
                                     <span
                                         class="inline-flex min-w-8.5 justify-center rounded-full bg-[#EAF4FD] px-2.5 py-1 text-xs font-semibold text-[#0E48A1]">
                                         {{ $producto['series_registradas'] }}
                                     </span>
                                 </td>
-                                <td class="px-3 py-3 text-center align-middle whitespace-nowrap">{{ $producto['stock']
-                                    }}</td>
-                                <td class="px-3 py-3 text-right align-middle whitespace-nowrap">{{
-                                    $producto['precio_venta'] }}</td>
+                                <td class="px-3 py-3 text-center align-middle whitespace-nowrap">
+                                    {{ $producto['stock'] }}
+                                </td>
+                                <td class="px-3 py-3 text-right align-middle whitespace-nowrap">
+                                    {{ $producto['precio_venta'] }}
+                                </td>
                                 <td class="px-3 py-3 text-center align-middle whitespace-nowrap">
                                     <span
                                         class="{{ $producto['estado'] === 'Activo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">
@@ -781,14 +1027,18 @@ new class extends Component
                         <tr>
                             <th
                                 class="rounded-tl-xl bg-[#2E8BC0] px-4 py-3 text-left font-semibold text-white whitespace-nowrap">
-                                Número de serie</th>
+                                Número de serie
+                            </th>
                             <th class="bg-[#2E8BC0] px-4 py-3 text-left font-semibold text-white whitespace-nowrap">
-                                Fecha ingreso</th>
+                                Fecha ingreso
+                            </th>
                             <th class="bg-[#2E8BC0] px-4 py-3 text-left font-semibold text-white whitespace-nowrap">
-                                Estado</th>
+                                Estado
+                            </th>
                             <th
                                 class="rounded-tr-xl bg-[#2E8BC0] px-4 py-3 text-left font-semibold text-white whitespace-nowrap">
-                                Observación</th>
+                                Observación
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
