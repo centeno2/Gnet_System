@@ -24,6 +24,7 @@ class Compra extends Model
         'Observacion',
         'Id_producto',
         'Retencion',
+        'Iva',
     ];
 
     protected $casts = [
@@ -34,6 +35,7 @@ class Compra extends Model
         'Total' => 'decimal:2',
         'Id_producto' => 'integer',
         'Retencion' => 'integer',
+        'Iva' => 'decimal:6',
     ];
 
     public function proveedor(): BelongsTo

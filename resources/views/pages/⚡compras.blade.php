@@ -1,262 +1,1407 @@
 <?php
 
+use App\Models\Compra;
+use App\Models\DetalleCompra;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 
 new class extends Component
 {
-    //
+    public string $buscarProveedor = '';
+    public string $proveedorNombre = '';
+    public $idProveedor = '';
+
+    public string $numeroCompra = '';
+    public string $fechaCompra = '';
+    public string $tipoCompra = 'CONTADO';
+    public string $observacion = '';
+    public string $retencion = '0';
+    public string $iva = '0';
+
+    public string $modoProducto = 'existente';
+
+    public string $buscarProducto = '';
+    public array $proveedoresEncontrados = [];
+    public array $productosEncontrados = [];
+
+    public $idProducto = '';
+    public string $productoNombre = '';
+    public string $productoCategoria = '';
+    public string $productoMarca = '';
+    public string $productoModelo = '';
+    public float $precioVentaActual = 0;
+    public bool $precioVentaEditable = false;
+
+    public string $nuevoNombreProducto = '';
+    public string $nuevoModelo = '';
+    public string $nuevoCategoriaSeleccionada = '';
+    public string $nuevoMarcaSeleccionada = '';
+    public string $nuevoStockMinimo = '0';
+    public string $nuevoFechaVencimiento = '0';
+    public string $nuevoGarantiaNuevo = '';
+    public string $nuevoGarantiaUsado = '';
+    public string $nuevoEstado = '1';
+
+    public bool $mostrarNuevaCategoria = false;
+    public bool $mostrarNuevaMarca = false;
+    public string $nombreCategoriaNueva = '';
+    public string $nombreMarcaNueva = '';
+
+    public string $cantidad = '1';
+    public string $precioCompra = '0';
+    public string $precioVenta = '0';
+    public string $seriesTexto = '';
+
+    public array $categorias = [];
+    public array $marcas = [];
+    public array $categoriasTemporales = [];
+    public array $marcasTemporales = [];
+    public array $detalles = [];
+
+    public string $toastMensaje = '';
+    public string $toastTipo = 'success';
+    public bool $mostrarToast = false;
+
+    public array $tiposCompra = [
+        ['id' => 'CONTADO', 'nombre' => 'Contado'],
+        ['id' => 'CREDITO', 'nombre' => 'Crédito'],
+        ['id' => 'TRANSFERENCIA', 'nombre' => 'Transferencia'],
+    ];
+
+    public function mount(): void
+    {
+        $this->fechaCompra = Carbon::today()->toDateString();
+        $this->cargarCatalogos();
+        $this->buscarProveedores();
+    }
+
+    public function updatedBuscarProveedor(): void
+    {
+        $this->idProveedor = '';
+        $this->proveedorNombre = '';
+        $this->buscarProveedores();
+    }
+
+    public function updatedBuscarProducto(): void
+    {
+        $this->limpiarProductoSeleccionado(false);
+        $this->buscarProductos();
+    }
+
+    public function updatedPrecioCompra(): void
+    {
+        $precioCompra = (float) $this->precioCompra;
+
+        if ($this->modoProducto === 'nuevo') {
+            $this->precioVentaEditable = true;
+            return;
+        }
+
+        if ($this->modoProducto === 'existente' && $this->idProducto !== '') {
+            $this->precioVentaEditable = $precioCompra > $this->precioVentaActual;
+
+            if (! $this->precioVentaEditable) {
+                $this->precioVenta = (string) $this->precioVentaActual;
+            }
+        }
+    }
+
+    public function cambiarModoProducto(string $modo): void
+    {
+        if (! in_array($modo, ['existente', 'nuevo'], true)) {
+            return;
+        }
+
+        $this->modoProducto = $modo;
+        $this->limpiarDetalleProducto();
+        $this->precioVentaEditable = $modo === 'nuevo';
+    }
+
+    protected function mostrarToast(string $mensaje, string $tipo = 'success'): void
+    {
+        $this->toastMensaje = $mensaje;
+        $this->toastTipo = $tipo;
+        $this->mostrarToast = true;
+    }
+
+    public function cerrarToast(): void
+    {
+        $this->mostrarToast = false;
+        $this->toastMensaje = '';
+        $this->toastTipo = 'success';
+    }
+
+    protected function cargarCatalogos(): void
+    {
+        $categoriasDb = DB::table('categoria_producto')
+            ->select('Id_Categoria', 'Nombre_Categoria')
+            ->orderBy('Nombre_Categoria')
+            ->get()
+            ->map(fn ($categoria) => [
+                'valor' => 'db:' . $categoria->Id_Categoria,
+                'id' => $categoria->Id_Categoria,
+                'nombre' => $categoria->Nombre_Categoria,
+                'temporal' => false,
+            ])
+            ->toArray();
+
+        $marcasDb = DB::table('marca')
+            ->select('Id_Marca', 'Nombre_Marca')
+            ->orderBy('Nombre_Marca')
+            ->get()
+            ->map(fn ($marca) => [
+                'valor' => 'db:' . $marca->Id_Marca,
+                'id' => $marca->Id_Marca,
+                'nombre' => $marca->Nombre_Marca,
+                'temporal' => false,
+            ])
+            ->toArray();
+
+        $this->categorias = array_merge($categoriasDb, $this->categoriasTemporales);
+        $this->marcas = array_merge($marcasDb, $this->marcasTemporales);
+    }
+
+    protected function buscarProveedores(): void
+    {
+        $busqueda = trim($this->buscarProveedor);
+
+        $query = DB::table('proveedor as pr')
+            ->leftJoin('persona as pe', 'pr.Id_Persona', '=', 'pe.Id_Persona')
+            ->select(
+                'pr.Id_Proveedor',
+                'pr.Codigo_RUC',
+                'pe.Primer_Nombre',
+                'pe.Segundo_Nombre',
+                'pe.Primer_Apellido',
+                'pe.Segundo_Apellido'
+            )
+            ->orderBy('pe.Primer_Nombre')
+            ->limit(8);
+
+        if ($busqueda !== '') {
+            $query->where(function ($q) use ($busqueda) {
+                $q->where('pr.Codigo_RUC', 'like', "%{$busqueda}%")
+                    ->orWhere('pe.Primer_Nombre', 'like', "%{$busqueda}%")
+                    ->orWhere('pe.Segundo_Nombre', 'like', "%{$busqueda}%")
+                    ->orWhere('pe.Primer_Apellido', 'like', "%{$busqueda}%")
+                    ->orWhere('pe.Segundo_Apellido', 'like', "%{$busqueda}%");
+            });
+        }
+
+        $this->proveedoresEncontrados = $query->get()
+            ->map(function ($proveedor) {
+                $nombre = trim(
+                    ($proveedor->Primer_Nombre ?? '') . ' ' .
+                    ($proveedor->Segundo_Nombre ?? '') . ' ' .
+                    ($proveedor->Primer_Apellido ?? '') . ' ' .
+                    ($proveedor->Segundo_Apellido ?? '')
+                );
+
+                return [
+                    'id' => $proveedor->Id_Proveedor,
+                    'nombre' => $nombre !== '' ? $nombre : 'Proveedor sin nombre',
+                    'ruc' => $proveedor->Codigo_RUC ?: 'Sin RUC',
+                ];
+            })
+            ->toArray();
+    }
+
+    public function seleccionarProveedor(int $idProveedor): void
+    {
+        $proveedor = DB::table('proveedor as pr')
+            ->leftJoin('persona as pe', 'pr.Id_Persona', '=', 'pe.Id_Persona')
+            ->select(
+                'pr.Id_Proveedor',
+                'pr.Codigo_RUC',
+                'pe.Primer_Nombre',
+                'pe.Segundo_Nombre',
+                'pe.Primer_Apellido',
+                'pe.Segundo_Apellido'
+            )
+            ->where('pr.Id_Proveedor', $idProveedor)
+            ->first();
+
+        if (! $proveedor) {
+            $this->mostrarToast('No se encontró el proveedor seleccionado.', 'error');
+            return;
+        }
+
+        $nombre = trim(
+            ($proveedor->Primer_Nombre ?? '') . ' ' .
+            ($proveedor->Segundo_Nombre ?? '') . ' ' .
+            ($proveedor->Primer_Apellido ?? '') . ' ' .
+            ($proveedor->Segundo_Apellido ?? '')
+        );
+
+        $this->idProveedor = $proveedor->Id_Proveedor;
+        $this->proveedorNombre = $nombre !== '' ? $nombre : 'Proveedor sin nombre';
+        $this->buscarProveedor = $this->proveedorNombre . ' - ' . ($proveedor->Codigo_RUC ?: 'Sin RUC');
+        $this->proveedoresEncontrados = [];
+    }
+
+    protected function buscarProductos(): void
+    {
+        $busqueda = trim($this->buscarProducto);
+
+        if ($busqueda === '') {
+            $this->productosEncontrados = [];
+            return;
+        }
+
+        $this->productosEncontrados = DB::table('producto as p')
+            ->leftJoin('categoria_producto as c', 'p.Id_Categoria', '=', 'c.Id_Categoria')
+            ->leftJoin('marca as m', 'p.Id_Marca', '=', 'm.Id_Marca')
+            ->select(
+                'p.Id_Producto',
+                'p.Nombre_Producto',
+                'p.Modelo',
+                'p.Precio_Venta',
+                'p.Stock_Actual',
+                'c.Nombre_Categoria',
+                'm.Nombre_Marca'
+            )
+            ->where(function ($q) use ($busqueda) {
+                $q->where('p.Nombre_Producto', 'like', "%{$busqueda}%")
+                    ->orWhere('p.Modelo', 'like', "%{$busqueda}%")
+                    ->orWhere('c.Nombre_Categoria', 'like', "%{$busqueda}%")
+                    ->orWhere('m.Nombre_Marca', 'like', "%{$busqueda}%");
+            })
+            ->orderBy('p.Nombre_Producto')
+            ->limit(8)
+            ->get()
+            ->map(fn ($producto) => [
+                'id' => $producto->Id_Producto,
+                'nombre' => $producto->Nombre_Producto,
+                'modelo' => $producto->Modelo ?: 'Sin modelo',
+                'categoria' => $producto->Nombre_Categoria ?: 'Sin categoría',
+                'marca' => $producto->Nombre_Marca ?: 'Sin marca',
+                'precio_venta' => (float) $producto->Precio_Venta,
+                'stock' => (int) $producto->Stock_Actual,
+            ])
+            ->toArray();
+    }
+
+    public function seleccionarProducto(int $idProducto): void
+    {
+        $producto = DB::table('producto as p')
+            ->leftJoin('categoria_producto as c', 'p.Id_Categoria', '=', 'c.Id_Categoria')
+            ->leftJoin('marca as m', 'p.Id_Marca', '=', 'm.Id_Marca')
+            ->select(
+                'p.Id_Producto',
+                'p.Nombre_Producto',
+                'p.Modelo',
+                'p.Precio_Venta',
+                'c.Nombre_Categoria',
+                'm.Nombre_Marca'
+            )
+            ->where('p.Id_Producto', $idProducto)
+            ->first();
+
+        if (! $producto) {
+            $this->mostrarToast('No se encontró el producto seleccionado.', 'error');
+            return;
+        }
+
+        $this->idProducto = $producto->Id_Producto;
+        $this->productoNombre = $producto->Nombre_Producto;
+        $this->productoModelo = $producto->Modelo ?: 'Sin modelo';
+        $this->productoCategoria = $producto->Nombre_Categoria ?: 'Sin categoría';
+        $this->productoMarca = $producto->Nombre_Marca ?: 'Sin marca';
+        $this->precioVentaActual = (float) $producto->Precio_Venta;
+        $this->precioVenta = (string) $this->precioVentaActual;
+        $this->precioVentaEditable = ((float) $this->precioCompra) > $this->precioVentaActual;
+
+        $this->buscarProducto = trim(
+            $this->productoMarca . ' ' .
+            $this->productoNombre . ' ' .
+            $this->productoModelo
+        );
+
+        $this->productosEncontrados = [];
+    }
+
+    public function agregarCategoriaTemporal(): void
+    {
+        $this->resetErrorBag();
+
+        $this->validate([
+            'nombreCategoriaNueva' => 'required|string|max:100',
+        ]);
+
+        $nombre = trim($this->nombreCategoriaNueva);
+
+        $existeDb = DB::table('categoria_producto')
+            ->whereRaw('LOWER(Nombre_Categoria) = ?', [mb_strtolower($nombre)])
+            ->exists();
+
+        $existeTemporal = collect($this->categoriasTemporales)
+            ->contains(fn ($categoria) => mb_strtolower($categoria['nombre']) === mb_strtolower($nombre));
+
+        if ($existeDb || $existeTemporal) {
+            $this->addError('nombreCategoriaNueva', 'Esta categoría ya existe.');
+            return;
+        }
+
+        $uid = uniqid('cat_', true);
+
+        $this->categoriasTemporales[] = [
+            'valor' => 'tmp:' . $uid,
+            'id' => null,
+            'nombre' => $nombre,
+            'temporal' => true,
+        ];
+
+        $this->nuevoCategoriaSeleccionada = 'tmp:' . $uid;
+        $this->nombreCategoriaNueva = '';
+        $this->mostrarNuevaCategoria = false;
+
+        $this->cargarCatalogos();
+        $this->mostrarToast('Categoría agregada temporalmente. Se guardará al guardar la compra.');
+    }
+
+    public function agregarMarcaTemporal(): void
+    {
+        $this->resetErrorBag();
+
+        $this->validate([
+            'nombreMarcaNueva' => 'required|string|max:100',
+        ]);
+
+        $nombre = trim($this->nombreMarcaNueva);
+
+        $existeDb = DB::table('marca')
+            ->whereRaw('LOWER(Nombre_Marca) = ?', [mb_strtolower($nombre)])
+            ->exists();
+
+        $existeTemporal = collect($this->marcasTemporales)
+            ->contains(fn ($marca) => mb_strtolower($marca['nombre']) === mb_strtolower($nombre));
+
+        if ($existeDb || $existeTemporal) {
+            $this->addError('nombreMarcaNueva', 'Esta marca ya existe.');
+            return;
+        }
+
+        $uid = uniqid('mar_', true);
+
+        $this->marcasTemporales[] = [
+            'valor' => 'tmp:' . $uid,
+            'id' => null,
+            'nombre' => $nombre,
+            'temporal' => true,
+        ];
+
+        $this->nuevoMarcaSeleccionada = 'tmp:' . $uid;
+        $this->nombreMarcaNueva = '';
+        $this->mostrarNuevaMarca = false;
+
+        $this->cargarCatalogos();
+        $this->mostrarToast('Marca agregada temporalmente. Se guardará al guardar la compra.');
+    }
+
+    protected function existeEnCatalogo(string $valor, array $catalogo): bool
+    {
+        return collect($catalogo)->contains(fn ($item) => $item['valor'] === $valor);
+    }
+
+    protected function nombreCatalogo(string $valor, array $catalogo, string $default): string
+    {
+        $item = collect($catalogo)->firstWhere('valor', $valor);
+
+        return $item['nombre'] ?? $default;
+    }
+
+    protected function obtenerSeries(): array
+    {
+        $texto = trim($this->seriesTexto);
+
+        if ($texto === '') {
+            return [];
+        }
+
+        return collect(preg_split('/[\r\n,;]+/', $texto))
+            ->map(fn ($serie) => trim($serie))
+            ->filter()
+            ->values()
+            ->toArray();
+    }
+
+    protected function validarSeries(array $series, int $cantidad): bool
+    {
+        if (count($series) === 0) {
+            return true;
+        }
+
+        if (count($series) > $cantidad) {
+            $this->addError('seriesTexto', 'No puede ingresar más números de serie que la cantidad comprada.');
+            return false;
+        }
+
+        if (count($series) !== count(array_unique($series))) {
+            $this->addError('seriesTexto', 'Hay números de serie repetidos en este detalle.');
+            return false;
+        }
+
+        foreach ($series as $serie) {
+            if (strlen($serie) > 100) {
+                $this->addError('seriesTexto', 'Cada número de serie debe tener máximo 100 caracteres.');
+                return false;
+            }
+        }
+
+        $seriesTemporales = collect($this->detalles)
+            ->flatMap(fn ($detalle) => $detalle['series'])
+            ->toArray();
+
+        foreach ($series as $serie) {
+            if (in_array($serie, $seriesTemporales, true)) {
+                $this->addError('seriesTexto', "El número de serie {$serie} ya está agregado temporalmente.");
+                return false;
+            }
+        }
+
+        $seriesExistentes = DB::table('producto_serie')
+            ->whereIn('Numero_Serie', $series)
+            ->pluck('Numero_Serie')
+            ->toArray();
+
+        if (count($seriesExistentes) > 0) {
+            $this->addError('seriesTexto', 'Ya existe este número de serie: ' . implode(', ', $seriesExistentes));
+            return false;
+        }
+
+        return true;
+    }
+
+    public function agregarDetalle(): void
+    {
+        $this->resetErrorBag();
+
+        $reglasBase = [
+            'cantidad' => 'required|integer|min:1',
+            'precioCompra' => 'required|numeric|min:0.01',
+            'precioVenta' => 'required|numeric|min:0.01',
+            'seriesTexto' => 'nullable|string|max:1000',
+        ];
+
+        if ($this->modoProducto === 'existente') {
+            $this->validate(array_merge($reglasBase, [
+                'idProducto' => 'required|exists:producto,Id_Producto',
+            ]));
+
+            if ((float) $this->precioCompra > $this->precioVentaActual && (float) $this->precioVenta < (float) $this->precioCompra) {
+                $this->addError('precioVenta', 'El precio de venta debe ser mayor o igual al precio de compra.');
+                return;
+            }
+
+            $productoId = (int) $this->idProducto;
+            $nombreProducto = $this->productoNombre;
+            $modelo = $this->productoModelo;
+            $categoriaValor = null;
+            $categoriaNombre = $this->productoCategoria;
+            $marcaValor = null;
+            $marcaNombre = $this->productoMarca;
+            $stockMinimo = null;
+            $fechaVencimiento = null;
+            $garantiaNuevo = null;
+            $garantiaUsado = null;
+            $estado = 1;
+        } else {
+            $this->validate(array_merge($reglasBase, [
+                'nuevoNombreProducto' => 'required|string|max:150',
+                'nuevoModelo' => 'nullable|string|max:100',
+                'nuevoCategoriaSeleccionada' => 'required|string',
+                'nuevoMarcaSeleccionada' => 'nullable|string',
+                'nuevoStockMinimo' => 'required|integer|min:0',
+                'nuevoFechaVencimiento' => 'required|in:0,1',
+                'nuevoGarantiaNuevo' => 'nullable|integer|min:0',
+                'nuevoGarantiaUsado' => 'nullable|integer|min:0',
+                'nuevoEstado' => 'required|in:0,1',
+            ]));
+
+            if (! $this->existeEnCatalogo($this->nuevoCategoriaSeleccionada, $this->categorias)) {
+                $this->addError('nuevoCategoriaSeleccionada', 'Seleccione una categoría válida.');
+                return;
+            }
+
+            if ($this->nuevoMarcaSeleccionada !== '' && ! $this->existeEnCatalogo($this->nuevoMarcaSeleccionada, $this->marcas)) {
+                $this->addError('nuevoMarcaSeleccionada', 'Seleccione una marca válida.');
+                return;
+            }
+
+            if ((float) $this->precioVenta < (float) $this->precioCompra) {
+                $this->addError('precioVenta', 'El precio de venta debe ser mayor o igual al precio de compra.');
+                return;
+            }
+
+            $productoId = null;
+            $nombreProducto = trim($this->nuevoNombreProducto);
+            $modelo = trim($this->nuevoModelo) !== '' ? trim($this->nuevoModelo) : 'Sin modelo';
+            $categoriaValor = $this->nuevoCategoriaSeleccionada;
+            $categoriaNombre = $this->nombreCatalogo($this->nuevoCategoriaSeleccionada, $this->categorias, 'Sin categoría');
+            $marcaValor = $this->nuevoMarcaSeleccionada !== '' ? $this->nuevoMarcaSeleccionada : null;
+            $marcaNombre = $this->nuevoMarcaSeleccionada !== ''
+                ? $this->nombreCatalogo($this->nuevoMarcaSeleccionada, $this->marcas, 'Sin marca')
+                : 'Sin marca';
+            $stockMinimo = (int) $this->nuevoStockMinimo;
+            $fechaVencimiento = (int) $this->nuevoFechaVencimiento;
+            $garantiaNuevo = $this->nuevoGarantiaNuevo !== '' ? (int) $this->nuevoGarantiaNuevo : null;
+            $garantiaUsado = $this->nuevoGarantiaUsado !== '' ? (int) $this->nuevoGarantiaUsado : null;
+            $estado = (int) $this->nuevoEstado;
+        }
+
+        $cantidad = (int) $this->cantidad;
+        $precioCompra = (float) $this->precioCompra;
+        $precioVenta = (float) $this->precioVenta;
+        $series = $this->obtenerSeries();
+
+        if (! $this->validarSeries($series, $cantidad)) {
+            return;
+        }
+
+        $subtotal = $cantidad * $precioCompra;
+
+        $this->detalles[] = [
+            'uid' => uniqid('detalle_', true),
+            'modo' => $this->modoProducto,
+            'producto_id' => $productoId,
+            'nombre_producto' => $nombreProducto,
+            'modelo' => $modelo,
+            'categoria_valor' => $categoriaValor,
+            'categoria' => $categoriaNombre,
+            'marca_valor' => $marcaValor,
+            'marca' => $marcaNombre,
+            'stock_minimo' => $stockMinimo,
+            'fecha_vencimiento' => $fechaVencimiento,
+            'garantia_nuevo' => $garantiaNuevo,
+            'garantia_usado' => $garantiaUsado,
+            'estado' => $estado,
+            'cantidad' => $cantidad,
+            'precio_compra' => $precioCompra,
+            'precio_venta' => $precioVenta,
+            'subtotal' => $subtotal,
+            'series' => $series,
+            'actualizar_precio_venta' => $this->modoProducto === 'nuevo' || $precioVenta > $this->precioVentaActual,
+        ];
+
+        $this->limpiarDetalleProducto();
+        $this->mostrarToast('Producto agregado temporalmente a la compra.');
+    }
+
+    public function quitarDetalle(int $indice): void
+    {
+        if (! isset($this->detalles[$indice])) {
+            return;
+        }
+
+        unset($this->detalles[$indice]);
+        $this->detalles = array_values($this->detalles);
+
+        $this->mostrarToast('Producto quitado de la compra.');
+    }
+
+    protected function resolverCategoriaId(string $valor, array &$categoriasCreadas): int
+    {
+        if (str_starts_with($valor, 'db:')) {
+            return (int) str_replace('db:', '', $valor);
+        }
+
+        if (! isset($categoriasCreadas[$valor])) {
+            $categoriaTemporal = collect($this->categoriasTemporales)->firstWhere('valor', $valor);
+
+            if (! $categoriaTemporal) {
+                throw new RuntimeException('No se encontró la categoría temporal.');
+            }
+
+            $categoriasCreadas[$valor] = DB::table('categoria_producto')->insertGetId([
+                'Nombre_Categoria' => $categoriaTemporal['nombre'],
+            ]);
+        }
+
+        return (int) $categoriasCreadas[$valor];
+    }
+
+    protected function resolverMarcaId(?string $valor, array &$marcasCreadas): ?int
+    {
+        if ($valor === null || $valor === '') {
+            return null;
+        }
+
+        if (str_starts_with($valor, 'db:')) {
+            return (int) str_replace('db:', '', $valor);
+        }
+
+        if (! isset($marcasCreadas[$valor])) {
+            $marcaTemporal = collect($this->marcasTemporales)->firstWhere('valor', $valor);
+
+            if (! $marcaTemporal) {
+                throw new RuntimeException('No se encontró la marca temporal.');
+            }
+
+            $marcasCreadas[$valor] = DB::table('marca')->insertGetId([
+                'Nombre_Marca' => $marcaTemporal['nombre'],
+                'Estado' => 1,
+            ]);
+        }
+
+        return (int) $marcasCreadas[$valor];
+    }
+
+    public function guardarCompra(): void
+    {
+        $this->resetErrorBag();
+
+        $this->validate([
+            'idProveedor' => 'required|exists:proveedor,Id_Proveedor',
+            'numeroCompra' => 'required|string|max:50',
+            'fechaCompra' => 'required|date|before_or_equal:today',
+            'tipoCompra' => 'required|string|max:50',
+            'retencion' => 'required|integer|min:0|max:100',
+            'iva' => 'required|numeric|min:0|max:100',
+            'observacion' => 'nullable|string|max:255',
+        ]);
+
+        if (count($this->detalles) === 0) {
+            $this->mostrarToast('Debe agregar al menos un producto a la compra.', 'error');
+            return;
+        }
+
+        $idUsuario = $this->obtenerUsuarioActual();
+
+        if (! $idUsuario) {
+            $this->mostrarToast('No existe un usuario registrado para guardar la compra. Cree al menos un usuario o active el login.', 'error');
+            return;
+        }
+
+        $todasLasSeries = collect($this->detalles)
+            ->flatMap(fn ($detalle) => $detalle['series'])
+            ->values()
+            ->toArray();
+
+        if (count($todasLasSeries) !== count(array_unique($todasLasSeries))) {
+            $this->mostrarToast('Hay números de serie repetidos en la compra.', 'error');
+            return;
+        }
+
+        if (count($todasLasSeries) > 0) {
+            $seriesExistentes = DB::table('producto_serie')
+                ->whereIn('Numero_Serie', $todasLasSeries)
+                ->pluck('Numero_Serie')
+                ->toArray();
+
+            if (count($seriesExistentes) > 0) {
+                $this->mostrarToast('Ya existen números de serie registrados: ' . implode(', ', $seriesExistentes), 'error');
+                return;
+            }
+        }
+
+        try {
+            DB::transaction(function () use ($idUsuario) {
+                $categoriasCreadas = [];
+                $marcasCreadas = [];
+                $primerProductoId = null;
+
+                $compra = new Compra();
+                $compra->Numero_Compra = trim($this->numeroCompra);
+                $compra->Fecha_Compra = Carbon::parse($this->fechaCompra)->startOfDay();
+                $compra->Id_Proveedor = (int) $this->idProveedor;
+                $compra->Id_Usuario = (int) $idUsuario;
+                $compra->Tipo_Compra = $this->tipoCompra;
+                $compra->Total = $this->totalGeneral();
+                $compra->Observacion = trim($this->observacion) !== '' ? trim($this->observacion) : null;
+                $compra->Retencion = (int) $this->retencion;
+                $compra->Iva = (float) $this->iva;
+                $compra->Id_producto = null;
+                $compra->save();
+
+                foreach ($this->detalles as $detalle) {
+                    if ($detalle['modo'] === 'nuevo') {
+                        $categoriaId = $this->resolverCategoriaId($detalle['categoria_valor'], $categoriasCreadas);
+                        $marcaId = $this->resolverMarcaId($detalle['marca_valor'], $marcasCreadas);
+
+                        $productoId = DB::table('producto')->insertGetId([
+                            'Id_Categoria' => $categoriaId,
+                            'Id_Marca' => $marcaId,
+                            'Nombre_Producto' => $detalle['nombre_producto'],
+                            'Modelo' => $detalle['modelo'] !== 'Sin modelo' ? $detalle['modelo'] : null,
+                            'Stock_Actual' => 0,
+                            'Stock_Minimo' => $detalle['stock_minimo'],
+                            'Precio_Venta' => $detalle['precio_venta'],
+                            'Fecha_Vencimiento' => $detalle['fecha_vencimiento'],
+                            'Meses_Garantia_Nuevo' => $detalle['garantia_nuevo'],
+                            'Meses_Garantia_Usado' => $detalle['garantia_usado'],
+                            'Estado' => $detalle['estado'],
+                        ]);
+                    } else {
+                        $productoId = (int) $detalle['producto_id'];
+
+                        if ($detalle['actualizar_precio_venta']) {
+                            DB::table('producto')
+                                ->where('Id_Producto', $productoId)
+                                ->update([
+                                    'Precio_Venta' => $detalle['precio_venta'],
+                                ]);
+                        }
+                    }
+
+                    if ($primerProductoId === null) {
+                        $primerProductoId = $productoId;
+                    }
+
+                    DB::table('producto')
+                        ->where('Id_Producto', $productoId)
+                        ->increment('Stock_Actual', $detalle['cantidad']);
+
+                    foreach ($detalle['series'] as $serie) {
+                        DB::table('producto_serie')->insert([
+                            'Id_Producto' => $productoId,
+                            'Numero_Serie' => $serie,
+                            'Fecha_Ingreso' => now(),
+                            'Estado' => 'DISPONIBLE',
+                            'Observacion' => null,
+                        ]);
+                    }
+
+                    $detalleCompra = new DetalleCompra();
+                    $detalleCompra->Id_Compra = $compra->Id_Compra;
+                    $detalleCompra->Id_Producto = $productoId;
+                    $detalleCompra->Cantidad = $detalle['cantidad'];
+                    $detalleCompra->Precio_Compra = $detalle['precio_compra'];
+                    $detalleCompra->Subtotal = $detalle['subtotal'];
+                    $detalleCompra->save();
+                }
+
+                $compra->Id_producto = $primerProductoId;
+                $compra->save();
+            });
+
+            $this->cancelarCompra(false);
+            $this->mostrarToast('Compra guardada correctamente.');
+        } catch (\Throwable $e) {
+            $this->mostrarToast('Error al guardar la compra: ' . $e->getMessage(), 'error');
+        }
+    }
+
+    protected function obtenerUsuarioActual(): ?int
+    {
+        $idAuth = auth()->id();
+
+        if ($idAuth && DB::table('usuario')->where('Id_Usuario', $idAuth)->exists()) {
+            return (int) $idAuth;
+        }
+
+        $primerUsuario = DB::table('usuario')
+            ->orderBy('Id_Usuario')
+            ->value('Id_Usuario');
+
+        return $primerUsuario ? (int) $primerUsuario : null;
+    }
+
+    public function cancelarCompra(bool $mostrarMensaje = true): void
+    {
+        $this->buscarProveedor = '';
+        $this->proveedorNombre = '';
+        $this->idProveedor = '';
+
+        $this->numeroCompra = '';
+        $this->fechaCompra = Carbon::today()->toDateString();
+        $this->tipoCompra = 'CONTADO';
+        $this->observacion = '';
+        $this->retencion = '0';
+        $this->iva = '0';
+
+        $this->detalles = [];
+        $this->categoriasTemporales = [];
+        $this->marcasTemporales = [];
+        $this->mostrarNuevaCategoria = false;
+        $this->mostrarNuevaMarca = false;
+        $this->nombreCategoriaNueva = '';
+        $this->nombreMarcaNueva = '';
+
+        $this->limpiarDetalleProducto();
+        $this->cargarCatalogos();
+        $this->buscarProveedores();
+
+        if ($mostrarMensaje) {
+            $this->mostrarToast('Compra cancelada. No se guardó nada en la base de datos.');
+        }
+    }
+
+    public function limpiarDetalleProducto(): void
+    {
+        $this->limpiarProductoSeleccionado();
+        $this->cantidad = '1';
+        $this->precioCompra = '0';
+        $this->precioVenta = '0';
+        $this->seriesTexto = '';
+
+        $this->resetErrorBag();
+        $this->resetValidation();
+    }
+
+    protected function limpiarProductoSeleccionado(bool $limpiarBusqueda = true): void
+    {
+        if ($limpiarBusqueda) {
+            $this->buscarProducto = '';
+        }
+
+        $this->productosEncontrados = [];
+        $this->idProducto = '';
+        $this->productoNombre = '';
+        $this->productoCategoria = '';
+        $this->productoMarca = '';
+        $this->productoModelo = '';
+        $this->precioVentaActual = 0;
+
+        $this->nuevoNombreProducto = '';
+        $this->nuevoModelo = '';
+        $this->nuevoCategoriaSeleccionada = '';
+        $this->nuevoMarcaSeleccionada = '';
+        $this->nuevoStockMinimo = '0';
+        $this->nuevoFechaVencimiento = '0';
+        $this->nuevoGarantiaNuevo = '';
+        $this->nuevoGarantiaUsado = '';
+        $this->nuevoEstado = '1';
+
+        $this->precioVentaEditable = $this->modoProducto === 'nuevo';
+    }
+
+    public function subtotalGeneral(): float
+    {
+        return (float) collect($this->detalles)->sum('subtotal');
+    }
+
+    public function ivaGeneral(): float
+    {
+        return $this->subtotalGeneral() * ((float) $this->iva / 100);
+    }
+
+    public function retencionGeneral(): float
+    {
+        return $this->subtotalGeneral() * ((float) $this->retencion / 100);
+    }
+
+    public function totalGeneral(): float
+    {
+        return $this->subtotalGeneral() + $this->ivaGeneral() - $this->retencionGeneral();
+    }
 };
 ?>
 
-<div class="min-h-screen bg-[#F0F3F7] p-6 space-y-6">
-    <div>
-        <h1 class="text-3xl font-bold text-[#1A2B42]">Compras</h1>
-        <p class="mt-1 text-sm text-[#5F6B7A]">
-            Registro visual de compras realizadas a proveedores.
-        </p>
+<div class="min-h-screen bg-[#F0F3F7] px-4 py-4 md:px-6 md:py-5">
+    <div class="mx-auto flex w-full max-w-[1450px] flex-col gap-4">
+        <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+                <h1 class="text-2xl font-bold text-[#1A2B42]">Compras</h1>
+                <p class="mt-1 text-sm text-[#5F6B7A]">
+                    Registre compras, agregue productos existentes o cree productos nuevos sin salir de esta pantalla.
+                </p>
+            </div>
+
+            <div class="rounded-2xl border border-[#D7E4F3] bg-white px-4 py-3 shadow-sm">
+                <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Total de compra</p>
+                <p class="text-2xl font-bold text-[#1A2B42]">
+                    C$ {{ number_format($this->totalGeneral(), 2) }}
+                </p>
+            </div>
+        </div>
+
+        @if ($mostrarToast)
+            <div class="fixed right-5 top-5 z-999 w-full max-w-sm">
+                <div class="{{ $toastTipo === 'success' ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#1A2B42]' : 'border-red-200 bg-red-50 text-red-700' }} rounded-2xl border px-4 py-4 shadow-lg">
+                    <div class="flex items-start justify-between gap-3">
+                        <p class="text-sm font-medium">{{ $toastMensaje }}</p>
+                        <button type="button" wire:click="cerrarToast" class="text-lg leading-none text-[#5F6B7A] hover:text-[#1A2B42]">
+                            ×
+                        </button>
+                    </div>
+                </div>
+            </div>
+        @endif
+
+        <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
+            <div class="mb-4">
+                <h2 class="text-xl font-bold text-[#1A2B42]">Datos generales de la compra</h2>
+                <p class="text-sm text-[#5F6B7A]">
+                    El IVA, la retención y la observación pertenecen a la compra completa.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
+                <div class="relative lg:col-span-4">
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Proveedor</label>
+                    <x-input
+                        wire:model.live.debounce.250ms="buscarProveedor"
+                        type="text"
+                        placeholder="Buscar proveedor por nombre o RUC"
+                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
+                    />
+                    @error('idProveedor')
+                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    @enderror
+
+                    @if (count($proveedoresEncontrados) > 0 && $buscarProveedor !== '' && $idProveedor === '')
+                        <div class="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-[#D7E4F3] bg-white shadow-lg">
+                            @foreach ($proveedoresEncontrados as $proveedor)
+                                <button
+                                    type="button"
+                                    wire:click="seleccionarProveedor({{ $proveedor['id'] }})"
+                                    class="block w-full px-4 py-3 text-left text-sm text-[#1A2B42] hover:bg-[#EAF2FB]"
+                                >
+                                    <span class="block font-semibold">{{ $proveedor['nombre'] }}</span>
+                                    <span class="text-xs text-[#5F6B7A]">RUC: {{ $proveedor['ruc'] }}</span>
+                                </button>
+                            @endforeach
+                        </div>
+                    @endif
+                </div>
+
+                <div class="lg:col-span-2">
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Número de factura</label>
+                    <x-input
+                        wire:model.defer="numeroCompra"
+                        type="text"
+                        maxlength="50"
+                        placeholder="No. factura"
+                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
+                    />
+                    @error('numeroCompra')
+                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    @enderror
+                </div>
+
+                <div class="lg:col-span-2">
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Fecha</label>
+                    <x-input
+                        wire:model.defer="fechaCompra"
+                        type="date"
+                        max="{{ now()->toDateString() }}"
+                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                    />
+                    @error('fechaCompra')
+                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    @enderror
+                </div>
+
+                <div class="lg:col-span-2">
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo de pago</label>
+                    <select
+                        wire:model.defer="tipoCompra"
+                        class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]"
+                    >
+                        @foreach ($tiposCompra as $tipo)
+                            <option value="{{ $tipo['id'] }}">{{ $tipo['nombre'] }}</option>
+                        @endforeach
+                    </select>
+                    @error('tipoCompra')
+                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    @enderror
+                </div>
+
+                <div class="lg:col-span-1">
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Ret. %</label>
+                    <x-input
+                        wire:model.live.debounce.250ms="retencion"
+                        type="number"
+                        min="0"
+                        max="100"
+                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                    />
+                    @error('retencion')
+                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    @enderror
+                </div>
+
+                <div class="lg:col-span-1">
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">IVA %</label>
+                    <x-input
+                        wire:model.live.debounce.250ms="iva"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                    />
+                    @error('iva')
+                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    @enderror
+                </div>
+
+                <div class="lg:col-span-12">
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Observación</label>
+                    <textarea
+                        wire:model.defer="observacion"
+                        rows="2"
+                        placeholder="Opcional"
+                        class="w-full rounded-lg border-0 bg-[#F0F3F7] px-3 py-2 text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
+                    ></textarea>
+                    @error('observacion')
+                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    @enderror
+                </div>
+            </div>
+        </x-card>
+
+        <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
+            <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                    <h2 class="text-xl font-bold text-[#1A2B42]">Agregar producto</h2>
+                    <p class="text-sm text-[#5F6B7A]">
+                        Los productos se agregan primero a la tabla temporal.
+                    </p>
+                </div>
+
+                <div class="inline-flex rounded-xl bg-[#F0F3F7] p-1">
+                    <button
+                        type="button"
+                        wire:click="cambiarModoProducto('existente')"
+                        class="{{ $modoProducto === 'existente' ? 'bg-[#2E8BC0] text-white' : 'text-[#1A2B42]' }} rounded-lg px-4 py-2 text-sm font-semibold transition"
+                    >
+                        Producto existente
+                    </button>
+
+                    <button
+                        type="button"
+                        wire:click="cambiarModoProducto('nuevo')"
+                        class="{{ $modoProducto === 'nuevo' ? 'bg-[#2E8BC0] text-white' : 'text-[#1A2B42]' }} rounded-lg px-4 py-2 text-sm font-semibold transition"
+                    >
+                        Producto nuevo
+                    </button>
+                </div>
+            </div>
+
+            @if ($modoProducto === 'existente')
+                <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
+                    <div class="relative xl:col-span-4">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Buscar producto</label>
+                        <x-input
+                            wire:model.live.debounce.250ms="buscarProducto"
+                            type="text"
+                            placeholder="Escriba para buscar coincidencias"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
+                        />
+                        @error('idProducto')
+                            <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                        @enderror
+
+                        @if (count($productosEncontrados) > 0)
+                            <div class="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-[#D7E4F3] bg-white shadow-lg">
+                                @foreach ($productosEncontrados as $producto)
+                                    <button
+                                        type="button"
+                                        wire:click="seleccionarProducto({{ $producto['id'] }})"
+                                        class="block w-full px-4 py-3 text-left text-sm text-[#1A2B42] hover:bg-[#EAF2FB]"
+                                    >
+                                        <span class="block font-semibold">
+                                            {{ $producto['marca'] }} {{ $producto['nombre'] }}
+                                        </span>
+                                        <span class="text-xs text-[#5F6B7A]">
+                                            {{ $producto['modelo'] }} · {{ $producto['categoria'] }} · Stock: {{ $producto['stock'] }} · C$ {{ number_format($producto['precio_venta'], 2) }}
+                                        </span>
+                                    </button>
+                                @endforeach
+                            </div>
+                        @endif
+                    </div>
+
+                    <div class="xl:col-span-2">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Categoría</label>
+                        <x-input value="{{ $productoCategoria }}" readonly placeholder="Se carga al seleccionar"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                    </div>
+
+                    <div class="xl:col-span-2">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Marca</label>
+                        <x-input value="{{ $productoMarca }}" readonly placeholder="Se carga al seleccionar"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                    </div>
+
+                    <div class="xl:col-span-2">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Modelo</label>
+                        <x-input value="{{ $productoModelo }}" readonly placeholder="Se carga al seleccionar"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                    </div>
+
+                    <div class="xl:col-span-2">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Precio venta actual</label>
+                        <x-input value="C$ {{ number_format($precioVentaActual, 2) }}" readonly
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                    </div>
+                </div>
+            @else
+                <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
+                    <div class="xl:col-span-3">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Nombre del producto</label>
+                        <x-input wire:model.defer="nuevoNombreProducto" type="text" maxlength="150"
+                            placeholder="Ej: Laptop HP 15"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+                        @error('nuevoNombreProducto')
+                            <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                        @enderror
+                    </div>
+
+                    <div class="xl:col-span-2">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Modelo</label>
+                        <x-input wire:model.defer="nuevoModelo" type="text" maxlength="100" placeholder="Opcional"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+                    </div>
+
+                    <div class="xl:col-span-3">
+                        <div class="flex items-center justify-between gap-2">
+                            <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Categoría</label>
+                            <button type="button" wire:click="$toggle('mostrarNuevaCategoria')" class="text-xs font-semibold text-[#0B6FE4]">
+                                + Nueva
+                            </button>
+                        </div>
+
+                        <select wire:model.defer="nuevoCategoriaSeleccionada"
+                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
+                            <option value="">Seleccione categoría</option>
+                            @foreach ($categorias as $categoria)
+                                <option value="{{ $categoria['valor'] }}">
+                                    {{ $categoria['nombre'] }} {{ $categoria['temporal'] ? '(nueva)' : '' }}
+                                </option>
+                            @endforeach
+                        </select>
+                        @error('nuevoCategoriaSeleccionada')
+                            <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                        @enderror
+
+                        @if ($mostrarNuevaCategoria)
+                            <div class="mt-2 flex gap-2">
+                                <x-input wire:model.defer="nombreCategoriaNueva" type="text" placeholder="Nueva categoría"
+                                    class="h-9 min-h-9 w-full rounded-lg bg-[#F0F3F7] text-xs text-[#1A2B42]" />
+                                <x-button label="Agregar" wire:click="agregarCategoriaTemporal"
+                                    class="h-9 min-h-9 border-0 bg-[#2E8BC0] px-3 text-xs text-white hover:bg-[#0B6FE4]" />
+                            </div>
+                            @error('nombreCategoriaNueva')
+                                <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                            @enderror
+                        @endif
+                    </div>
+
+                    <div class="xl:col-span-3">
+                        <div class="flex items-center justify-between gap-2">
+                            <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Marca</label>
+                            <button type="button" wire:click="$toggle('mostrarNuevaMarca')" class="text-xs font-semibold text-[#0B6FE4]">
+                                + Nueva
+                            </button>
+                        </div>
+
+                        <select wire:model.defer="nuevoMarcaSeleccionada"
+                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
+                            <option value="">Seleccione marca</option>
+                            @foreach ($marcas as $marca)
+                                <option value="{{ $marca['valor'] }}">
+                                    {{ $marca['nombre'] }} {{ $marca['temporal'] ? '(nueva)' : '' }}
+                                </option>
+                            @endforeach
+                        </select>
+
+                        @if ($mostrarNuevaMarca)
+                            <div class="mt-2 flex gap-2">
+                                <x-input wire:model.defer="nombreMarcaNueva" type="text" placeholder="Nueva marca"
+                                    class="h-9 min-h-9 w-full rounded-lg bg-[#F0F3F7] text-xs text-[#1A2B42]" />
+                                <x-button label="Agregar" wire:click="agregarMarcaTemporal"
+                                    class="h-9 min-h-9 border-0 bg-[#2E8BC0] px-3 text-xs text-white hover:bg-[#0B6FE4]" />
+                            </div>
+                            @error('nombreMarcaNueva')
+                                <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                            @enderror
+                        @endif
+                    </div>
+
+                    <div class="xl:col-span-1">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Stock mín.</label>
+                        <x-input wire:model.defer="nuevoStockMinimo" type="number" min="0"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                    </div>
+
+                    <div class="xl:col-span-2">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Vencimiento</label>
+                        <select wire:model.defer="nuevoFechaVencimiento"
+                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
+                            <option value="0">No aplica</option>
+                            <option value="1">Aplica</option>
+                        </select>
+                    </div>
+
+                    <div class="xl:col-span-2">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Garantía nuevo</label>
+                        <x-input wire:model.defer="nuevoGarantiaNuevo" type="number" min="0" placeholder="Meses"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                    </div>
+
+                    <div class="xl:col-span-2">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Garantía usado</label>
+                        <x-input wire:model.defer="nuevoGarantiaUsado" type="number" min="0" placeholder="Meses"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                    </div>
+
+                    <div class="xl:col-span-2">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Estado</label>
+                        <select wire:model.defer="nuevoEstado"
+                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
+                            <option value="1">Activo</option>
+                            <option value="0">Inactivo</option>
+                        </select>
+                    </div>
+                </div>
+            @endif
+
+            <div class="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-12">
+                <div class="xl:col-span-1">
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Cantidad</label>
+                    <x-input wire:model.defer="cantidad" type="number" min="1"
+                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                    @error('cantidad')
+                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    @enderror
+                </div>
+
+                <div class="xl:col-span-2">
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Precio compra</label>
+                    <x-input wire:model.live.debounce.250ms="precioCompra" type="number" step="0.01" min="0"
+                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                    @error('precioCompra')
+                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    @enderror
+                </div>
+
+                <div class="xl:col-span-2">
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                        Precio venta
+                        @if ($modoProducto === 'existente' && ! $precioVentaEditable)
+                            <span class="text-xs font-normal text-[#5F6B7A]">(solo lectura)</span>
+                        @endif
+                    </label>
+                    <x-input wire:model.defer="precioVenta" type="number" step="0.01" min="0"
+                        :readonly="! $precioVentaEditable"
+                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                    @error('precioVenta')
+                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    @enderror
+                </div>
+
+                <div class="xl:col-span-7">
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                        Números de serie
+                        <span class="text-xs font-normal text-[#5F6B7A]">uno por línea, coma o punto y coma</span>
+                    </label>
+                    <textarea wire:model.defer="seriesTexto" rows="2"
+                        placeholder="Opcional. Ej: SN001, SN002"
+                        class="w-full rounded-lg border-0 bg-[#F0F3F7] px-3 py-2 text-sm text-[#1A2B42] placeholder:text-[#7B8794]"></textarea>
+                    @error('seriesTexto')
+                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    @enderror
+                </div>
+            </div>
+
+            <div class="mt-5 flex flex-wrap justify-end gap-3">
+                <x-button label="Limpiar producto" type="button" wire:click="limpiarDetalleProducto"
+                    class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]" />
+
+                <x-button label="Agregar a la compra" icon="o-plus" type="button" wire:click="agregarDetalle"
+                    class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]" />
+            </div>
+        </x-card>
+
+        <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
+            <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                    <h2 class="text-xl font-bold text-[#1A2B42]">Detalle temporal de compra</h2>
+                    <p class="text-sm text-[#5F6B7A]">
+                        Nada de esta tabla se guarda hasta presionar “Guardar compra”.
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 text-right md:grid-cols-4">
+                    <div class="rounded-xl bg-[#F0F3F7] px-3 py-2">
+                        <p class="text-xs text-[#5F6B7A]">Subtotal</p>
+                        <p class="text-sm font-bold text-[#1A2B42]">C$ {{ number_format($this->subtotalGeneral(), 2) }}</p>
+                    </div>
+
+                    <div class="rounded-xl bg-[#F0F3F7] px-3 py-2">
+                        <p class="text-xs text-[#5F6B7A]">IVA</p>
+                        <p class="text-sm font-bold text-[#1A2B42]">C$ {{ number_format($this->ivaGeneral(), 2) }}</p>
+                    </div>
+
+                    <div class="rounded-xl bg-[#F0F3F7] px-3 py-2">
+                        <p class="text-xs text-[#5F6B7A]">Retención</p>
+                        <p class="text-sm font-bold text-[#1A2B42]">C$ {{ number_format($this->retencionGeneral(), 2) }}</p>
+                    </div>
+
+                    <div class="rounded-xl bg-[#EAF4FD] px-3 py-2">
+                        <p class="text-xs text-[#5F6B7A]">Total</p>
+                        <p class="text-sm font-bold text-[#1A2B42]">C$ {{ number_format($this->totalGeneral(), 2) }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-white">
+                <div class="max-h-[430px] overflow-x-auto overflow-y-auto">
+                    <table class="min-w-[1200px] w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
+                        <thead class="sticky top-0 z-10">
+                            <tr>
+                                <th class="rounded-tl-xl bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">Tipo</th>
+                                <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">Producto</th>
+                                <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">Categoría</th>
+                                <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">Marca</th>
+                                <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Cantidad</th>
+                                <th class="bg-[#2E8BC0] px-3 py-3 text-right font-semibold text-white">P. compra</th>
+                                <th class="bg-[#2E8BC0] px-3 py-3 text-right font-semibold text-white">P. venta</th>
+                                <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Series</th>
+                                <th class="bg-[#2E8BC0] px-3 py-3 text-right font-semibold text-white">Subtotal</th>
+                                <th class="rounded-tr-xl bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Acción</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            @forelse ($detalles as $index => $detalle)
+                                <tr class="odd:bg-white even:bg-[#F8FBFF]">
+                                    <td class="px-3 py-3 whitespace-nowrap">
+                                        <span class="{{ $detalle['modo'] === 'nuevo' ? 'bg-[#EAF4FD] text-[#0E48A1]' : 'bg-green-100 text-green-700' }} rounded-full px-2.5 py-1 text-xs font-semibold">
+                                            {{ $detalle['modo'] === 'nuevo' ? 'Nuevo' : 'Existente' }}
+                                        </span>
+                                    </td>
+
+                                    <td class="px-3 py-3 whitespace-nowrap font-semibold">
+                                        {{ $detalle['nombre_producto'] }}
+                                        <span class="block text-xs font-normal text-[#5F6B7A]">{{ $detalle['modelo'] }}</span>
+                                    </td>
+
+                                    <td class="px-3 py-3 whitespace-nowrap">{{ $detalle['categoria'] }}</td>
+                                    <td class="px-3 py-3 whitespace-nowrap">{{ $detalle['marca'] }}</td>
+                                    <td class="px-3 py-3 text-center whitespace-nowrap">{{ $detalle['cantidad'] }}</td>
+                                    <td class="px-3 py-3 text-right whitespace-nowrap">C$ {{ number_format($detalle['precio_compra'], 2) }}</td>
+                                    <td class="px-3 py-3 text-right whitespace-nowrap">C$ {{ number_format($detalle['precio_venta'], 2) }}</td>
+                                    <td class="px-3 py-3 text-center whitespace-nowrap">{{ count($detalle['series']) }}</td>
+                                    <td class="px-3 py-3 text-right font-semibold whitespace-nowrap">C$ {{ number_format($detalle['subtotal'], 2) }}</td>
+
+                                    <td class="px-3 py-3 text-center whitespace-nowrap">
+                                        <x-button icon="o-trash" wire:click="quitarDetalle({{ $index }})"
+                                            class="h-8 min-h-8 border-0 bg-red-50 px-3 text-xs text-red-700 hover:bg-red-100" />
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="10" class="px-4 py-8 text-center text-sm text-[#7B8794]">
+                                        Todavía no hay productos agregados a la compra.
+                                    </td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="mt-5 flex flex-wrap justify-end gap-3">
+                <x-button label="Cancelar compra" icon="o-x-mark" type="button" wire:click="cancelarCompra"
+                    class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]" />
+
+                <x-button label="Guardar compra" icon="o-check" type="button" wire:click="guardarCompra"
+                    class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]" />
+            </div>
+        </x-card>
     </div>
-
-    {{-- Formulario --}}
-    <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-        <div class="mb-6">
-            <h2 class="text-2xl font-bold text-[#1A2B42]">Registrar compra</h2>
-            <p class="text-base text-[#5F6B7A]">
-                Ingrese los datos generales y el detalle de la compra.
-            </p>
-        </div>
-
-        <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-            <div>
-                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    Proveedor
-                </label>
-                <x-select
-                    placeholder="Seleccione un proveedor"
-                    :options="[
-                        ['id' => 1, 'name' => 'Distribuidora Central'],
-                        ['id' => 2, 'name' => 'Tech Import'],
-                        ['id' => 3, 'name' => 'Suministros del Norte'],
-                    ]"
-                    option-value="id"
-                    option-label="name"
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                />
-            </div>
-
-            <div>
-                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    Número de factura
-                </label>
-                <x-input
-                    placeholder="Ingrese el número de factura"
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                />
-            </div>
-
-            <div>
-                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    Fecha de compra
-                </label>
-                <x-datetime
-                    type="date"
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                />
-            </div>
-
-            <div>
-                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    Categoría
-                </label>
-                <x-select
-                    placeholder="Seleccione una categoría"
-                    :options="[
-                        ['id' => 1, 'name' => 'Laptops'],
-                        ['id' => 2, 'name' => 'Impresoras'],
-                        ['id' => 3, 'name' => 'Accesorios'],
-                    ]"
-                    option-value="id"
-                    option-label="name"
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                />
-            </div>
-
-            <div>
-                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    Marca
-                </label>
-                <x-select
-                    placeholder="Seleccione una marca"
-                    :options="[
-                        ['id' => 1, 'name' => 'HP'],
-                        ['id' => 2, 'name' => 'Dell'],
-                        ['id' => 3, 'name' => 'Canon'],
-                    ]"
-                    option-value="id"
-                    option-label="name"
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                />
-            </div>
-
-            <div>
-                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    Nombre de producto
-                </label>
-                <x-select
-                    placeholder="Seleccione un producto"
-                    :options="[
-                        ['id' => 1, 'name' => 'Laptop HP 15'],
-                        ['id' => 2, 'name' => 'Impresora Canon G3110'],
-                        ['id' => 3, 'name' => 'Mouse inalámbrico'],
-                    ]"
-                    option-value="id"
-                    option-label="name"
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                />
-            </div>
-
-            <div>
-                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    Cantidad
-                </label>
-                <x-input
-                    placeholder="Ingrese la cantidad"
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                />
-            </div>
-
-            <div>
-                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    Precio de compra
-                </label>
-                <x-input
-                    placeholder="Ingrese el precio de compra"
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                />
-            </div>
-
-            <div>
-                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    Precio de venta
-                </label>
-                <x-input
-                    placeholder="Ingrese el precio de venta"
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                />
-            </div>
-
-            <div>
-                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    Retención
-                </label>
-                <x-input
-                    placeholder="Ingrese la retención"
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                />
-            </div>
-
-            <div>
-                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    IVA
-                </label>
-                <x-input
-                    placeholder="Ingrese el IVA"
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                />
-            </div>
-
-            <div>
-                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    Tipo de pago
-                </label>
-                <x-select
-                    placeholder="Seleccione un tipo de pago"
-                    :options="[
-                        ['id' => 'efectivo', 'name' => 'Efectivo'],
-                        ['id' => 'transferencia', 'name' => 'Transferencia'],
-                        ['id' => 'credito', 'name' => 'Crédito'],
-                    ]"
-                    option-value="id"
-                    option-label="name"
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                />
-            </div>
-
-            <div class="md:col-span-2 xl:col-span-3">
-                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    Observación
-                </label>
-                <x-textarea
-                    placeholder="Ingrese una observación"
-                    rows="4"
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                />
-            </div>
-        </div>
-
-        <x-slot:actions>
-            <div class="flex flex-wrap gap-3">
-                <x-button
-                    label="Agregar"
-                    icon="o-plus"
-                    class="border-0 bg-[#2E8BC0] text-white hover:opacity-90"
-                />
-                <x-button
-                    label="Guardar compra"
-                    icon="o-check"
-                    class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]"
-                />
-            </div>
-        </x-slot:actions>
-    </x-card>
-
-    @php
-        $headers = [
-            ['key' => 'provider', 'label' => 'Proveedor'],
-            ['key' => 'invoice', 'label' => 'No. Factura'],
-            ['key' => 'date', 'label' => 'Fecha'],
-            ['key' => 'category', 'label' => 'Categoría'],
-            ['key' => 'brand', 'label' => 'Marca'],
-            ['key' => 'product', 'label' => 'Producto'],
-            ['key' => 'quantity', 'label' => 'Cantidad'],
-            ['key' => 'purchase_price', 'label' => 'Precio compra'],
-            ['key' => 'retention', 'label' => 'Retención'],
-            ['key' => 'iva', 'label' => 'IVA'],
-            ['key' => 'payment_type', 'label' => 'Tipo de pago'],
-            ['key' => 'observation', 'label' => 'Observación'],
-            ['key' => 'subtotal', 'label' => 'Subtotal'],
-        ];
-
-        $compras = [
-            
-        ];
-    @endphp
-
-    <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-        <div class="mb-4">
-            <h2 class="text-2xl font-bold text-[#1A2B42]">Detalle de compra</h2>
-            <p class="text-base text-[#5F6B7A]">
-                Aquí se mostrarán los productos agregados a la compra.
-            </p>
-        </div>
-
-        <x-table
-            :headers="$headers"
-            :rows="$compras"
-            class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl"
-        >
-        </x-table>
-
-        <div class="mt-5 flex justify-end">
-            <div class="w-full max-w-xs">
-                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    Total
-                </label>
-                <x-input
-                    value="C$ 0.00"
-                    readonly
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] font-semibold"
-                />
-            </div>
-        </div>
-    </x-card>
 </div>
