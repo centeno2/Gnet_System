@@ -22,7 +22,7 @@ new class extends Component
 
     public string $stockActual = '0';
     public string $stockMinimo = '0';
-    public string $precioCompra = '0';
+
     public string $precioVenta = '0';
     public string $garantiaNuevo = '';
     public string $garantiaUsado = '';
@@ -157,7 +157,6 @@ new class extends Component
                 'Modelo',
                 'Stock_Actual',
                 'Stock_Minimo',
-                'Precio_Compra',
                 'Precio_Venta',
                 'Fecha_Vencimiento',
                 'Meses_Garantia_Nuevo',
@@ -185,7 +184,6 @@ new class extends Component
 
         $this->stockActual = (string) ($producto->Stock_Actual ?? 0);
         $this->stockMinimo = (string) ($producto->Stock_Minimo ?? 0);
-        $this->precioCompra = number_format((float) ($producto->Precio_Compra ?? 0), 0, '.', ',');
         $this->precioVenta = number_format((float) ($producto->Precio_Venta ?? 0), 0, '.', ',');
 
         $this->garantiaNuevo = $producto->Meses_Garantia_Nuevo !== null
@@ -311,7 +309,6 @@ new class extends Component
             'idMarca' => 'nullable|exists:marca,Id_Marca',
             'stockActual' => 'required|integer|min:0',
             'stockMinimo' => 'required|integer|min:0',
-            'precioCompra' => ['required', 'regex:/^\d+(,\d{3})*$/'],
             'precioVenta' => ['required', 'regex:/^\d+(,\d{3})*$/'],
             'garantiaNuevo' => 'nullable|integer|min:0',
             'garantiaUsado' => 'nullable|integer|min:0',
@@ -322,12 +319,12 @@ new class extends Component
             'precioVenta.regex' => 'Ingrese el precio sin decimales. Ejemplo: 40,000',
         ]);
 
-        $precioCompraLimpio = $this->desformatearMonto($datos['precioCompra']);
+
         $precioVentaLimpio = $this->desformatearMonto($datos['precioVenta']);
         $productoBaseId = $this->productoBaseSeleccionado;
         $esProductoExistente = $productoBaseId !== null;
 
-        DB::transaction(function () use ($datos, $precioCompraLimpio, $precioVentaLimpio, $productoBaseId) {
+        DB::transaction(function () use ($datos, $precioVentaLimpio, $productoBaseId) {
             if ($productoBaseId !== null) {
                 Producto::where('Id_Producto', $productoBaseId)->update([
                     'Id_Categoria' => (int) $datos['idCategoria'],
@@ -336,7 +333,6 @@ new class extends Component
                     'Modelo' => $datos['modelo'] !== '' ? trim($datos['modelo']) : null,
                     'Stock_Actual' => (int) $datos['stockActual'],
                     'Stock_Minimo' => (int) $datos['stockMinimo'],
-                    'Precio_Compra' => $precioCompraLimpio,
                     'Precio_Venta' => $precioVentaLimpio,
                     'Fecha_Vencimiento' => $datos['fechaVencimiento'] !== '' ? $datos['fechaVencimiento'] : null,
                     'Meses_Garantia_Nuevo' => $datos['garantiaNuevo'] !== '' ? (int) $datos['garantiaNuevo'] : null,
@@ -366,7 +362,6 @@ new class extends Component
             $producto->Modelo = $datos['modelo'] !== '' ? trim($datos['modelo']) : null;
             $producto->Stock_Actual = (int) $datos['stockActual'];
             $producto->Stock_Minimo = (int) $datos['stockMinimo'];
-            $producto->Precio_Compra = $precioCompraLimpio;
             $producto->Precio_Venta = $precioVentaLimpio;
             $producto->Fecha_Vencimiento = $datos['fechaVencimiento'] !== '' ? $datos['fechaVencimiento'] : null;
             $producto->Meses_Garantia_Nuevo = $datos['garantiaNuevo'] !== '' ? (int) $datos['garantiaNuevo'] : null;
@@ -514,7 +509,7 @@ new class extends Component
         $this->idMarca = '';
         $this->stockActual = '0';
         $this->stockMinimo = '0';
-        $this->precioCompra = '0';
+
         $this->precioVenta = '0';
         $this->garantiaNuevo = '';
         $this->garantiaUsado = '';
@@ -782,15 +777,6 @@ new class extends Component
                         @enderror
                     </div>
 
-                    <div>
-                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Precio de compra</label>
-                        <x-input wire:model.live.debounce.250ms="precioCompra" type="text" inputmode="numeric"
-                            placeholder="0"
-                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                        @error('precioCompra')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                        @enderror
-                    </div>
 
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Precio de venta</label>

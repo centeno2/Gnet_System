@@ -134,7 +134,6 @@ new class extends Component
                 p.Modelo,
                 p.Stock_Actual,
                 p.Stock_Minimo,
-                p.Precio_Compra,
                 p.Precio_Venta,
                 p.Fecha_Vencimiento,
                 p.Meses_Garantia_Nuevo,
@@ -150,7 +149,6 @@ new class extends Component
                 'p.Modelo',
                 'p.Stock_Actual',
                 'p.Stock_Minimo',
-                'p.Precio_Compra',
                 'p.Precio_Venta',
                 'p.Fecha_Vencimiento',
                 'p.Meses_Garantia_Nuevo',
@@ -293,7 +291,6 @@ new class extends Component
                 p.Modelo,
                 p.Stock_Actual,
                 p.Stock_Minimo,
-                p.Precio_Compra,
                 p.Precio_Venta,
                 p.Fecha_Vencimiento,
                 p.Meses_Garantia_Nuevo,
@@ -310,7 +307,6 @@ new class extends Component
                 'p.Modelo',
                 'p.Stock_Actual',
                 'p.Stock_Minimo',
-                'p.Precio_Compra',
                 'p.Precio_Venta',
                 'p.Fecha_Vencimiento',
                 'p.Meses_Garantia_Nuevo',
@@ -334,7 +330,6 @@ new class extends Component
             'modelo' => $producto->Modelo ?: '—',
             'stock_actual' => (int) $producto->Stock_Actual,
             'stock_minimo' => (int) $producto->Stock_Minimo,
-            'precio_compra' => 'C$ ' . number_format((float) $producto->Precio_Compra, 2),
             'precio_venta' => 'C$ ' . number_format((float) $producto->Precio_Venta, 2),
             'fecha_vencimiento' => $producto->Fecha_Vencimiento
                 ? \Carbon\Carbon::parse($producto->Fecha_Vencimiento)->format('d/m/Y')
@@ -787,11 +782,6 @@ new class extends Component
             <div class="rounded-xl bg-[#F7F9FC] p-4">
                 <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Stock mínimo</p>
                 <p class="mt-1 text-sm font-medium text-[#1A2B42]">{{ $detalleProducto['stock_minimo'] ?? '—' }}</p>
-            </div>
-
-            <div class="rounded-xl bg-[#F7F9FC] p-4">
-                <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Precio compra</p>
-                <p class="mt-1 text-sm font-medium text-[#1A2B42]">{{ $detalleProducto['precio_compra'] ?? '—' }}</p>
             </div>
 
             <div class="rounded-xl bg-[#F7F9FC] p-4">

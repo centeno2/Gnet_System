@@ -21,7 +21,7 @@ class Producto extends Model
         'Modelo',
         'Stock_Actual',
         'Stock_Minimo',
-        'Precio_Compra',
+
         'Precio_Venta',
         'Fecha_Vencimiento',
         'Meses_Garantia_Nuevo',
@@ -35,7 +35,7 @@ class Producto extends Model
         'Id_Marca' => 'integer',
         'Stock_Actual' => 'integer',
         'Stock_Minimo' => 'integer',
-        'Precio_Compra' => 'decimal:2',
+
         'Precio_Venta' => 'decimal:2',
         'Fecha_Vencimiento' => 'date',
         'Meses_Garantia_Nuevo' => 'integer',
