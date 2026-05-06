@@ -1,3 +1,3 @@
 # Gnet_System
 
-#Mi tio Sandino
+#Elking para presidente
