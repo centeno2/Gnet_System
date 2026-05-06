@@ -2,6 +2,7 @@
 
 use Livewire\Component;
 
+
 new class extends Component
 {
     public array $equipo = [
@@ -66,7 +67,7 @@ new class extends Component
                 </div>
             </div>
 
-            <div class="flex items-center justify-center">  
+            <div class="flex items-center justify-center">
                 <div class="relative">
                     <div class="absolute inset-0 rounded-full bg-[#EAF2FB] blur-3xl"></div>
                     <div class="relative flex h-44 w-44 items-center justify-center rounded-4xl border border-[#D7E4F3] bg-linear-to-br from-[#F8FBFF] to-[#EAF2FB] shadow-md md:h-52 md:w-52">
@@ -90,7 +91,7 @@ new class extends Component
 
                         <div class="relative h-20 w-20 overflow-hidden rounded-2xl border border-[#D7E4F3] bg-[#EAF2FB]">
                             <img
-                                
+
                                 alt="{{ $persona['nombre'] }}"
                                 class="h-full w-full object-cover transition duration-300 group-hover:scale-105"
                             />
