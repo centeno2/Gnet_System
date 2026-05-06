@@ -72,18 +72,24 @@ new class extends Component
     {
         $this->fechaCompra = Carbon::today()->toDateString();
         $this->cargarCatalogos();
-        $this->buscarProveedores();
     }
 
     public function updatedBuscarProveedor(): void
     {
-        $this->idProveedor = '';
+        if ($this->idProveedor !== '') {
+            return;
+        }
+
         $this->proveedorNombre = '';
         $this->buscarProveedores();
     }
 
     public function updatedBuscarProducto(): void
     {
+        if ($this->idProducto !== '') {
+            return;
+        }
+
         $this->limpiarProductoSeleccionado(false);
         $this->buscarProductos();
     }
@@ -115,6 +121,22 @@ new class extends Component
         $this->modoProducto = $modo;
         $this->limpiarDetalleProducto();
         $this->precioVentaEditable = $modo === 'nuevo';
+    }
+
+    public function desbloquearProveedor(): void
+    {
+        $this->idProveedor = '';
+        $this->proveedorNombre = '';
+        $this->buscarProveedor = '';
+        $this->proveedoresEncontrados = [];
+
+        $this->resetErrorBag('idProveedor');
+    }
+
+    public function desbloquearProducto(): void
+    {
+        $this->limpiarProductoSeleccionado();
+        $this->resetErrorBag('idProducto');
     }
 
     protected function mostrarToast(string $mensaje, string $tipo = 'success'): void
@@ -165,6 +187,11 @@ new class extends Component
     {
         $busqueda = trim($this->buscarProveedor);
 
+        if ($busqueda === '') {
+            $this->proveedoresEncontrados = [];
+            return;
+        }
+
         $query = DB::table('proveedor as pr')
             ->leftJoin('persona as pe', 'pr.Id_Persona', '=', 'pe.Id_Persona')
             ->select(
@@ -175,18 +202,15 @@ new class extends Component
                 'pe.Primer_Apellido',
                 'pe.Segundo_Apellido'
             )
-            ->orderBy('pe.Primer_Nombre')
-            ->limit(8);
-
-        if ($busqueda !== '') {
-            $query->where(function ($q) use ($busqueda) {
+            ->where(function ($q) use ($busqueda) {
                 $q->where('pr.Codigo_RUC', 'like', "%{$busqueda}%")
                     ->orWhere('pe.Primer_Nombre', 'like', "%{$busqueda}%")
                     ->orWhere('pe.Segundo_Nombre', 'like', "%{$busqueda}%")
                     ->orWhere('pe.Primer_Apellido', 'like', "%{$busqueda}%")
                     ->orWhere('pe.Segundo_Apellido', 'like', "%{$busqueda}%");
-            });
-        }
+            })
+            ->orderBy('pe.Primer_Nombre')
+            ->limit(8);
 
         $this->proveedoresEncontrados = $query->get()
             ->map(function ($proveedor) {
@@ -237,6 +261,8 @@ new class extends Component
         $this->proveedorNombre = $nombre !== '' ? $nombre : 'Proveedor sin nombre';
         $this->buscarProveedor = $this->proveedorNombre . ' - ' . ($proveedor->Codigo_RUC ?: 'Sin RUC');
         $this->proveedoresEncontrados = [];
+
+        $this->resetErrorBag('idProveedor');
     }
 
     protected function buscarProductos(): void
@@ -319,6 +345,8 @@ new class extends Component
         );
 
         $this->productosEncontrados = [];
+
+        $this->resetErrorBag('idProducto');
     }
 
     public function agregarCategoriaTemporal(): void
@@ -481,9 +509,15 @@ new class extends Component
             'cantidad' => 'required|integer|min:1',
             'precioCompra' => 'required|numeric|min:0.01',
             'precioVenta' => 'required|numeric|min:0.01',
+            'seriesTexto' => 'nullable|string|max:1000',
         ];
 
         if ($this->modoProducto === 'existente') {
+            if ($this->idProducto === '') {
+                $this->addError('idProducto', 'Seleccione un producto existente de la lista. Si no aparece, use “Producto nuevo”.');
+                return;
+            }
+
             $this->validate(array_merge($reglasBase, [
                 'idProducto' => 'required|exists:producto,Id_Producto',
             ]));
@@ -504,18 +538,22 @@ new class extends Component
             $garantiaNuevo = null;
             $garantiaUsado = null;
             $estado = 1;
-            $series = [];
+
+            $series = $this->obtenerSeries();
+
+            if (! $this->validarSeries($series, (int) $this->cantidad)) {
+                return;
+            }
         } else {
             $this->validate(array_merge($reglasBase, [
                 'nuevoNombreProducto' => 'required|string|max:150',
                 'nuevoModelo' => 'required|string|max:100',
                 'nuevoCategoriaSeleccionada' => 'required|string',
-                'nuevoMarcaSeleccionada' => 'nullable|string',
+                'nuevoMarcaSeleccionada' => 'required|string',
                 'nuevoStockMinimo' => 'required|integer|min:0',
                 'nuevoGarantiaNuevo' => 'nullable|integer|min:0',
                 'nuevoGarantiaUsado' => 'nullable|integer|min:0',
                 'nuevoEstado' => 'required|in:0,1',
-                'seriesTexto' => 'nullable|string|max:1000',
             ]));
 
             if (! $this->existeEnCatalogo($this->nuevoCategoriaSeleccionada, $this->categorias)) {
@@ -523,7 +561,7 @@ new class extends Component
                 return;
             }
 
-            if ($this->nuevoMarcaSeleccionada !== '' && ! $this->existeEnCatalogo($this->nuevoMarcaSeleccionada, $this->marcas)) {
+            if (! $this->existeEnCatalogo($this->nuevoMarcaSeleccionada, $this->marcas)) {
                 $this->addError('nuevoMarcaSeleccionada', 'Seleccione una marca válida.');
                 return;
             }
@@ -539,10 +577,8 @@ new class extends Component
             $categoriaValor = $this->nuevoCategoriaSeleccionada;
             $categoriaNombre = $this->nombreCatalogo($this->nuevoCategoriaSeleccionada, $this->categorias, 'Sin categoría');
 
-            $marcaValor = $this->nuevoMarcaSeleccionada !== '' ? $this->nuevoMarcaSeleccionada : null;
-            $marcaNombre = $this->nuevoMarcaSeleccionada !== ''
-                ? $this->nombreCatalogo($this->nuevoMarcaSeleccionada, $this->marcas, 'Sin marca')
-                : 'Sin marca';
+            $marcaValor = $this->nuevoMarcaSeleccionada;
+            $marcaNombre = $this->nombreCatalogo($this->nuevoMarcaSeleccionada, $this->marcas, 'Sin marca');
 
             $stockMinimo = (int) $this->nuevoStockMinimo;
             $garantiaNuevo = $this->nuevoGarantiaNuevo !== '' ? (int) $this->nuevoGarantiaNuevo : null;
@@ -655,8 +691,8 @@ new class extends Component
             'numeroCompra' => 'required|string|max:50',
             'fechaCompra' => 'required|date|before_or_equal:today',
             'tipoCompra' => 'required|string|max:50',
-            'retencion' => 'required|integer|min:0|max:100',
-            'iva' => 'required|numeric|min:0|max:100',
+            'retencion' => 'required|numeric|min:0',
+            'iva' => 'required|numeric|min:0',
             'observacion' => 'nullable|string|max:255',
         ]);
 
@@ -708,7 +744,7 @@ new class extends Component
                 $compra->Tipo_Compra = $this->tipoCompra;
                 $compra->Total = $this->totalGeneral();
                 $compra->Observacion = trim($this->observacion) !== '' ? trim($this->observacion) : null;
-                $compra->Retencion = (int) $this->retencion;
+                $compra->Retencion = (float) $this->retencion;
                 $compra->Iva = (float) $this->iva;
                 $compra->Id_producto = null;
                 $compra->save();
@@ -819,7 +855,6 @@ new class extends Component
 
         $this->limpiarDetalleProducto();
         $this->cargarCatalogos();
-        $this->buscarProveedores();
 
         if ($mostrarMensaje) {
             $this->mostrarToast('Compra cancelada. No se guardó nada en la base de datos.');
@@ -871,17 +906,17 @@ new class extends Component
 
     public function ivaGeneral(): float
     {
-        return $this->subtotalGeneral() * ((float) $this->iva / 100);
+        return (float) $this->iva;
     }
 
     public function retencionGeneral(): float
     {
-        return $this->subtotalGeneral() * ((float) $this->retencion / 100);
+        return (float) $this->retencion;
     }
 
     public function totalGeneral(): float
     {
-        return $this->subtotalGeneral() + $this->ivaGeneral() - $this->retencionGeneral();
+        return $this->subtotalGeneral() + $this->ivaGeneral() + $this->retencionGeneral();
     }
 };
 ?>
@@ -921,19 +956,31 @@ new class extends Component
             <div class="mb-4">
                 <h2 class="text-xl font-bold text-[#1A2B42]">Datos generales de la compra</h2>
                 <p class="text-sm text-[#5F6B7A]">
-                    IVA, retención y la observación general
+                    Seleccione el proveedor, registre la factura y los montos generales.
                 </p>
             </div>
 
             <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
                 <div class="relative lg:col-span-4">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Proveedor</label>
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                        Proveedor <span class="text-red-600">*</span>
+                    </label>
+
                     <x-input
                         wire:model.live.debounce.250ms="buscarProveedor"
+                        wire:dblclick="desbloquearProveedor"
                         type="text"
+                        :readonly="$idProveedor !== ''"
                         placeholder="Buscar proveedor por nombre o RUC"
                         class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
                     />
+
+                    @if ($idProveedor !== '')
+                        <p class="mt-1 text-xs text-[#5F6B7A]">
+                            Doble click para cambiar el proveedor.
+                        </p>
+                    @endif
+
                     @error('idProveedor')
                         <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                     @enderror
@@ -951,11 +998,17 @@ new class extends Component
                                 </button>
                             @endforeach
                         </div>
+                    @elseif ($buscarProveedor !== '' && $idProveedor === '' && count($proveedoresEncontrados) === 0)
+                        <div class="mt-1 rounded-xl border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-700">
+                            No se encontraron proveedores con esa búsqueda.
+                        </div>
                     @endif
                 </div>
 
                 <div class="lg:col-span-2">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Número de factura</label>
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                        Número de factura <span class="text-red-600">*</span>
+                    </label>
                     <x-input
                         wire:model.defer="numeroCompra"
                         type="text"
@@ -969,7 +1022,9 @@ new class extends Component
                 </div>
 
                 <div class="lg:col-span-2">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Fecha</label>
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                        Fecha <span class="text-red-600">*</span>
+                    </label>
                     <x-input
                         wire:model.defer="fechaCompra"
                         type="date"
@@ -982,7 +1037,9 @@ new class extends Component
                 </div>
 
                 <div class="lg:col-span-2">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo de pago</label>
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                        Tipo de pago <span class="text-red-600">*</span>
+                    </label>
                     <select
                         wire:model.defer="tipoCompra"
                         class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]"
@@ -997,30 +1054,31 @@ new class extends Component
                 </div>
 
                 <div class="lg:col-span-1">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Ret. %</label>
-                    <x-input
-                        wire:model.live.debounce.250ms="retencion"
-                        type="number"
-                        min="0"
-                        max="100"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
-                    />
-                    @error('retencion')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                    @enderror
-                </div>
-
-                <div class="lg:col-span-1">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">IVA %</label>
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">IVA</label>
                     <x-input
                         wire:model.live.debounce.250ms="iva"
                         type="number"
                         step="0.01"
                         min="0"
-                        max="100"
+                        placeholder="0.00"
                         class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
                     />
                     @error('iva')
+                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    @enderror
+                </div>
+
+                <div class="lg:col-span-1">
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Retención</label>
+                    <x-input
+                        wire:model.live.debounce.250ms="retencion"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                    />
+                    @error('retencion')
                         <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                     @enderror
                 </div>
@@ -1044,6 +1102,9 @@ new class extends Component
             <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                     <h2 class="text-xl font-bold text-[#1A2B42]">Agregar producto</h2>
+                    <p class="text-sm text-[#5F6B7A]">
+                        Busque un producto existente o registre uno nuevo.
+                    </p>
                 </div>
 
                 <div class="inline-flex rounded-xl bg-[#F0F3F7] p-1">
@@ -1068,18 +1129,30 @@ new class extends Component
             @if ($modoProducto === 'existente')
                 <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
                     <div class="relative xl:col-span-4">
-                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Buscar producto</label>
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                            Buscar producto <span class="text-red-600">*</span>
+                        </label>
+
                         <x-input
                             wire:model.live.debounce.250ms="buscarProducto"
+                            wire:dblclick="desbloquearProducto"
                             type="text"
+                            :readonly="$idProducto !== ''"
                             placeholder="Escriba para buscar coincidencias"
                             class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
                         />
+
+                        @if ($idProducto !== '')
+                            <p class="mt-1 text-xs text-[#5F6B7A]">
+                                Doble click para cambiar el producto.
+                            </p>
+                        @endif
+
                         @error('idProducto')
                             <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                         @enderror
 
-                        @if (count($productosEncontrados) > 0)
+                        @if (count($productosEncontrados) > 0 && $idProducto === '')
                             <div class="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-[#D7E4F3] bg-white shadow-lg">
                                 @foreach ($productosEncontrados as $producto)
                                     <button
@@ -1095,6 +1168,10 @@ new class extends Component
                                         </span>
                                     </button>
                                 @endforeach
+                            </div>
+                        @elseif ($buscarProducto !== '' && $idProducto === '' && count($productosEncontrados) === 0)
+                            <div class="mt-1 rounded-xl border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-700">
+                                Este producto no existe. Puede registrarlo usando la opción “Producto nuevo”.
                             </div>
                         @endif
                     </div>
@@ -1132,7 +1209,9 @@ new class extends Component
             @else
                 <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
                     <div class="xl:col-span-3">
-                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Nombre del producto</label>
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                            Nombre del producto <span class="text-red-600">*</span>
+                        </label>
                         <x-input
                             wire:model.defer="nuevoNombreProducto"
                             type="text"
@@ -1146,7 +1225,9 @@ new class extends Component
                     </div>
 
                     <div class="xl:col-span-2">
-                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Modelo</label>
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                            Modelo <span class="text-red-600">*</span>
+                        </label>
                         <x-input
                             wire:model.defer="nuevoModelo"
                             type="text"
@@ -1161,7 +1242,9 @@ new class extends Component
 
                     <div class="xl:col-span-3">
                         <div class="flex items-center justify-between gap-2">
-                            <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Categoría</label>
+                            <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                                Categoría <span class="text-red-600">*</span>
+                            </label>
                             <button type="button" wire:click="$toggle('mostrarNuevaCategoria')" class="text-xs font-semibold text-[#0B6FE4]">
                                 + Nueva
                             </button>
@@ -1204,7 +1287,9 @@ new class extends Component
 
                     <div class="xl:col-span-3">
                         <div class="flex items-center justify-between gap-2">
-                            <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Marca</label>
+                            <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                                Marca <span class="text-red-600">*</span>
+                            </label>
                             <button type="button" wire:click="$toggle('mostrarNuevaMarca')" class="text-xs font-semibold text-[#0B6FE4]">
                                 + Nueva
                             </button>
@@ -1246,7 +1331,9 @@ new class extends Component
                     </div>
 
                     <div class="xl:col-span-1">
-                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Stock mín.</label>
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                            Stock mín. <span class="text-red-600">*</span>
+                        </label>
                         <x-input
                             wire:model.defer="nuevoStockMinimo"
                             type="number"
@@ -1287,7 +1374,9 @@ new class extends Component
                     </div>
 
                     <div class="xl:col-span-2">
-                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Estado</label>
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                            Estado <span class="text-red-600">*</span>
+                        </label>
                         <select
                             wire:model.defer="nuevoEstado"
                             class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]"
@@ -1304,7 +1393,9 @@ new class extends Component
 
             <div class="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-12">
                 <div class="xl:col-span-1">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Cantidad</label>
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                        Cantidad <span class="text-red-600">*</span>
+                    </label>
                     <x-input
                         wire:model.defer="cantidad"
                         type="number"
@@ -1317,7 +1408,9 @@ new class extends Component
                 </div>
 
                 <div class="xl:col-span-2">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Precio compra</label>
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                        Precio compra <span class="text-red-600">*</span>
+                    </label>
                     <x-input
                         wire:model.live.debounce.250ms="precioCompra"
                         type="number"
@@ -1332,9 +1425,9 @@ new class extends Component
 
                 <div class="xl:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Precio venta
+                        Precio venta <span class="text-red-600">*</span>
                         @if ($modoProducto === 'existente' && ! $precioVentaEditable)
-                            <span class="text-xs font-normal text-[#5F6B7A]">(solo lectura)</span>
+                            <span class="text-xs font-normal text-[#5F6B7A]">👁️</span>
                         @endif
                     </label>
                     <x-input
@@ -1350,29 +1443,23 @@ new class extends Component
                     @enderror
                 </div>
 
-                @if ($modoProducto === 'nuevo')
-                    <div class="xl:col-span-7">
-                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Número de serie
-                            <span class="text-xs font-normal text-[#5F6B7A]">opcional, uno por línea, coma o punto y coma</span>
-                        </label>
-                        <textarea
-                            wire:model.defer="seriesTexto"
-                            rows="2"
-                            placeholder="Opcional. Ej: SN001, SN002"
-                            class="w-full rounded-lg border-0 bg-[#F0F3F7] px-3 py-2 text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
-                        ></textarea>
-                        @error('seriesTexto')
-                            <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                        @enderror
-                    </div>
-                @else
-                    <div class="xl:col-span-7">
-                        <div class="rounded-xl border border-[#D7E4F3] bg-[#F8FBFF] px-4 py-3 text-sm text-[#5F6B7A]">
-                            No se agregan números de serie desde compras para productos existentes.
-                        </div>
-                    </div>
-                @endif
+                <div class="xl:col-span-7">
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                        Número de serie
+                        <span class="text-xs font-normal text-[#5F6B7A]">
+                            opcional, uno por línea, coma o punto y coma
+                        </span>
+                    </label>
+                    <textarea
+                        wire:model.defer="seriesTexto"
+                        rows="2"
+                        placeholder="Opcional. Ej: SN001, SN002"
+                        class="w-full rounded-lg border-0 bg-[#F0F3F7] px-3 py-2 text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
+                    ></textarea>
+                    @error('seriesTexto')
+                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    @enderror
+                </div>
             </div>
 
             <div class="mt-5 flex flex-wrap justify-end gap-3">
@@ -1396,7 +1483,8 @@ new class extends Component
         <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
             <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                    <h2 class="text-xl font-bold text-[#1A2B42]">Detalle temporal de compra</h2>
+                    <h2 class="text-xl font-bold text-[#1A2B42]">Detalle de compra</h2>
+
                 </div>
 
                 <div class="grid grid-cols-2 gap-2 text-right md:grid-cols-4">
