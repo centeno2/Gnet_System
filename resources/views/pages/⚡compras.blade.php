@@ -38,7 +38,6 @@ new class extends Component
     public string $nuevoCategoriaSeleccionada = '';
     public string $nuevoMarcaSeleccionada = '';
     public string $nuevoStockMinimo = '0';
-    public string $nuevoFechaVencimiento = '0';
     public string $nuevoGarantiaNuevo = '';
     public string $nuevoGarantiaUsado = '';
     public string $nuevoEstado = '1';
@@ -308,6 +307,7 @@ new class extends Component
         $this->productoModelo = $producto->Modelo ?: 'Sin modelo';
         $this->productoCategoria = $producto->Nombre_Categoria ?: 'Sin categoría';
         $this->productoMarca = $producto->Nombre_Marca ?: 'Sin marca';
+
         $this->precioVentaActual = (float) $producto->Precio_Venta;
         $this->precioVenta = (string) $this->precioVentaActual;
         $this->precioVentaEditable = ((float) $this->precioCompra) > $this->precioVentaActual;
@@ -481,7 +481,6 @@ new class extends Component
             'cantidad' => 'required|integer|min:1',
             'precioCompra' => 'required|numeric|min:0.01',
             'precioVenta' => 'required|numeric|min:0.01',
-            'seriesTexto' => 'nullable|string|max:1000',
         ];
 
         if ($this->modoProducto === 'existente') {
@@ -502,21 +501,21 @@ new class extends Component
             $marcaValor = null;
             $marcaNombre = $this->productoMarca;
             $stockMinimo = null;
-            $fechaVencimiento = null;
             $garantiaNuevo = null;
             $garantiaUsado = null;
             $estado = 1;
+            $series = [];
         } else {
             $this->validate(array_merge($reglasBase, [
                 'nuevoNombreProducto' => 'required|string|max:150',
-                'nuevoModelo' => 'nullable|string|max:100',
+                'nuevoModelo' => 'required|string|max:100',
                 'nuevoCategoriaSeleccionada' => 'required|string',
                 'nuevoMarcaSeleccionada' => 'nullable|string',
                 'nuevoStockMinimo' => 'required|integer|min:0',
-                'nuevoFechaVencimiento' => 'required|in:0,1',
                 'nuevoGarantiaNuevo' => 'nullable|integer|min:0',
                 'nuevoGarantiaUsado' => 'nullable|integer|min:0',
                 'nuevoEstado' => 'required|in:0,1',
+                'seriesTexto' => 'nullable|string|max:1000',
             ]));
 
             if (! $this->existeEnCatalogo($this->nuevoCategoriaSeleccionada, $this->categorias)) {
@@ -536,29 +535,30 @@ new class extends Component
 
             $productoId = null;
             $nombreProducto = trim($this->nuevoNombreProducto);
-            $modelo = trim($this->nuevoModelo) !== '' ? trim($this->nuevoModelo) : 'Sin modelo';
+            $modelo = trim($this->nuevoModelo);
             $categoriaValor = $this->nuevoCategoriaSeleccionada;
             $categoriaNombre = $this->nombreCatalogo($this->nuevoCategoriaSeleccionada, $this->categorias, 'Sin categoría');
+
             $marcaValor = $this->nuevoMarcaSeleccionada !== '' ? $this->nuevoMarcaSeleccionada : null;
             $marcaNombre = $this->nuevoMarcaSeleccionada !== ''
                 ? $this->nombreCatalogo($this->nuevoMarcaSeleccionada, $this->marcas, 'Sin marca')
                 : 'Sin marca';
+
             $stockMinimo = (int) $this->nuevoStockMinimo;
-            $fechaVencimiento = (int) $this->nuevoFechaVencimiento;
             $garantiaNuevo = $this->nuevoGarantiaNuevo !== '' ? (int) $this->nuevoGarantiaNuevo : null;
             $garantiaUsado = $this->nuevoGarantiaUsado !== '' ? (int) $this->nuevoGarantiaUsado : null;
             $estado = (int) $this->nuevoEstado;
+
+            $series = $this->obtenerSeries();
+
+            if (! $this->validarSeries($series, (int) $this->cantidad)) {
+                return;
+            }
         }
 
         $cantidad = (int) $this->cantidad;
         $precioCompra = (float) $this->precioCompra;
         $precioVenta = (float) $this->precioVenta;
-        $series = $this->obtenerSeries();
-
-        if (! $this->validarSeries($series, $cantidad)) {
-            return;
-        }
-
         $subtotal = $cantidad * $precioCompra;
 
         $this->detalles[] = [
@@ -572,7 +572,6 @@ new class extends Component
             'marca_valor' => $marcaValor,
             'marca' => $marcaNombre,
             'stock_minimo' => $stockMinimo,
-            'fecha_vencimiento' => $fechaVencimiento,
             'garantia_nuevo' => $garantiaNuevo,
             'garantia_usado' => $garantiaUsado,
             'estado' => $estado,
@@ -610,7 +609,7 @@ new class extends Component
             $categoriaTemporal = collect($this->categoriasTemporales)->firstWhere('valor', $valor);
 
             if (! $categoriaTemporal) {
-                throw new RuntimeException('No se encontró la categoría temporal.');
+                throw new \RuntimeException('No se encontró la categoría temporal.');
             }
 
             $categoriasCreadas[$valor] = DB::table('categoria_producto')->insertGetId([
@@ -635,7 +634,7 @@ new class extends Component
             $marcaTemporal = collect($this->marcasTemporales)->firstWhere('valor', $valor);
 
             if (! $marcaTemporal) {
-                throw new RuntimeException('No se encontró la marca temporal.');
+                throw new \RuntimeException('No se encontró la marca temporal.');
             }
 
             $marcasCreadas[$valor] = DB::table('marca')->insertGetId([
@@ -723,11 +722,11 @@ new class extends Component
                             'Id_Categoria' => $categoriaId,
                             'Id_Marca' => $marcaId,
                             'Nombre_Producto' => $detalle['nombre_producto'],
-                            'Modelo' => $detalle['modelo'] !== 'Sin modelo' ? $detalle['modelo'] : null,
+                            'Modelo' => $detalle['modelo'],
                             'Stock_Actual' => 0,
                             'Stock_Minimo' => $detalle['stock_minimo'],
                             'Precio_Venta' => $detalle['precio_venta'],
-                            'Fecha_Vencimiento' => $detalle['fecha_vencimiento'],
+                            'Fecha_Vencimiento' => now(),
                             'Meses_Garantia_Nuevo' => $detalle['garantia_nuevo'],
                             'Meses_Garantia_Usado' => $detalle['garantia_usado'],
                             'Estado' => $detalle['estado'],
@@ -858,7 +857,6 @@ new class extends Component
         $this->nuevoCategoriaSeleccionada = '';
         $this->nuevoMarcaSeleccionada = '';
         $this->nuevoStockMinimo = '0';
-        $this->nuevoFechaVencimiento = '0';
         $this->nuevoGarantiaNuevo = '';
         $this->nuevoGarantiaUsado = '';
         $this->nuevoEstado = '1';
@@ -894,7 +892,7 @@ new class extends Component
             <div>
                 <h1 class="text-2xl font-bold text-[#1A2B42]">Compras</h1>
                 <p class="mt-1 text-sm text-[#5F6B7A]">
-                    Registre compras, agregue productos existentes o cree productos nuevos sin salir de esta pantalla.
+                    Registre compras, agregue productos existentes o ingrese productos nuevos.
                 </p>
             </div>
 
@@ -923,7 +921,7 @@ new class extends Component
             <div class="mb-4">
                 <h2 class="text-xl font-bold text-[#1A2B42]">Datos generales de la compra</h2>
                 <p class="text-sm text-[#5F6B7A]">
-                    El IVA, la retención y la observación pertenecen a la compra completa.
+                    IVA, retención y la observación general
                 </p>
             </div>
 
@@ -1046,9 +1044,6 @@ new class extends Component
             <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                     <h2 class="text-xl font-bold text-[#1A2B42]">Agregar producto</h2>
-                    <p class="text-sm text-[#5F6B7A]">
-                        Los productos se agregan primero a la tabla temporal.
-                    </p>
                 </div>
 
                 <div class="inline-flex rounded-xl bg-[#F0F3F7] p-1">
@@ -1106,35 +1101,45 @@ new class extends Component
 
                     <div class="xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Categoría</label>
-                        <x-input value="{{ $productoCategoria }}" readonly placeholder="Se carga al seleccionar"
-                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                        <x-input
+                            value="{{ $productoCategoria }}"
+                            readonly
+                            placeholder="Se carga al seleccionar"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                        />
                     </div>
 
                     <div class="xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Marca</label>
-                        <x-input value="{{ $productoMarca }}" readonly placeholder="Se carga al seleccionar"
-                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                        <x-input
+                            value="{{ $productoMarca }}"
+                            readonly
+                            placeholder="Se carga al seleccionar"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                        />
                     </div>
 
                     <div class="xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Modelo</label>
-                        <x-input value="{{ $productoModelo }}" readonly placeholder="Se carga al seleccionar"
-                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                    </div>
-
-                    <div class="xl:col-span-2">
-                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Precio venta actual</label>
-                        <x-input value="C$ {{ number_format($precioVentaActual, 2) }}" readonly
-                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                        <x-input
+                            value="{{ $productoModelo }}"
+                            readonly
+                            placeholder="Se carga al seleccionar"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                        />
                     </div>
                 </div>
             @else
                 <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
                     <div class="xl:col-span-3">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Nombre del producto</label>
-                        <x-input wire:model.defer="nuevoNombreProducto" type="text" maxlength="150"
+                        <x-input
+                            wire:model.defer="nuevoNombreProducto"
+                            type="text"
+                            maxlength="150"
                             placeholder="Ej: Laptop HP 15"
-                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
+                        />
                         @error('nuevoNombreProducto')
                             <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                         @enderror
@@ -1142,8 +1147,16 @@ new class extends Component
 
                     <div class="xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Modelo</label>
-                        <x-input wire:model.defer="nuevoModelo" type="text" maxlength="100" placeholder="Opcional"
-                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+                        <x-input
+                            wire:model.defer="nuevoModelo"
+                            type="text"
+                            maxlength="100"
+                            placeholder="Modelo obligatorio"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
+                        />
+                        @error('nuevoModelo')
+                            <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                        @enderror
                     </div>
 
                     <div class="xl:col-span-3">
@@ -1154,8 +1167,10 @@ new class extends Component
                             </button>
                         </div>
 
-                        <select wire:model.defer="nuevoCategoriaSeleccionada"
-                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
+                        <select
+                            wire:model.defer="nuevoCategoriaSeleccionada"
+                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]"
+                        >
                             <option value="">Seleccione categoría</option>
                             @foreach ($categorias as $categoria)
                                 <option value="{{ $categoria['valor'] }}">
@@ -1169,10 +1184,17 @@ new class extends Component
 
                         @if ($mostrarNuevaCategoria)
                             <div class="mt-2 flex gap-2">
-                                <x-input wire:model.defer="nombreCategoriaNueva" type="text" placeholder="Nueva categoría"
-                                    class="h-9 min-h-9 w-full rounded-lg bg-[#F0F3F7] text-xs text-[#1A2B42]" />
-                                <x-button label="Agregar" wire:click="agregarCategoriaTemporal"
-                                    class="h-9 min-h-9 border-0 bg-[#2E8BC0] px-3 text-xs text-white hover:bg-[#0B6FE4]" />
+                                <x-input
+                                    wire:model.defer="nombreCategoriaNueva"
+                                    type="text"
+                                    placeholder="Nueva categoría"
+                                    class="h-9 min-h-9 w-full rounded-lg bg-[#F0F3F7] text-xs text-[#1A2B42]"
+                                />
+                                <x-button
+                                    label="Agregar"
+                                    wire:click="agregarCategoriaTemporal"
+                                    class="h-9 min-h-9 border-0 bg-[#2E8BC0] px-3 text-xs text-white hover:bg-[#0B6FE4]"
+                                />
                             </div>
                             @error('nombreCategoriaNueva')
                                 <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
@@ -1188,8 +1210,10 @@ new class extends Component
                             </button>
                         </div>
 
-                        <select wire:model.defer="nuevoMarcaSeleccionada"
-                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
+                        <select
+                            wire:model.defer="nuevoMarcaSeleccionada"
+                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]"
+                        >
                             <option value="">Seleccione marca</option>
                             @foreach ($marcas as $marca)
                                 <option value="{{ $marca['valor'] }}">
@@ -1197,13 +1221,23 @@ new class extends Component
                                 </option>
                             @endforeach
                         </select>
+                        @error('nuevoMarcaSeleccionada')
+                            <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                        @enderror
 
                         @if ($mostrarNuevaMarca)
                             <div class="mt-2 flex gap-2">
-                                <x-input wire:model.defer="nombreMarcaNueva" type="text" placeholder="Nueva marca"
-                                    class="h-9 min-h-9 w-full rounded-lg bg-[#F0F3F7] text-xs text-[#1A2B42]" />
-                                <x-button label="Agregar" wire:click="agregarMarcaTemporal"
-                                    class="h-9 min-h-9 border-0 bg-[#2E8BC0] px-3 text-xs text-white hover:bg-[#0B6FE4]" />
+                                <x-input
+                                    wire:model.defer="nombreMarcaNueva"
+                                    type="text"
+                                    placeholder="Nueva marca"
+                                    class="h-9 min-h-9 w-full rounded-lg bg-[#F0F3F7] text-xs text-[#1A2B42]"
+                                />
+                                <x-button
+                                    label="Agregar"
+                                    wire:click="agregarMarcaTemporal"
+                                    class="h-9 min-h-9 border-0 bg-[#2E8BC0] px-3 text-xs text-white hover:bg-[#0B6FE4]"
+                                />
                             </div>
                             @error('nombreMarcaNueva')
                                 <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
@@ -1213,38 +1247,57 @@ new class extends Component
 
                     <div class="xl:col-span-1">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Stock mín.</label>
-                        <x-input wire:model.defer="nuevoStockMinimo" type="number" min="0"
-                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                    </div>
-
-                    <div class="xl:col-span-2">
-                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Vencimiento</label>
-                        <select wire:model.defer="nuevoFechaVencimiento"
-                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
-                            <option value="0">No aplica</option>
-                            <option value="1">Aplica</option>
-                        </select>
+                        <x-input
+                            wire:model.defer="nuevoStockMinimo"
+                            type="number"
+                            min="0"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                        />
+                        @error('nuevoStockMinimo')
+                            <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                        @enderror
                     </div>
 
                     <div class="xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Garantía nuevo</label>
-                        <x-input wire:model.defer="nuevoGarantiaNuevo" type="number" min="0" placeholder="Meses"
-                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                        <x-input
+                            wire:model.defer="nuevoGarantiaNuevo"
+                            type="number"
+                            min="0"
+                            placeholder="Meses"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                        />
+                        @error('nuevoGarantiaNuevo')
+                            <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                        @enderror
                     </div>
 
                     <div class="xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Garantía usado</label>
-                        <x-input wire:model.defer="nuevoGarantiaUsado" type="number" min="0" placeholder="Meses"
-                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                        <x-input
+                            wire:model.defer="nuevoGarantiaUsado"
+                            type="number"
+                            min="0"
+                            placeholder="Meses"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                        />
+                        @error('nuevoGarantiaUsado')
+                            <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                        @enderror
                     </div>
 
                     <div class="xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Estado</label>
-                        <select wire:model.defer="nuevoEstado"
-                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
+                        <select
+                            wire:model.defer="nuevoEstado"
+                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]"
+                        >
                             <option value="1">Activo</option>
                             <option value="0">Inactivo</option>
                         </select>
+                        @error('nuevoEstado')
+                            <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                        @enderror
                     </div>
                 </div>
             @endif
@@ -1252,8 +1305,12 @@ new class extends Component
             <div class="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-12">
                 <div class="xl:col-span-1">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Cantidad</label>
-                    <x-input wire:model.defer="cantidad" type="number" min="1"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                    <x-input
+                        wire:model.defer="cantidad"
+                        type="number"
+                        min="1"
+                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                    />
                     @error('cantidad')
                         <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                     @enderror
@@ -1261,8 +1318,13 @@ new class extends Component
 
                 <div class="xl:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Precio compra</label>
-                    <x-input wire:model.live.debounce.250ms="precioCompra" type="number" step="0.01" min="0"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                    <x-input
+                        wire:model.live.debounce.250ms="precioCompra"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                    />
                     @error('precioCompra')
                         <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                     @enderror
@@ -1275,34 +1337,59 @@ new class extends Component
                             <span class="text-xs font-normal text-[#5F6B7A]">(solo lectura)</span>
                         @endif
                     </label>
-                    <x-input wire:model.defer="precioVenta" type="number" step="0.01" min="0"
+                    <x-input
+                        wire:model.defer="precioVenta"
+                        type="number"
+                        step="0.01"
+                        min="0"
                         :readonly="! $precioVentaEditable"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                    />
                     @error('precioVenta')
                         <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                     @enderror
                 </div>
 
-                <div class="xl:col-span-7">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Números de serie
-                        <span class="text-xs font-normal text-[#5F6B7A]">uno por línea, coma o punto y coma</span>
-                    </label>
-                    <textarea wire:model.defer="seriesTexto" rows="2"
-                        placeholder="Opcional. Ej: SN001, SN002"
-                        class="w-full rounded-lg border-0 bg-[#F0F3F7] px-3 py-2 text-sm text-[#1A2B42] placeholder:text-[#7B8794]"></textarea>
-                    @error('seriesTexto')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                    @enderror
-                </div>
+                @if ($modoProducto === 'nuevo')
+                    <div class="xl:col-span-7">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                            Número de serie
+                            <span class="text-xs font-normal text-[#5F6B7A]">opcional, uno por línea, coma o punto y coma</span>
+                        </label>
+                        <textarea
+                            wire:model.defer="seriesTexto"
+                            rows="2"
+                            placeholder="Opcional. Ej: SN001, SN002"
+                            class="w-full rounded-lg border-0 bg-[#F0F3F7] px-3 py-2 text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
+                        ></textarea>
+                        @error('seriesTexto')
+                            <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                        @enderror
+                    </div>
+                @else
+                    <div class="xl:col-span-7">
+                        <div class="rounded-xl border border-[#D7E4F3] bg-[#F8FBFF] px-4 py-3 text-sm text-[#5F6B7A]">
+                            No se agregan números de serie desde compras para productos existentes.
+                        </div>
+                    </div>
+                @endif
             </div>
 
             <div class="mt-5 flex flex-wrap justify-end gap-3">
-                <x-button label="Limpiar producto" type="button" wire:click="limpiarDetalleProducto"
-                    class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]" />
+                <x-button
+                    label="Limpiar producto"
+                    type="button"
+                    wire:click="limpiarDetalleProducto"
+                    class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]"
+                />
 
-                <x-button label="Agregar a la compra" icon="o-plus" type="button" wire:click="agregarDetalle"
-                    class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]" />
+                <x-button
+                    label="Agregar a la compra"
+                    icon="o-plus"
+                    type="button"
+                    wire:click="agregarDetalle"
+                    class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]"
+                />
             </div>
         </x-card>
 
@@ -1310,9 +1397,6 @@ new class extends Component
             <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                     <h2 class="text-xl font-bold text-[#1A2B42]">Detalle temporal de compra</h2>
-                    <p class="text-sm text-[#5F6B7A]">
-                        Nada de esta tabla se guarda hasta presionar “Guardar compra”.
-                    </p>
                 </div>
 
                 <div class="grid grid-cols-2 gap-2 text-right md:grid-cols-4">
@@ -1379,8 +1463,11 @@ new class extends Component
                                     <td class="px-3 py-3 text-right font-semibold whitespace-nowrap">C$ {{ number_format($detalle['subtotal'], 2) }}</td>
 
                                     <td class="px-3 py-3 text-center whitespace-nowrap">
-                                        <x-button icon="o-trash" wire:click="quitarDetalle({{ $index }})"
-                                            class="h-8 min-h-8 border-0 bg-red-50 px-3 text-xs text-red-700 hover:bg-red-100" />
+                                        <x-button
+                                            icon="o-trash"
+                                            wire:click="quitarDetalle({{ $index }})"
+                                            class="h-8 min-h-8 border-0 bg-red-50 px-3 text-xs text-red-700 hover:bg-red-100"
+                                        />
                                     </td>
                                 </tr>
                             @empty
@@ -1396,11 +1483,21 @@ new class extends Component
             </div>
 
             <div class="mt-5 flex flex-wrap justify-end gap-3">
-                <x-button label="Cancelar compra" icon="o-x-mark" type="button" wire:click="cancelarCompra"
-                    class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]" />
+                <x-button
+                    label="Cancelar compra"
+                    icon="o-x-mark"
+                    type="button"
+                    wire:click="cancelarCompra"
+                    class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]"
+                />
 
-                <x-button label="Guardar compra" icon="o-check" type="button" wire:click="guardarCompra"
-                    class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]" />
+                <x-button
+                    label="Guardar compra"
+                    icon="o-check"
+                    type="button"
+                    wire:click="guardarCompra"
+                    class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]"
+                />
             </div>
         </x-card>
     </div>
