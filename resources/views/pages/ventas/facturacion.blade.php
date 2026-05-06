@@ -9,8 +9,10 @@ new class extends Component
     public bool $modalCobro = false;
 
     public string $tipoVenta = 'CONTADO';
-    public string $moneda = 'NIO';
-    public string $tipoPago = 'EFECTIVO';
+
+    public string $tipoPagoCordobas = 'EFECTIVO';
+    public string $tipoPagoDolares = 'EFECTIVO';
+    public string $tipoCambio = '36.50';
 
     public ?int $clienteId = null;
     public string $buscarCliente = '';
@@ -30,6 +32,7 @@ new class extends Component
     public string $precioItem = '0';
     public string $descuentoItem = '0';
     public int $stockDisponible = 0;
+    public bool $productoUsaSerie = false;
 
     public $serieProductoId = null;
     public array $seriesDisponibles = [];
@@ -40,7 +43,11 @@ new class extends Component
 
     public array $detalleVenta = [];
 
-    public string $montoRecibido = '0';
+    public string $pagoCordobas = '0';
+    public string $pagoDolares = '0';
+
+    public string $abonoCordobas = '0';
+    public string $abonoDolares = '0';
     public string $abonoInicial = '0';
     public string $firmaRecibido = '';
 
@@ -77,22 +84,44 @@ new class extends Component
         $this->descuentoItem = $this->formatearMonto((string) $value);
     }
 
-    public function updatedMontoRecibido($value): void
+    public function updatedPagoCordobas($value): void
     {
-        $this->montoRecibido = $this->formatearMonto((string) $value);
+        $this->pagoCordobas = $this->formatearMonto((string) $value);
     }
 
-    public function updatedAbonoInicial($value): void
+    public function updatedPagoDolares($value): void
     {
-        $this->abonoInicial = $this->formatearMonto((string) $value);
+        $this->pagoDolares = $this->formatearDecimal((string) $value);
+    }
+
+    public function updatedAbonoCordobas($value): void
+    {
+        $this->abonoCordobas = $this->formatearMonto((string) $value);
+    }
+
+    public function updatedAbonoDolares($value): void
+    {
+        $this->abonoDolares = $this->formatearDecimal((string) $value);
+    }
+
+    public function updatedTipoCambio($value): void
+    {
+        $this->tipoCambio = $this->formatearDecimal((string) $value);
     }
 
     public function updatedTipoVenta(): void
     {
         if ($this->tipoVenta === 'CONTADO') {
+            $this->abonoCordobas = '0';
+            $this->abonoDolares = '0';
             $this->abonoInicial = '0';
             $this->firmaRecibido = '';
             $this->departamentoMunicipio = '';
+        }
+
+        if ($this->tipoVenta === 'CREDITO') {
+            $this->pagoCordobas = '0';
+            $this->pagoDolares = '0';
         }
     }
 
@@ -203,6 +232,7 @@ new class extends Component
     protected function buscarItems(): void
     {
         $busqueda = trim($this->buscarItem);
+        $seriesUsadas = $this->seriesUsadasEnDetalle();
 
         if (strlen($busqueda) < 2) {
             $this->resultadosItems = [];
@@ -222,29 +252,46 @@ new class extends Component
             )
             ->where('p.Estado', 1)
             ->where('p.Stock_Actual', '>', 0)
-            ->where(function ($q) use ($busqueda) {
+            ->where(function ($q) use ($busqueda, $seriesUsadas) {
                 $q->where('p.Nombre_Producto', 'like', "%{$busqueda}%")
                     ->orWhere('p.Modelo', 'like', "%{$busqueda}%")
                     ->orWhere('m.Nombre_Marca', 'like', "%{$busqueda}%")
-                    ->orWhereExists(function ($sub) use ($busqueda) {
+                    ->orWhereExists(function ($sub) use ($busqueda, $seriesUsadas) {
                         $sub->select(DB::raw(1))
                             ->from('producto_serie as ps')
                             ->whereColumn('ps.Id_Producto', 'p.Id_Producto')
                             ->where('ps.Estado', 'DISPONIBLE')
-                            ->where('ps.Numero_Serie', 'like', "%{$busqueda}%");
+                            ->where('ps.Numero_Serie', 'like', "%{$busqueda}%")
+                            ->when(count($seriesUsadas) > 0, function ($query) use ($seriesUsadas) {
+                                $query->whereNotIn('ps.id_producto_serie', $seriesUsadas);
+                            });
                     });
             })
             ->orderBy('p.Nombre_Producto')
             ->limit(8)
             ->get()
-            ->map(function ($producto) {
-                $titulo = trim(($producto->Nombre_Marca ? $producto->Nombre_Marca . ' ' : '') . $producto->Nombre_Producto);
+            ->map(function ($producto) use ($busqueda, $seriesUsadas) {
+                $serie = DB::table('producto_serie')
+                    ->where('Id_Producto', $producto->Id_Producto)
+                    ->where('Estado', 'DISPONIBLE')
+                    ->where('Numero_Serie', 'like', "%{$busqueda}%")
+                    ->when(count($seriesUsadas) > 0, function ($query) use ($seriesUsadas) {
+                        $query->whereNotIn('id_producto_serie', $seriesUsadas);
+                    })
+                    ->orderBy('Numero_Serie')
+                    ->first();
+
+                $titulo = $this->nombreProductoLimpio(
+                    $producto->Nombre_Marca,
+                    $producto->Nombre_Producto
+                );
 
                 return [
                     'tipo' => 'PRODUCTO',
                     'id' => (int) $producto->Id_Producto,
+                    'serie_id' => $serie ? (int) $serie->id_producto_serie : null,
                     'titulo' => $titulo,
-                    'subtitulo' => trim(($producto->Modelo ?: 'Sin modelo') . ' · Stock: ' . $producto->Stock_Actual),
+                    'subtitulo' => trim(($producto->Modelo ?: 'Sin modelo') . ' · Stock: ' . $producto->Stock_Actual . ($serie ? ' · Serie: ' . $serie->Numero_Serie : '')),
                     'precio' => (float) $producto->Precio_Venta,
                     'precio_texto' => 'C$ ' . number_format((float) $producto->Precio_Venta, 0, '.', ','),
                 ];
@@ -277,6 +324,7 @@ new class extends Component
                 return [
                     'tipo' => 'COPIA',
                     'id' => (int) $tarifa->Id_Tarifa_Copia,
+                    'serie_id' => null,
                     'titulo' => $tarifa->Nombre_Tarifa,
                     'subtitulo' => $tarifa->Tipo_Color . ' · ' . $tarifa->Formato . ' · ' . $tarifa->Lados,
                     'precio' => (float) $tarifa->Precio_Unitario,
@@ -310,7 +358,7 @@ new class extends Component
             ->toArray();
     }
 
-    public function seleccionarItem(string $tipo, int $id): void
+    public function seleccionarItem(string $tipo, int $id, ?int $serieId = null): void
     {
         $this->descuentoItem = '0';
 
@@ -334,9 +382,21 @@ new class extends Component
                 return;
             }
 
+            $seriesUsadas = $this->seriesUsadasEnDetalle((int) $producto->Id_Producto);
+
+            $seriesTotalesDisponibles = DB::table('producto_serie')
+                ->where('Id_Producto', $producto->Id_Producto)
+                ->where('Estado', 'DISPONIBLE')
+                ->count();
+
+            $this->productoUsaSerie = $seriesTotalesDisponibles > 0;
+
             $this->seriesDisponibles = DB::table('producto_serie')
                 ->where('Id_Producto', $producto->Id_Producto)
                 ->where('Estado', 'DISPONIBLE')
+                ->when(count($seriesUsadas) > 0, function ($query) use ($seriesUsadas) {
+                    $query->whereNotIn('id_producto_serie', $seriesUsadas);
+                })
                 ->orderBy('Numero_Serie')
                 ->limit(50)
                 ->get()
@@ -346,7 +406,18 @@ new class extends Component
                 ])
                 ->toArray();
 
-            $descripcion = trim(($producto->Nombre_Marca ? $producto->Nombre_Marca . ' ' : '') . $producto->Nombre_Producto . ($producto->Modelo ? ' - ' . $producto->Modelo : ''));
+            $descripcion = $this->nombreProductoLimpio(
+                $producto->Nombre_Marca,
+                $producto->Nombre_Producto,
+                $producto->Modelo
+            );
+
+            $serieIdValida = null;
+
+            if ($serieId) {
+                $serieIdValida = collect($this->seriesDisponibles)
+                    ->firstWhere('id', (int) $serieId)['id'] ?? null;
+            }
 
             $this->itemSeleccionado = [
                 'tipo' => 'PRODUCTO',
@@ -363,7 +434,7 @@ new class extends Component
             $this->stockDisponible = (int) $producto->Stock_Actual;
             $this->precioItem = number_format((float) $producto->Precio_Venta, 0, '.', ',');
             $this->cantidadItem = '1';
-            $this->serieProductoId = null;
+            $this->serieProductoId = $serieIdValida;
         }
 
         if ($tipo === 'COPIA') {
@@ -392,6 +463,7 @@ new class extends Component
             $this->stockDisponible = 0;
             $this->seriesDisponibles = [];
             $this->serieProductoId = null;
+            $this->productoUsaSerie = false;
             $this->precioItem = number_format((float) $tarifa->Precio_Unitario, 0, '.', ',');
             $this->cantidadItem = '1';
         }
@@ -433,8 +505,8 @@ new class extends Component
         }
 
         if ($this->itemSeleccionado['tipo'] === 'PRODUCTO') {
-            if (count($this->seriesDisponibles) > 0 && ! $this->serieProductoId) {
-                $this->mostrarToast('Seleccione una serie para este producto.', 'error');
+            if ($this->productoUsaSerie && ! $this->serieProductoId) {
+                $this->mostrarToast('Seleccione una serie disponible para este producto.', 'error');
                 return;
             }
 
@@ -442,8 +514,18 @@ new class extends Component
                 $cantidad = 1;
             }
 
-            if ($cantidad > $this->stockDisponible) {
+            $stockUsadoEnDetalle = collect($this->detalleVenta)
+                ->where('tipo', 'PRODUCTO')
+                ->where('id_producto', $this->itemSeleccionado['id_producto'])
+                ->sum('cantidad');
+
+            if (($cantidad + $stockUsadoEnDetalle) > $this->stockDisponible) {
                 $this->mostrarToast('La cantidad supera el stock disponible.', 'error');
+                return;
+            }
+
+            if ($this->serieProductoId && in_array((int) $this->serieProductoId, $this->seriesUsadasEnDetalle(), true)) {
+                $this->mostrarToast('Esta serie ya fue agregada al detalle.', 'error');
                 return;
             }
         }
@@ -504,10 +586,13 @@ new class extends Component
         }
 
         if ($this->tipoVenta === 'CONTADO') {
-            $this->montoRecibido = '0';
+            $this->pagoCordobas = '0';
+            $this->pagoDolares = '0';
         }
 
         if ($this->tipoVenta === 'CREDITO') {
+            $this->abonoCordobas = '0';
+            $this->abonoDolares = '0';
             $this->abonoInicial = '0';
         }
 
@@ -525,10 +610,18 @@ new class extends Component
 
         $total = $this->totalVenta();
         $descuento = $this->descuentoVenta();
-        $montoRecibido = $this->limpiarMonto($this->montoRecibido);
-        $abonoInicial = $this->limpiarMonto($this->abonoInicial);
 
-        if ($this->tipoVenta === 'CONTADO' && $this->tipoPago === 'EFECTIVO' && $montoRecibido < $total) {
+        $pagoCordobas = $this->limpiarMonto($this->pagoCordobas);
+        $pagoDolares = $this->limpiarDecimal($this->pagoDolares);
+        $equivalenteDolares = $pagoDolares * $this->tasaCambio();
+        $totalPagado = $pagoCordobas + $equivalenteDolares;
+
+        $abonoCordobas = $this->limpiarMonto($this->abonoCordobas);
+        $abonoDolares = $this->limpiarDecimal($this->abonoDolares);
+        $equivalenteAbonoDolares = $abonoDolares * $this->tasaCambio();
+        $abonoInicial = $abonoCordobas + $equivalenteAbonoDolares;
+
+        if ($this->tipoVenta === 'CONTADO' && $totalPagado < $total) {
             $this->mostrarToast('El monto recibido no puede ser menor que el total.', 'error');
             return;
         }
@@ -539,7 +632,17 @@ new class extends Component
         }
 
         try {
-            $resultado = DB::transaction(function () use ($total, $descuento, $abonoInicial) {
+            $resultado = DB::transaction(function () use (
+                $total,
+                $descuento,
+                $pagoCordobas,
+                $pagoDolares,
+                $equivalenteDolares,
+                $abonoCordobas,
+                $abonoDolares,
+                $equivalenteAbonoDolares,
+                $abonoInicial
+            ) {
                 $idUsuario = $this->obtenerUsuarioId();
                 $numeroFactura = $this->generarNumeroFactura();
 
@@ -619,13 +722,29 @@ new class extends Component
                 }
 
                 if ($this->tipoVenta === 'CONTADO') {
-                    DB::table('pago_venta')->insert([
-                        'Id_Venta' => $idVenta,
-                        'Fecha_Pago' => now(),
-                        'Moneda' => $this->monedaCodigo(),
-                        'Tipo_Pago' => $this->tipoPago,
-                        'Monto' => $total,
-                    ]);
+                    if ($pagoCordobas > 0) {
+                        DB::table('pago_venta')->insert([
+                            'Id_Venta' => $idVenta,
+                            'Fecha_Pago' => now(),
+                            'Moneda' => 0,
+                            'Tipo_Pago' => $this->tipoPagoCordobas,
+                            'Monto' => $pagoCordobas,
+                            'Tipo_Cambio' => 1,
+                            'Monto_Equivalente_Cordobas' => $pagoCordobas,
+                        ]);
+                    }
+
+                    if ($pagoDolares > 0) {
+                        DB::table('pago_venta')->insert([
+                            'Id_Venta' => $idVenta,
+                            'Fecha_Pago' => now(),
+                            'Moneda' => 1,
+                            'Tipo_Pago' => $this->tipoPagoDolares,
+                            'Monto' => $pagoDolares,
+                            'Tipo_Cambio' => $this->tasaCambio(),
+                            'Monto_Equivalente_Cordobas' => $equivalenteDolares,
+                        ]);
+                    }
                 }
 
                 if ($this->tipoVenta === 'CREDITO') {
@@ -645,22 +764,51 @@ new class extends Component
                     ]);
 
                     if ($abonoInicial > 0) {
-                        DB::table('abono_credito')->insert([
-                            'Id_Credito' => $idCredito,
-                            'Fecha_Abono' => now(),
-                            'Moneda' => $this->monedaCodigo(),
-                            'Monto' => $abonoInicial,
-                            'Numero_Transferencia' => null,
-                            'Observacion' => 'Abono inicial registrado desde facturación.',
-                        ]);
+                        if ($abonoCordobas > 0) {
+                            DB::table('abono_credito')->insert([
+                                'Id_Credito' => $idCredito,
+                                'Fecha_Abono' => now(),
+                                'Moneda' => 'NIO',
+                                'Monto' => $abonoCordobas,
+                                'Tipo_Cambio' => 1,
+                                'Monto_Equivalente_Cordobas' => $abonoCordobas,
+                                'Numero_Transferencia' => null,
+                                'Observacion' => 'Abono inicial en córdobas desde facturación.',
+                            ]);
 
-                        DB::table('pago_venta')->insert([
-                            'Id_Venta' => $idVenta,
-                            'Fecha_Pago' => now(),
-                            'Moneda' => $this->monedaCodigo(),
-                            'Tipo_Pago' => $this->tipoPago,
-                            'Monto' => $abonoInicial,
-                        ]);
+                            DB::table('pago_venta')->insert([
+                                'Id_Venta' => $idVenta,
+                                'Fecha_Pago' => now(),
+                                'Moneda' => 0,
+                                'Tipo_Pago' => $this->tipoPagoCordobas,
+                                'Monto' => $abonoCordobas,
+                                'Tipo_Cambio' => 1,
+                                'Monto_Equivalente_Cordobas' => $abonoCordobas,
+                            ]);
+                        }
+
+                        if ($abonoDolares > 0) {
+                            DB::table('abono_credito')->insert([
+                                'Id_Credito' => $idCredito,
+                                'Fecha_Abono' => now(),
+                                'Moneda' => 'USD',
+                                'Monto' => $abonoDolares,
+                                'Tipo_Cambio' => $this->tasaCambio(),
+                                'Monto_Equivalente_Cordobas' => $equivalenteAbonoDolares,
+                                'Numero_Transferencia' => null,
+                                'Observacion' => 'Abono inicial en dólares desde facturación.',
+                            ]);
+
+                            DB::table('pago_venta')->insert([
+                                'Id_Venta' => $idVenta,
+                                'Fecha_Pago' => now(),
+                                'Moneda' => 1,
+                                'Tipo_Pago' => $this->tipoPagoDolares,
+                                'Monto' => $abonoDolares,
+                                'Tipo_Cambio' => $this->tasaCambio(),
+                                'Monto_Equivalente_Cordobas' => $equivalenteAbonoDolares,
+                            ]);
+                        }
                     }
                 }
 
@@ -693,13 +841,16 @@ new class extends Component
     protected function limpiarVentaActual(): void
     {
         $this->tipoVenta = 'CONTADO';
-        $this->moneda = 'NIO';
-        $this->tipoPago = 'EFECTIVO';
+        $this->tipoPagoCordobas = 'EFECTIVO';
+        $this->tipoPagoDolares = 'EFECTIVO';
 
         $this->usarConsumidorFinal();
 
         $this->detalleVenta = [];
-        $this->montoRecibido = '0';
+        $this->pagoCordobas = '0';
+        $this->pagoDolares = '0';
+        $this->abonoCordobas = '0';
+        $this->abonoDolares = '0';
         $this->abonoInicial = '0';
         $this->firmaRecibido = '';
 
@@ -734,6 +885,7 @@ new class extends Component
         $this->stockDisponible = 0;
         $this->serieProductoId = null;
         $this->seriesDisponibles = [];
+        $this->productoUsaSerie = false;
     }
 
     public function subtotalVenta(): float
@@ -751,23 +903,43 @@ new class extends Component
         return max($this->subtotalVenta() - $this->descuentoVenta(), 0);
     }
 
+    public function totalPagadoCordobas(): float
+    {
+        return $this->limpiarMonto($this->pagoCordobas)
+            + ($this->limpiarDecimal($this->pagoDolares) * $this->tasaCambio());
+    }
+
+    public function abonoInicialEquivalente(): float
+    {
+        return $this->limpiarMonto($this->abonoCordobas)
+            + ($this->limpiarDecimal($this->abonoDolares) * $this->tasaCambio());
+    }
+
     public function cambioVenta(): float
     {
-        if ($this->tipoVenta !== 'CONTADO' || $this->tipoPago !== 'EFECTIVO') {
+        if ($this->tipoVenta !== 'CONTADO') {
             return 0;
         }
 
-        return $this->limpiarMonto($this->montoRecibido) - $this->totalVenta();
+        return $this->totalPagadoCordobas() - $this->totalVenta();
     }
 
     public function saldoCredito(): float
     {
-        return max($this->totalVenta() - $this->limpiarMonto($this->abonoInicial), 0);
+        return max($this->totalVenta() - $this->abonoInicialEquivalente(), 0);
     }
 
     protected function limpiarMonto(?string $valor): float
     {
         $valor = str_replace(',', '', $valor ?? '');
+        $limpio = preg_replace('/[^\d.]/', '', $valor);
+
+        return $limpio === '' ? 0 : (float) $limpio;
+    }
+
+    protected function limpiarDecimal(?string $valor): float
+    {
+        $valor = str_replace(',', '.', $valor ?? '');
         $limpio = preg_replace('/[^\d.]/', '', $valor);
 
         return $limpio === '' ? 0 : (float) $limpio;
@@ -782,6 +954,67 @@ new class extends Component
         }
 
         return number_format((int) $limpio, 0, '.', ',');
+    }
+
+    protected function formatearDecimal(?string $valor): string
+    {
+        $valor = str_replace(',', '.', $valor ?? '');
+        $valor = preg_replace('/[^\d.]/', '', $valor);
+
+        if ($valor === '') {
+            return '';
+        }
+
+        $partes = explode('.', $valor, 2);
+        $entero = $partes[0] === '' ? '0' : $partes[0];
+        $decimal = $partes[1] ?? '';
+
+        if ($decimal !== '') {
+            return $entero . '.' . substr($decimal, 0, 2);
+        }
+
+        return $entero;
+    }
+
+    protected function tasaCambio(): float
+    {
+        $tasa = $this->limpiarDecimal($this->tipoCambio);
+
+        return $tasa > 0 ? $tasa : 1;
+    }
+
+    protected function seriesUsadasEnDetalle(?int $idProducto = null): array
+    {
+        return collect($this->detalleVenta)
+            ->filter(fn ($item) => $item['tipo'] === 'PRODUCTO')
+            ->filter(fn ($item) => ! empty($item['id_producto_serie']))
+            ->when($idProducto, fn ($items) => $items->filter(fn ($item) => (int) $item['id_producto'] === $idProducto))
+            ->pluck('id_producto_serie')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->toArray();
+    }
+
+    protected function nombreProductoLimpio(?string $marca, ?string $nombre, ?string $modelo = null): string
+    {
+        $marca = trim((string) $marca);
+        $nombre = trim((string) $nombre);
+        $modelo = trim((string) $modelo);
+
+        $nombreLower = strtolower($nombre);
+        $marcaLower = strtolower($marca);
+
+        $base = $nombre;
+
+        if ($marca !== '' && ! str_starts_with($nombreLower, $marcaLower)) {
+            $base = trim($marca . ' ' . $nombre);
+        }
+
+        if ($modelo !== '') {
+            $base .= ' - ' . $modelo;
+        }
+
+        return trim($base);
     }
 
     protected function formatoCopiaValor(?string $formato): ?int
@@ -802,11 +1035,6 @@ new class extends Component
             'DOBLE_CARA' => 2,
             default => null,
         };
-    }
-
-    protected function monedaCodigo(): int
-    {
-        return $this->moneda === 'USD' ? 1 : 0;
     }
 
     protected function obtenerUsuarioId(): int
@@ -968,22 +1196,22 @@ new class extends Component
                 <x-card class="rounded-2xl border border-[#D7E4F3] bg-white p-4 shadow-sm">
                     <div class="mb-4">
                         <h2 class="text-lg font-bold text-[#1A2B42]">Agregar a la venta</h2>
-
                     </div>
 
                     <div class="grid grid-cols-1 gap-3 xl:grid-cols-12">
                         <div class="relative min-w-0 xl:col-span-4">
                             <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Buscar producto</label>
                             <x-input wire:model.live.debounce.250ms="buscarItem" type="text" autocomplete="off"
-                                placeholder="Producto"
+                                placeholder="Producto, serie o copia"
                                 class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
 
-                            @if ($mostrarItems)2
+                            @if ($mostrarItems)
                             <div
                                 class="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-y-auto rounded-xl border border-[#D7E4F3] bg-white shadow-lg">
                                 @foreach ($resultadosItems as $item)
-                                <button type="button" wire:key="item-{{ $item['tipo'] }}-{{ $item['id'] }}"
-                                    wire:click="seleccionarItem('{{ $item['tipo'] }}', {{ $item['id'] }})"
+                                <button type="button"
+                                    wire:key="item-{{ $item['tipo'] }}-{{ $item['id'] }}-{{ $item['serie_id'] ?? 0 }}"
+                                    wire:click="seleccionarItem('{{ $item['tipo'] }}', {{ $item['id'] }}, {{ $item['serie_id'] ?? 'null' }})"
                                     class="flex w-full items-center justify-between gap-3 border-b border-[#EAF2FB] px-4 py-3 text-left hover:bg-[#EAF4FD] last:border-b-0">
                                     <span class="min-w-0">
                                         <span class="block truncate text-sm font-semibold text-[#1A2B42]">{{
@@ -1054,10 +1282,9 @@ new class extends Component
                     @endif
 
                     <div class="mt-4 rounded-2xl border border-[#E3EDF8] bg-[#F8FBFF] p-3">
-
                         <div class="grid grid-cols-1 gap-3 xl:grid-cols-12">
                             <div class="min-w-0 xl:col-span-8">
-                                <h3 class="text-sm font-bold text-[#1A2B42]">Copia rápida</h3>
+                                <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Copia rápida</label>
                                 <x-select wire:model.live="copiaRapidaId" :options="$copiasRapidas" option-value="id"
                                     option-label="name" placeholder="Seleccione una tarifa de copia"
                                     class="h-11 min-h-11 w-full rounded-xl border-0 bg-white text-sm text-[#1A2B42]" />
@@ -1089,7 +1316,8 @@ new class extends Component
 
                     <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-white">
                         <div class="w-full overflow-x-auto">
-                            <table class="min-w-205 w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
+                            <table
+                                class="min-w-205 w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
                                 <thead>
                                     <tr>
                                         <th
@@ -1204,8 +1432,15 @@ new class extends Component
 
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo de pago</label>
-                <select wire:model="tipoPago"
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo cambio</label>
+                <x-input wire:model.live.debounce.250ms="tipoCambio" type="text" inputmode="decimal"
+                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+            </div>
+
+            @if ($tipoVenta === 'CONTADO')
+            <div>
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo pago C$</label>
+                <select wire:model="tipoPagoCordobas"
                     class="h-11 w-full rounded-xl border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
                     <option value="EFECTIVO">Efectivo</option>
                     <option value="TRANSFERENCIA">Transferencia</option>
@@ -1214,18 +1449,24 @@ new class extends Component
             </div>
 
             <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Moneda</label>
-                <select wire:model="moneda"
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Pago C$</label>
+                <x-input wire:model.live.debounce.250ms="pagoCordobas" type="text" inputmode="numeric"
+                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+            </div>
+
+            <div>
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo pago US$</label>
+                <select wire:model="tipoPagoDolares"
                     class="h-11 w-full rounded-xl border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
-                    <option value="NIO">Córdobas</option>
-                    <option value="USD">Dólares</option>
+                    <option value="EFECTIVO">Efectivo</option>
+                    <option value="TRANSFERENCIA">Transferencia</option>
+                    <option value="TARJETA">Tarjeta</option>
                 </select>
             </div>
 
-            @if ($tipoVenta === 'CONTADO')
             <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Monto recibido</label>
-                <x-input wire:model.live.debounce.250ms="montoRecibido" type="text" inputmode="numeric"
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Pago US$</label>
+                <x-input wire:model.live.debounce.250ms="pagoDolares" type="text" inputmode="decimal"
                     class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
             </div>
 
@@ -1236,12 +1477,43 @@ new class extends Component
                     C$ {{ number_format($this->cambioVenta(), 0, '.', ',') }}
                 </div>
             </div>
+
+            <div class="md:col-span-2 rounded-xl bg-[#F8FBFF] px-4 py-3 text-sm text-[#1A2B42]">
+                Recibido equivalente:
+                <strong>C$ {{ number_format($this->totalPagadoCordobas(), 0, '.', ',') }}</strong>
+            </div>
             @endif
 
             @if ($tipoVenta === 'CREDITO')
             <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Abono inicial</label>
-                <x-input wire:model.live.debounce.250ms="abonoInicial" type="text" inputmode="numeric"
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo pago C$</label>
+                <select wire:model="tipoPagoCordobas"
+                    class="h-11 w-full rounded-xl border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
+                    <option value="EFECTIVO">Efectivo</option>
+                    <option value="TRANSFERENCIA">Transferencia</option>
+                    <option value="TARJETA">Tarjeta</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Abono C$</label>
+                <x-input wire:model.live.debounce.250ms="abonoCordobas" type="text" inputmode="numeric"
+                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+            </div>
+
+            <div>
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo pago US$</label>
+                <select wire:model="tipoPagoDolares"
+                    class="h-11 w-full rounded-xl border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
+                    <option value="EFECTIVO">Efectivo</option>
+                    <option value="TRANSFERENCIA">Transferencia</option>
+                    <option value="TARJETA">Tarjeta</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Abono US$</label>
+                <x-input wire:model.live.debounce.250ms="abonoDolares" type="text" inputmode="decimal"
                     class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
             </div>
 

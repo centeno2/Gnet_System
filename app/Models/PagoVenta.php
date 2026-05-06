@@ -19,6 +19,8 @@ class PagoVenta extends Model
         'Moneda',
         'Tipo_Pago',
         'Monto',
+        'Tipo_Cambio',
+        'Monto_Equivalente_Cordobas',
     ];
 
     protected $casts = [
@@ -27,10 +29,17 @@ class PagoVenta extends Model
         'Fecha_Pago' => 'datetime',
         'Moneda' => 'integer',
         'Monto' => 'decimal:2',
+        'Tipo_Cambio' => 'decimal:4',
+        'Monto_Equivalente_Cordobas' => 'decimal:2',
     ];
 
     public function venta(): BelongsTo
     {
         return $this->belongsTo(Venta::class, 'Id_Venta', 'Id_Venta');
+    }
+
+    public function getMonedaNombreAttribute(): string
+    {
+        return (int) $this->Moneda === 1 ? 'USD' : 'NIO';
     }
 }

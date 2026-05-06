@@ -37,7 +37,7 @@ class Producto extends Model
         'Stock_Minimo' => 'integer',
 
         'Precio_Venta' => 'decimal:2',
-        'Fecha_Vencimiento' => 'date',
+        'Fecha_Vencimiento' => 'datetime',
         'Meses_Garantia_Nuevo' => 'integer',
         'Meses_Garantia_Usado' => 'integer',
         'Estado' => 'boolean',

@@ -18,6 +18,8 @@ class AbonoCredito extends Model
         'Fecha_Abono',
         'Moneda',
         'Monto',
+        'Tipo_Cambio',
+        'Monto_Equivalente_Cordobas',
         'Numero_Transferencia',
         'Observacion',
     ];
@@ -27,10 +29,17 @@ class AbonoCredito extends Model
         'Id_Credito' => 'integer',
         'Fecha_Abono' => 'datetime',
         'Monto' => 'decimal:2',
+        'Tipo_Cambio' => 'decimal:4',
+        'Monto_Equivalente_Cordobas' => 'decimal:2',
     ];
 
     public function credito(): BelongsTo
     {
         return $this->belongsTo(Credito::class, 'Id_Credito', 'Id_Credito');
+    }
+
+    public function getMonedaNombreAttribute(): string
+    {
+        return strtoupper((string) $this->Moneda) === 'USD' ? 'USD' : 'NIO';
     }
 }

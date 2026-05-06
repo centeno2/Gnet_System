@@ -72,11 +72,6 @@ new class extends Component
         $this->buscarCoincidenciasProducto();
     }
 
-    public function updatedPrecioCompra($value): void
-    {
-        $this->precioCompra = $this->formatearMonto((string) $value);
-    }
-
     public function updatedPrecioVenta($value): void
     {
         $this->precioVenta = $this->formatearMonto((string) $value);
@@ -166,7 +161,7 @@ new class extends Component
             ->where('Id_Producto', $idProducto)
             ->first();
 
-        if (!$producto) {
+        if (! $producto) {
             $this->coincidenciasProducto = [];
             $this->mostrarCoincidenciasProducto = false;
             $this->mostrarToast('No se encontró el producto seleccionado.', 'error');
@@ -315,10 +310,8 @@ new class extends Component
             'estado' => 'required|in:0,1',
             'fechaVencimiento' => 'nullable|date',
         ], [
-            'precioCompra.regex' => 'Ingrese el precio sin decimales. Ejemplo: 40,000',
             'precioVenta.regex' => 'Ingrese el precio sin decimales. Ejemplo: 40,000',
         ]);
-
 
         $precioVentaLimpio = $this->desformatearMonto($datos['precioVenta']);
         $productoBaseId = $this->productoBaseSeleccionado;
@@ -340,7 +333,7 @@ new class extends Component
                     'Estado' => (int) $datos['estado'],
                 ]);
 
-                if (!empty($datos['numeroSerie'])) {
+                if (! empty($datos['numeroSerie'])) {
                     $serie = new ProductoSerie();
                     $serie->Id_Producto = $productoBaseId;
                     $serie->Numero_Serie = trim($datos['numeroSerie']);
@@ -369,7 +362,7 @@ new class extends Component
             $producto->Estado = (int) $datos['estado'];
             $producto->save();
 
-            if (!empty($datos['numeroSerie'])) {
+            if (! empty($datos['numeroSerie'])) {
                 $serie = new ProductoSerie();
                 $serie->Id_Producto = $producto->Id_Producto;
                 $serie->Numero_Serie = trim($datos['numeroSerie']);
@@ -395,14 +388,22 @@ new class extends Component
         $producto = DB::table('producto')
             ->select('Id_Producto', 'Nombre_Producto', 'Modelo')
             ->where('Id_Producto', $idProducto)
+            ->where('Estado', 1)
+            ->where('Stock_Actual', '>', 0)
             ->first();
 
-        $this->productoNombreSeries = $producto
-            ? trim($producto->Nombre_Producto . ($producto->Modelo ? ' - ' . $producto->Modelo : ''))
-            : 'Producto';
+        if (! $producto) {
+            $this->mostrarToast('Este producto ya no está disponible en inventario.', 'error');
+            return;
+        }
+
+        $this->productoNombreSeries = trim(
+            $producto->Nombre_Producto . ($producto->Modelo ? ' - ' . $producto->Modelo : '')
+        );
 
         $this->seriesProducto = DB::table('producto_serie')
             ->where('Id_Producto', $idProducto)
+            ->where('Estado', '<>', 'VENDIDO')
             ->orderByDesc('id_producto_serie')
             ->get([
                 'Numero_Serie',
@@ -446,12 +447,20 @@ new class extends Component
                 'm.Nombre_Marca'
             )
             ->where('producto.Id_Producto', $idProducto)
+            ->where('producto.Estado', 1)
             ->first();
 
+        if (! $producto) {
+            $this->mostrarToast('Este producto no está disponible para agregar series.', 'error');
+            return;
+        }
+
         $this->productoIdAgregarSerie = $idProducto;
-        $this->productoNombreAgregarSerie = $producto
-            ? trim(($producto->Nombre_Marca ? $producto->Nombre_Marca . ' ' : '') . $producto->Nombre_Producto . ($producto->Modelo ? ' - ' . $producto->Modelo : ''))
-            : 'Producto';
+        $this->productoNombreAgregarSerie = trim(
+            ($producto->Nombre_Marca ? $producto->Nombre_Marca . ' ' : '') .
+            $producto->Nombre_Producto .
+            ($producto->Modelo ? ' - ' . $producto->Modelo : '')
+        );
 
         $this->numeroSerieExtra = '';
         $this->observacionSerieExtra = '';
@@ -478,7 +487,7 @@ new class extends Component
         $datos = $this->validate([
             'productoIdAgregarSerie' => 'required|integer|exists:producto,Id_Producto',
             'numeroSerieExtra' => 'required|string|max:100|unique:producto_serie,Numero_Serie',
-            'estadoSerieExtra' => 'required|string|max:50',
+            'estadoSerieExtra' => 'required|in:DISPONIBLE,RESERVADO,DAÑADO',
             'observacionSerieExtra' => 'nullable|string|max:255',
         ]);
 
@@ -509,7 +518,6 @@ new class extends Component
         $this->idMarca = '';
         $this->stockActual = '0';
         $this->stockMinimo = '0';
-
         $this->precioVenta = '0';
         $this->garantiaNuevo = '';
         $this->garantiaUsado = '';
@@ -554,28 +562,37 @@ new class extends Component
         $query = DB::table('producto as p')
             ->leftJoin('categoria_producto as c', 'p.Id_Categoria', '=', 'c.Id_Categoria')
             ->leftJoin('marca as m', 'p.Id_Marca', '=', 'm.Id_Marca')
-            ->leftJoin('producto_serie as ps', 'p.Id_Producto', '=', 'ps.Id_Producto')
-            ->selectRaw('
-                p.Id_Producto,
-                p.Nombre_Producto,
-                p.Modelo,
-                p.Stock_Actual,
-                p.Precio_Venta,
-                p.Estado,
-                c.Nombre_Categoria as categoria,
-                m.Nombre_Marca as marca,
-                COUNT(ps.id_producto_serie) as total_series
-            ')
-            ->groupBy(
+            ->where('p.Estado', 1)
+            ->where('p.Stock_Actual', '>', 0)
+            ->select(
                 'p.Id_Producto',
                 'p.Nombre_Producto',
                 'p.Modelo',
                 'p.Stock_Actual',
                 'p.Precio_Venta',
                 'p.Estado',
-                'c.Nombre_Categoria',
-                'm.Nombre_Marca'
+                'c.Nombre_Categoria as categoria',
+                'm.Nombre_Marca as marca'
             )
+            ->selectSub(function ($sub) {
+                $sub->from('producto_serie as ps')
+                    ->selectRaw('COUNT(*)')
+                    ->whereColumn('ps.Id_Producto', 'p.Id_Producto')
+                    ->where('ps.Estado', '<>', 'VENDIDO');
+            }, 'total_series')
+            ->where(function ($q) {
+                $q->whereNotExists(function ($sub) {
+                    $sub->select(DB::raw(1))
+                        ->from('producto_serie as ps_check')
+                        ->whereColumn('ps_check.Id_Producto', 'p.Id_Producto');
+                })
+                ->orWhereExists(function ($sub) {
+                    $sub->select(DB::raw(1))
+                        ->from('producto_serie as ps_available')
+                        ->whereColumn('ps_available.Id_Producto', 'p.Id_Producto')
+                        ->where('ps_available.Estado', '<>', 'VENDIDO');
+                });
+            })
             ->orderByDesc('p.Id_Producto');
 
         if ($busqueda !== '') {
@@ -588,6 +605,7 @@ new class extends Component
                         $sub->select(DB::raw(1))
                             ->from('producto_serie as ps2')
                             ->whereColumn('ps2.Id_Producto', 'p.Id_Producto')
+                            ->where('ps2.Estado', '<>', 'VENDIDO')
                             ->where('ps2.Numero_Serie', 'like', "%{$busqueda}%");
                     });
             });
@@ -596,16 +614,16 @@ new class extends Component
         $this->productos = $query->limit(25)->get()
             ->map(function ($producto) {
                 return [
-                    'id_producto' => $producto->Id_Producto,
-                    'codigo' => $producto->Id_Producto,
+                    'id_producto' => (int) $producto->Id_Producto,
+                    'codigo' => (int) $producto->Id_Producto,
                     'producto' => $producto->Nombre_Producto,
                     'categoria' => $producto->categoria ?: '—',
                     'marca' => $producto->marca ?: '—',
                     'modelo' => $producto->Modelo ?: '—',
                     'series_registradas' => (int) $producto->total_series,
-                    'stock' => $producto->Stock_Actual,
+                    'stock' => (int) $producto->Stock_Actual,
                     'precio_venta' => 'C$ ' . number_format((float) $producto->Precio_Venta, 0, '.', ','),
-                    'estado' => (int) $producto->Estado === 1 ? 'Activo' : 'Inactivo',
+                    'estado' => 'Activo',
                 ];
             })
             ->toArray();
@@ -614,7 +632,7 @@ new class extends Component
 ?>
 
 <div class="w-full min-h-[calc(100vh-3rem)] bg-[#F0F3F7] px-4 py-4 md:px-6 md:py-5">
-    <div class="mx-auto flex w-full max-w-350 flex-col gap-4">
+    <div class="mx-auto flex w-full max-w-[1400px] flex-col gap-4">
         <div class="flex shrink-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
                 <h1 class="text-2xl font-bold text-[#1A2B42]">Productos</h1>
@@ -638,7 +656,7 @@ new class extends Component
         </div>
 
         @if ($mostrarToast)
-        <div class="fixed right-5 top-5 z-999 w-full max-w-sm">
+        <div class="fixed right-5 top-5 z-[999] w-full max-w-sm">
             <div
                 class="{{ $toastTipo === 'success' ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#1A2B42]' : 'border-red-200 bg-red-50 text-red-700' }} rounded-2xl border px-4 py-4 shadow-lg">
                 <div class="flex items-start justify-between gap-3">
@@ -777,7 +795,6 @@ new class extends Component
                         @enderror
                     </div>
 
-
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Precio de venta</label>
                         <x-input wire:model.live.debounce.250ms="precioVenta" type="text" inputmode="numeric"
@@ -837,7 +854,12 @@ new class extends Component
 
         <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
             <div class="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <h2 class="text-xl font-bold text-[#1A2B42]">Resumen de productos</h2>
+                <div>
+                    <h2 class="text-xl font-bold text-[#1A2B42]">Resumen de productos disponibles</h2>
+                    <p class="text-sm text-[#5F6B7A]">
+                        No se muestran productos sin stock ni series vendidas.
+                    </p>
+                </div>
 
                 <div class="w-full md:w-80">
                     <x-input wire:model.live.debounce.250ms="buscar" type="text" placeholder="Buscar productos"
@@ -846,8 +868,8 @@ new class extends Component
             </div>
 
             <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-white">
-                <div class="max-h-105 overflow-x-auto overflow-y-auto">
-                    <table class="min-w-275 w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
+                <div class="max-h-[26rem] overflow-x-auto overflow-y-auto">
+                    <table class="min-w-[1050px] w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
                         <thead class="sticky top-0 z-10">
                             <tr>
                                 <th
@@ -861,7 +883,7 @@ new class extends Component
                                     Modelo</th>
                                 <th
                                     class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white whitespace-nowrap">
-                                    Series</th>
+                                    Disponibles</th>
                                 <th
                                     class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white whitespace-nowrap">
                                     Stock</th>
@@ -894,7 +916,7 @@ new class extends Component
                                 </td>
                                 <td class="px-3 py-3 text-center align-middle whitespace-nowrap">
                                     <span
-                                        class="inline-flex min-w-8.5 justify-center rounded-full bg-[#EAF4FD] px-2.5 py-1 text-xs font-semibold text-[#0E48A1]">
+                                        class="inline-flex min-w-[2.125rem] justify-center rounded-full bg-[#EAF4FD] px-2.5 py-1 text-xs font-semibold text-[#0E48A1]">
                                         {{ $producto['series_registradas'] }}
                                     </span>
                                 </td>
@@ -906,7 +928,7 @@ new class extends Component
                                 </td>
                                 <td class="px-3 py-3 text-center align-middle whitespace-nowrap">
                                     <span
-                                        class="{{ $producto['estado'] === 'Activo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">
+                                        class="inline-flex rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">
                                         {{ $producto['estado'] }}
                                     </span>
                                 </td>
@@ -924,7 +946,7 @@ new class extends Component
                             @empty
                             <tr>
                                 <td colspan="9" class="px-4 py-8 text-center text-sm text-[#7B8794]">
-                                    No hay productos registrados.
+                                    No hay productos disponibles.
                                 </td>
                             </tr>
                             @endforelse
@@ -1003,7 +1025,7 @@ new class extends Component
         <x-modal wire:model="modalSeries" class="backdrop-blur-sm"
             box-class="w-full max-w-5xl rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
             <div class="mb-5">
-                <h3 class="text-2xl font-bold text-[#1A2B42]">Series del producto</h3>
+                <h3 class="text-2xl font-bold text-[#1A2B42]">Series disponibles del producto</h3>
                 <p class="mt-1 text-sm text-[#5F6B7A]">{{ $productoNombreSeries }}</p>
             </div>
 
@@ -1032,13 +1054,18 @@ new class extends Component
                         <tr class="odd:bg-white even:bg-[#F8FBFF]">
                             <td class="px-4 py-3 whitespace-nowrap">{{ $serie['numero_serie'] }}</td>
                             <td class="px-4 py-3 whitespace-nowrap">{{ $serie['fecha_ingreso'] }}</td>
-                            <td class="px-4 py-3 whitespace-nowrap">{{ $serie['estado'] }}</td>
+                            <td class="px-4 py-3 whitespace-nowrap">
+                                <span
+                                    class="{{ $serie['estado'] === 'DISPONIBLE' ? 'bg-green-100 text-green-700' : ($serie['estado'] === 'DAÑADO' ? 'bg-red-100 text-red-700' : 'bg-[#EAF4FD] text-[#0E48A1]') }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">
+                                    {{ $serie['estado'] }}
+                                </span>
+                            </td>
                             <td class="px-4 py-3">{{ $serie['observacion'] }}</td>
                         </tr>
                         @empty
                         <tr>
                             <td colspan="4" class="px-4 py-8 text-center text-sm text-[#7B8794]">
-                                Este producto no tiene series registradas.
+                                Este producto no tiene series disponibles.
                             </td>
                         </tr>
                         @endforelse
@@ -1074,7 +1101,6 @@ new class extends Component
                     <select wire:model.defer="estadoSerieExtra"
                         class="w-full rounded-xl border-0 bg-[#F0F3F7] px-3 py-2 text-[#1A2B42]">
                         <option value="DISPONIBLE">Disponible</option>
-                        <option value="VENDIDO">Vendido</option>
                         <option value="RESERVADO">Reservado</option>
                         <option value="DAÑADO">Dañado</option>
                     </select>
