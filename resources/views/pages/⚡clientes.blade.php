@@ -3,10 +3,14 @@
 use App\Models\Cliente;
 use App\Models\Persona;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Livewire\Component;
+use Mary\Traits\Toast;
 
 new class extends Component
 {
+    use Toast;
+
     public string $nombre = '';
     public string $apellido = '';
     public string $telefono = '';
@@ -18,14 +22,13 @@ new class extends Component
     public ?string $institucion = '';
 
     public int|string $tipoPago = 1;
-    public bool $estado = true;
 
     public string $buscar = '';
 
     public array $clientes = [];
 
-    public ?string $mensaje = null;
-    public string $tipoMensaje = 'success';
+    public ?int $clienteEditandoId = null;
+    public ?int $personaEditandoId = null;
 
     public array $headers = [
         ['key' => 'codigo', 'label' => 'Código'],
@@ -36,6 +39,7 @@ new class extends Component
         ['key' => 'tipo_cliente', 'label' => 'Tipo cliente'],
         ['key' => 'tipo_pago', 'label' => 'Tipo pago'],
         ['key' => 'estado', 'label' => 'Estado'],
+        ['key' => 'actions', 'label' => 'Acciones', 'class' => 'text-right'],
     ];
 
     public array $tiposCliente = [
@@ -46,6 +50,10 @@ new class extends Component
     public array $tiposPago = [
         ['id' => 1, 'name' => 'Contado'],
         ['id' => 2, 'name' => 'Crédito'],
+    ];
+
+    public array $tiposPagoNatural = [
+        ['id' => 1, 'name' => 'Contado'],
     ];
 
     public function mount(): void
@@ -60,7 +68,8 @@ new class extends Component
 
     public function updatedTipoCliente($value): void
     {
-        if ((int) $value !== 2) {
+        if ((int) $value === 1) {
+            $this->tipoPago = 1;
             $this->institucion = '';
         }
     }
@@ -85,13 +94,13 @@ new class extends Component
                 'string',
                 'max:25',
                 'regex:/^\+?[0-9\s\-\(\)]{8,25}$/',
-                'unique:persona,Telefono',
+                Rule::unique('persona', 'Telefono')->ignore($this->personaEditandoId, 'Id_Persona'),
             ],
             'correo' => [
                 'nullable',
                 'email',
                 'max:120',
-                'unique:persona,Correo',
+                Rule::unique('persona', 'Correo')->ignore($this->personaEditandoId, 'Id_Persona'),
             ],
             'direccion' => [
                 'nullable',
@@ -102,6 +111,7 @@ new class extends Component
                 'required',
                 'string',
                 'max:100',
+                'regex:/^[\p{L}\s\.\-]+$/u',
             ],
             'tipoCliente' => [
                 'required',
@@ -116,10 +126,7 @@ new class extends Component
             'tipoPago' => [
                 'required',
                 'integer',
-                'in:1,2',
-            ],
-            'estado' => [
-                'boolean',
+                (int) $this->tipoCliente === 1 ? 'in:1' : 'in:1,2',
             ],
         ];
     }
@@ -127,19 +134,34 @@ new class extends Component
     protected array $messages = [
         'nombre.required' => 'El nombre es obligatorio.',
         'nombre.regex' => 'El nombre solo puede llevar letras y máximo 2 palabras.',
+        'nombre.max' => 'El nombre no debe superar los 80 caracteres.',
+
         'apellido.required' => 'El apellido es obligatorio.',
         'apellido.regex' => 'El apellido solo puede llevar letras y máximo 2 palabras.',
+        'apellido.max' => 'El apellido no debe superar los 80 caracteres.',
+
         'telefono.required' => 'El teléfono es obligatorio.',
         'telefono.regex' => 'Ingrese un teléfono válido. Puede incluir código de país, por ejemplo +505 8888 8888.',
         'telefono.unique' => 'Este teléfono ya está registrado.',
+
         'correo.email' => 'Ingrese un correo válido.',
         'correo.unique' => 'Este correo ya está registrado.',
+        'correo.max' => 'El correo no debe superar los 120 caracteres.',
+
+        'direccion.max' => 'La dirección no debe superar los 255 caracteres.',
+
         'municipio.required' => 'El municipio es obligatorio.',
+        'municipio.regex' => 'El municipio solo puede llevar letras, espacios, puntos o guiones.',
+        'municipio.max' => 'El municipio no debe superar los 100 caracteres.',
+
         'tipoCliente.required' => 'Seleccione el tipo de cliente.',
         'tipoCliente.in' => 'Seleccione un tipo de cliente válido.',
+
         'institucion.required' => 'La institución es obligatoria para clientes institucionales.',
+        'institucion.max' => 'La institución no debe superar los 150 caracteres.',
+
         'tipoPago.required' => 'Seleccione el tipo de pago.',
-        'tipoPago.in' => 'Seleccione un tipo de pago válido.',
+        'tipoPago.in' => 'El cliente natural solo puede tener pago de contado.',
     ];
 
     public function guardarCliente(): void
@@ -148,6 +170,16 @@ new class extends Component
 
         $this->validate();
 
+        if ($this->clienteEditandoId) {
+            $this->actualizarCliente();
+            return;
+        }
+
+        $this->crearCliente();
+    }
+
+    private function crearCliente(): void
+    {
         [$primerNombre, $segundoNombre] = $this->separarEnDosPartes($this->nombre);
         [$primerApellido, $segundoApellido] = $this->separarEnDosPartes($this->apellido);
 
@@ -168,7 +200,7 @@ new class extends Component
                     'Tipo_Cliente' => (int) $this->tipoCliente,
                     'Institucion' => (int) $this->tipoCliente === 2 ? $this->institucion : null,
                     'Municipio' => $this->municipio,
-                    'Estado' => $this->estado,
+                    'Estado' => true,
                     'Tipo_pago' => (int) $this->tipoPago,
                 ]);
             });
@@ -176,14 +208,121 @@ new class extends Component
             $this->limpiarFormulario();
             $this->cargarClientes();
 
-            $this->tipoMensaje = 'success';
-            $this->mensaje = 'Cliente registrado correctamente.';
-        } catch (Throwable $e) {
+            $this->success(
+                'Cliente registrado correctamente.',
+                position: 'toast-top toast-end',
+                timeout: 2500
+            );
+        } catch (\Throwable $e) {
             report($e);
 
-            $this->tipoMensaje = 'error';
-            $this->mensaje = 'No se pudo registrar el cliente. Revise los datos e intente nuevamente.';
+            $this->error(
+                'No se pudo registrar el cliente.',
+                'Revise los datos e intente nuevamente.',
+                position: 'toast-top toast-end',
+                timeout: 3500
+            );
         }
+    }
+
+    private function actualizarCliente(): void
+    {
+        [$primerNombre, $segundoNombre] = $this->separarEnDosPartes($this->nombre);
+        [$primerApellido, $segundoApellido] = $this->separarEnDosPartes($this->apellido);
+
+        try {
+            DB::transaction(function () use ($primerNombre, $segundoNombre, $primerApellido, $segundoApellido) {
+                $cliente = Cliente::with('persona')->findOrFail($this->clienteEditandoId);
+
+                $cliente->persona->update([
+                    'Primer_Nombre' => $primerNombre,
+                    'Segundo_Nombre' => $segundoNombre,
+                    'Primer_Apellido' => $primerApellido,
+                    'Segundo_Apellido' => $segundoApellido,
+                    'Correo' => $this->correo,
+                    'Direccion' => $this->direccion,
+                    'Telefono' => $this->telefono,
+                ]);
+
+                $cliente->update([
+                    'Tipo_Cliente' => (int) $this->tipoCliente,
+                    'Institucion' => (int) $this->tipoCliente === 2 ? $this->institucion : null,
+                    'Municipio' => $this->municipio,
+                    'Tipo_pago' => (int) $this->tipoPago,
+                ]);
+            });
+
+            $this->limpiarFormulario();
+            $this->cargarClientes();
+
+            $this->success(
+                'Cliente actualizado correctamente.',
+                position: 'toast-top toast-end',
+                timeout: 2500
+            );
+        } catch (\Throwable $e) {
+            report($e);
+
+            $this->error(
+                'No se pudo actualizar el cliente.',
+                'Revise los datos e intente nuevamente.',
+                position: 'toast-top toast-end',
+                timeout: 3500
+            );
+        }
+    }
+
+    public function cargarCliente(int $clienteId): void
+    {
+        $cliente = Cliente::with('persona')->findOrFail($clienteId);
+
+        $persona = $cliente->persona;
+
+        $this->clienteEditandoId = $cliente->Id_Cliente;
+        $this->personaEditandoId = $persona?->Id_Persona;
+
+        $this->nombre = trim(implode(' ', array_filter([
+            $persona?->Primer_Nombre,
+            $persona?->Segundo_Nombre,
+        ])));
+
+        $this->apellido = trim(implode(' ', array_filter([
+            $persona?->Primer_Apellido,
+            $persona?->Segundo_Apellido,
+        ])));
+
+        $this->telefono = $persona?->Telefono ?? '';
+        $this->correo = $persona?->Correo;
+        $this->direccion = $persona?->Direccion;
+
+        $this->municipio = $cliente->Municipio ?? '';
+        $this->tipoCliente = (int) $cliente->Tipo_Cliente;
+        $this->institucion = $cliente->Institucion;
+        $this->tipoPago = (int) $cliente->Tipo_pago;
+
+        if ((int) $this->tipoCliente === 1) {
+            $this->tipoPago = 1;
+            $this->institucion = '';
+        }
+
+        $this->resetValidation();
+
+        $this->info(
+            'Cliente cargado para edición.',
+            position: 'toast-top toast-end',
+            timeout: 2200
+        );
+    }
+
+    public function cancelarEdicion(): void
+    {
+        $this->limpiarFormulario();
+
+        $this->info(
+            'Edición cancelada.',
+            position: 'toast-top toast-end',
+            timeout: 2200
+        );
     }
 
     public function limpiarFormulario(): void
@@ -196,11 +335,12 @@ new class extends Component
             'direccion',
             'municipio',
             'institucion',
+            'clienteEditandoId',
+            'personaEditandoId',
         ]);
 
         $this->tipoCliente = 1;
         $this->tipoPago = 1;
-        $this->estado = true;
 
         $this->resetValidation();
     }
@@ -240,6 +380,7 @@ new class extends Component
                 ])));
 
                 return [
+                    'id' => $cliente->Id_Cliente,
                     'codigo' => $cliente->Id_Cliente,
                     'full_name' => $nombreCompleto !== '' ? $nombreCompleto : 'Sin nombre',
                     'telefono' => $persona?->Telefono ?: 'Sin teléfono',
@@ -263,6 +404,14 @@ new class extends Component
         $this->correo = $this->limpiarTextoOpcional($this->correo);
         $this->direccion = $this->limpiarTextoOpcional($this->direccion);
         $this->institucion = $this->limpiarTextoOpcional($this->institucion);
+
+        $this->tipoCliente = (int) $this->tipoCliente;
+        $this->tipoPago = (int) $this->tipoPago;
+
+        if ((int) $this->tipoCliente === 1) {
+            $this->tipoPago = 1;
+            $this->institucion = null;
+        }
 
         if ($this->correo !== null) {
             $this->correo = mb_strtolower($this->correo);
@@ -311,25 +460,26 @@ new class extends Component
         </p>
     </div>
 
-    @if ($mensaje)
-        <div
-            class="rounded-2xl border px-4 py-3 text-sm font-semibold shadow-sm
-            {{ $tipoMensaje === 'success'
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                : 'border-red-200 bg-red-50 text-red-700' }}"
-        >
-            {{ $mensaje }}
-        </div>
-    @endif
-
     {{-- Formulario --}}
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
         <x-form wire:submit="guardarCliente" no-separator>
-            <div class="mb-6">
-                <h2 class="text-2xl font-bold text-[#1A2B42]">Registrar cliente</h2>
-                <p class="text-base text-[#5F6B7A]">
-                    Ingrese los datos del cliente. El correo y la dirección son opcionales.
-                </p>
+            <div class="mb-6 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                <div>
+                    <h2 class="text-2xl font-bold text-[#1A2B42]">
+                        {{ $clienteEditandoId ? 'Actualizar cliente' : 'Registrar cliente' }}
+                    </h2>
+                    <p class="text-base text-[#5F6B7A]">
+                        {{ $clienteEditandoId
+                            ? 'Modifique los datos del cliente seleccionado.'
+                            : 'Ingrese los datos del cliente. El correo y la dirección son opcionales.' }}
+                    </p>
+                </div>
+
+                @if ($clienteEditandoId)
+                    <div class="rounded-xl border border-[#D7E4F3] bg-[#EAF2FB] px-4 py-2 text-sm font-semibold text-[#1A2B42]">
+                        Editando cliente #{{ $clienteEditandoId }}
+                    </div>
+                @endif
             </div>
 
             <div class="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
@@ -442,23 +592,20 @@ new class extends Component
                     </label>
                     <x-select
                         wire:model="tipoPago"
-                        :options="$tiposPago"
+                        :options="(int) $tipoCliente === 1 ? $tiposPagoNatural : $tiposPago"
                         option-value="id"
                         option-label="name"
                         placeholder="Seleccione el tipo de pago"
                         class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
                     />
+                    <p class="mt-1 text-xs font-medium text-[#5F6B7A]">
+                        {{ (int) $tipoCliente === 1
+                            ? 'Los clientes naturales solo pueden pagar de contado.'
+                            : 'Los clientes institucionales pueden pagar de contado o crédito.' }}
+                    </p>
                     @error('tipoPago')
                         <p class="mt-1 text-xs font-semibold text-red-600">{{ $message }}</p>
                     @enderror
-                </div>
-
-                <div class="flex items-end">
-                    <x-checkbox
-                        wire:model="estado"
-                        label="Cliente activo"
-                        class="text-[#1A2B42]"
-                    />
                 </div>
 
                 <div class="md:col-span-2 xl:col-span-3">
@@ -479,16 +626,25 @@ new class extends Component
 
             <x-slot:actions>
                 <div class="flex w-full flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                    <x-button
-                        type="button"
-                        label="Limpiar"
-                        wire:click="limpiarFormulario"
-                        class="rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB]"
-                    />
+                    @if ($clienteEditandoId)
+                        <x-button
+                            type="button"
+                            label="Cancelar edición"
+                            wire:click="cancelarEdicion"
+                            class="rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB]"
+                        />
+                    @else
+                        <x-button
+                            type="button"
+                            label="Limpiar"
+                            wire:click="limpiarFormulario"
+                            class="rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB]"
+                        />
+                    @endif
 
                     <x-button
                         type="submit"
-                        label="Guardar cliente"
+                        label="{{ $clienteEditandoId ? 'Actualizar datos' : 'Guardar cliente' }}"
                         spinner="guardarCliente"
                         class="rounded-xl border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4] focus:ring-2 focus:ring-[#0E48A1]/30"
                     />
@@ -503,7 +659,7 @@ new class extends Component
             <div>
                 <h2 class="text-2xl font-bold text-[#1A2B42]">Listado de clientes</h2>
                 <p class="text-sm text-[#5F6B7A]">
-                    Consulte los clientes registrados en el sistema.
+                    Consulte, cargue y actualice clientes registrados.
                 </p>
             </div>
 
@@ -524,8 +680,21 @@ new class extends Component
                 <x-table
                     :headers="$headers"
                     :rows="$clientes"
-                    class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl"
-                />
+                    class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr:hover]:!bg-[#EAF2FB] [&_tbody_tr:hover_td]:!bg-[#EAF2FB] [&_tbody_tr:hover_td]:!text-[#1A2B42]"
+                >
+                    @scope('actions', $cliente)
+                        <div class="flex justify-end">
+                            <x-button
+                                icon="o-pencil-square"
+                                wire:click="cargarCliente({{ $cliente['id'] }})"
+                                spinner="cargarCliente({{ $cliente['id'] }})"
+                                title="Cargar cliente"
+                                aria-label="Cargar cliente"
+                                class="btn-sm rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB] hover:text-[#0B6FE4]"
+                            />
+                        </div>
+                    @endscope
+                </x-table>
             </div>
         @else
             <div class="rounded-2xl border border-dashed border-[#D7E4F3] bg-[#F0F3F7] px-4 py-8 text-center">
