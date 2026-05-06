@@ -17,9 +17,8 @@ class DetalleCompra extends Model
         'Id_Compra',
         'Id_Producto',
         'Cantidad',
-        'Precio_Unitario',
+        'Precio_Compra',
         'Subtotal',
-        'Fecha_Vencimiento',
     ];
 
     protected $casts = [
@@ -27,9 +26,8 @@ class DetalleCompra extends Model
         'Id_Compra' => 'integer',
         'Id_Producto' => 'integer',
         'Cantidad' => 'decimal:2',
-        'Precio_Unitario' => 'decimal:2',
+        'Precio_Compra' => 'decimal:2',
         'Subtotal' => 'decimal:2',
-        'Fecha_Vencimiento' => 'date',
     ];
 
     public function compra(): BelongsTo
