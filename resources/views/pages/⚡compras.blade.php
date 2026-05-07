@@ -57,6 +57,9 @@ new class extends Component
     public string $precioVenta = '0';
     public string $seriesTexto = '';
 
+    public bool $editandoDetalle = false;
+    public ?int $indiceDetalleEditando = null;
+
     public array $categorias = [];
     public array $marcas = [];
     public array $categoriasTemporales = [];
@@ -119,6 +122,11 @@ new class extends Component
 
     public function cambiarModoProducto(string $modo): void
     {
+        if ($this->editandoDetalle) {
+            $this->mostrarToast('Termine o cancele la edición antes de cambiar el tipo de producto.', 'error');
+            return;
+        }
+
         if (! in_array($modo, ['existente', 'nuevo'], true)) {
             return;
         }
@@ -371,7 +379,7 @@ new class extends Component
         $this->mostrarNuevaCategoria = false;
 
         $this->cargarCatalogos();
-        $this->mostrarToast('Categoría agregada temporalmente. Se guardará al guardar la compra.');
+        $this->mostrarToast('Categoría agregada. Se guardará al finalizar la compra.');
     }
 
     public function agregarMarcaTemporal(): void
@@ -410,7 +418,7 @@ new class extends Component
         $this->mostrarNuevaMarca = false;
 
         $this->cargarCatalogos();
-        $this->mostrarToast('Marca agregada temporalmente. Se guardará al guardar la compra.');
+        $this->mostrarToast('Marca agregada. Se guardará al finalizar la compra.');
     }
 
     protected function existeEnCatalogo(string $valor, array $catalogo): bool
@@ -440,7 +448,7 @@ new class extends Component
             ->toArray();
     }
 
-    protected function validarSeries(array $series, int $cantidad): bool
+    protected function validarSeries(array $series, int $cantidad, ?int $indiceIgnorado = null): bool
     {
         if (count($series) === 0) {
             return true;
@@ -468,6 +476,7 @@ new class extends Component
         }
 
         $seriesTemporales = collect($this->detalles)
+            ->reject(fn ($detalle, $indice) => $indiceIgnorado !== null && $indice === $indiceIgnorado)
             ->flatMap(fn ($detalle) => $detalle['series'])
             ->toArray();
 
@@ -491,10 +500,8 @@ new class extends Component
         return true;
     }
 
-    public function agregarDetalle(): void
+    protected function construirDetalleDesdeFormulario(): ?array
     {
-        $this->resetErrorBag();
-
         $reglasBase = [
             'cantidad' => 'required|integer|min:1',
             'precioCompra' => 'required|numeric|min:0.01',
@@ -505,7 +512,7 @@ new class extends Component
         if ($this->modoProducto === 'existente') {
             if ($this->idProducto === '') {
                 $this->addError('idProducto', 'Seleccione un producto existente de la lista. Si no aparece, use “Producto nuevo”.');
-                return;
+                return null;
             }
 
             $this->validate(array_merge($reglasBase, [
@@ -514,7 +521,7 @@ new class extends Component
 
             if ((float) $this->precioCompra > $this->precioVentaActual && (float) $this->precioVenta < (float) $this->precioCompra) {
                 $this->addError('precioVenta', 'El precio de venta debe ser mayor o igual al precio de compra.');
-                return;
+                return null;
             }
 
             $productoId = (int) $this->idProducto;
@@ -531,8 +538,8 @@ new class extends Component
 
             $series = $this->obtenerSeries();
 
-            if (! $this->validarSeries($series, (int) $this->cantidad)) {
-                return;
+            if (! $this->validarSeries($series, (int) $this->cantidad, $this->indiceDetalleEditando)) {
+                return null;
             }
         } else {
             $this->validate(array_merge($reglasBase, [
@@ -548,17 +555,17 @@ new class extends Component
 
             if (! $this->existeEnCatalogo($this->nuevoCategoriaSeleccionada, $this->categorias)) {
                 $this->addError('nuevoCategoriaSeleccionada', 'Seleccione una categoría válida.');
-                return;
+                return null;
             }
 
             if (! $this->existeEnCatalogo($this->nuevoMarcaSeleccionada, $this->marcas)) {
                 $this->addError('nuevoMarcaSeleccionada', 'Seleccione una marca válida.');
-                return;
+                return null;
             }
 
             if ((float) $this->precioVenta < (float) $this->precioCompra) {
                 $this->addError('precioVenta', 'El precio de venta debe ser mayor o igual al precio de compra.');
-                return;
+                return null;
             }
 
             $productoId = null;
@@ -577,8 +584,8 @@ new class extends Component
 
             $series = $this->obtenerSeries();
 
-            if (! $this->validarSeries($series, (int) $this->cantidad)) {
-                return;
+            if (! $this->validarSeries($series, (int) $this->cantidad, $this->indiceDetalleEditando)) {
+                return null;
             }
         }
 
@@ -587,8 +594,14 @@ new class extends Component
         $precioVenta = (float) $this->precioVenta;
         $subtotal = $cantidad * $precioCompra;
 
-        $this->detalles[] = [
-            'uid' => uniqid('detalle_', true),
+        $uid = uniqid('detalle_', true);
+
+        if ($this->editandoDetalle && $this->indiceDetalleEditando !== null && isset($this->detalles[$this->indiceDetalleEditando]['uid'])) {
+            $uid = $this->detalles[$this->indiceDetalleEditando]['uid'];
+        }
+
+        return [
+            'uid' => $uid,
             'modo' => $this->modoProducto,
             'producto_id' => $productoId,
             'nombre_producto' => $nombreProducto,
@@ -608,9 +621,123 @@ new class extends Component
             'series' => $series,
             'actualizar_precio_venta' => $this->modoProducto === 'nuevo' || $precioVenta > $this->precioVentaActual,
         ];
+    }
+
+    public function agregarDetalle(): void
+    {
+        $this->resetErrorBag();
+
+        $detalle = $this->construirDetalleDesdeFormulario();
+
+        if ($detalle === null) {
+            return;
+        }
+
+        if ($this->editandoDetalle && $this->indiceDetalleEditando !== null) {
+            if (! isset($this->detalles[$this->indiceDetalleEditando])) {
+                $this->mostrarToast('No se encontró el detalle que intenta editar.', 'error');
+                $this->limpiarDetalleProducto();
+                return;
+            }
+
+            $this->detalles[$this->indiceDetalleEditando] = $detalle;
+            $this->detalles = array_values($this->detalles);
+
+            $this->limpiarDetalleProducto();
+            $this->mostrarToast('Detalle actualizado correctamente.');
+
+            return;
+        }
+
+        $this->detalles[] = $detalle;
 
         $this->limpiarDetalleProducto();
-        $this->mostrarToast('Producto agregado temporalmente a la compra.');
+        $this->mostrarToast('Producto agregado a la compra.');
+    }
+
+    public function editarDetalle(int $indice): void
+    {
+        if (! isset($this->detalles[$indice])) {
+            $this->mostrarToast('No se encontró el detalle seleccionado.', 'error');
+            return;
+        }
+
+        $detalle = $this->detalles[$indice];
+
+        $this->resetErrorBag();
+        $this->resetValidation();
+
+        $this->editandoDetalle = true;
+        $this->indiceDetalleEditando = $indice;
+        $this->modoProducto = $detalle['modo'];
+
+        $this->productosEncontrados = [];
+
+        if ($detalle['modo'] === 'existente') {
+            $producto = Producto::query()
+                ->with(['categoria', 'marca'])
+                ->find($detalle['producto_id']);
+
+            $this->idProducto = $detalle['producto_id'];
+            $this->productoNombre = $producto?->Nombre_Producto ?? $detalle['nombre_producto'];
+            $this->productoModelo = $producto?->Modelo ?: $detalle['modelo'];
+            $this->productoCategoria = $producto?->categoria?->Nombre_Categoria ?: $detalle['categoria'];
+            $this->productoMarca = $producto?->marca?->Nombre_Marca ?: $detalle['marca'];
+
+            $this->precioVentaActual = $producto ? (float) $producto->Precio_Venta : (float) $detalle['precio_venta'];
+            $this->precioVenta = (string) $detalle['precio_venta'];
+            $this->precioCompra = (string) $detalle['precio_compra'];
+
+            $this->precioVentaEditable = ((float) $this->precioCompra) > $this->precioVentaActual
+                || ((float) $this->precioVenta) > $this->precioVentaActual;
+
+            $this->buscarProducto = trim(
+                $this->productoMarca . ' ' .
+                $this->productoNombre . ' ' .
+                $this->productoModelo
+            );
+
+            $this->nuevoNombreProducto = '';
+            $this->nuevoModelo = '';
+            $this->nuevoCategoriaSeleccionada = '';
+            $this->nuevoMarcaSeleccionada = '';
+            $this->nuevoStockMinimo = '0';
+            $this->nuevoGarantiaNuevo = '';
+            $this->nuevoGarantiaUsado = '';
+            $this->nuevoEstado = '1';
+        } else {
+            $this->idProducto = '';
+            $this->buscarProducto = '';
+            $this->productoNombre = '';
+            $this->productoCategoria = '';
+            $this->productoMarca = '';
+            $this->productoModelo = '';
+            $this->precioVentaActual = 0;
+            $this->precioVentaEditable = true;
+
+            $this->nuevoNombreProducto = $detalle['nombre_producto'];
+            $this->nuevoModelo = $detalle['modelo'];
+            $this->nuevoCategoriaSeleccionada = $detalle['categoria_valor'] ?? '';
+            $this->nuevoMarcaSeleccionada = $detalle['marca_valor'] ?? '';
+            $this->nuevoStockMinimo = (string) ($detalle['stock_minimo'] ?? '0');
+            $this->nuevoGarantiaNuevo = $detalle['garantia_nuevo'] !== null ? (string) $detalle['garantia_nuevo'] : '';
+            $this->nuevoGarantiaUsado = $detalle['garantia_usado'] !== null ? (string) $detalle['garantia_usado'] : '';
+            $this->nuevoEstado = (string) ($detalle['estado'] ?? '1');
+
+            $this->precioCompra = (string) $detalle['precio_compra'];
+            $this->precioVenta = (string) $detalle['precio_venta'];
+        }
+
+        $this->cantidad = (string) $detalle['cantidad'];
+        $this->seriesTexto = implode(PHP_EOL, $detalle['series'] ?? []);
+
+        $this->mostrarToast('Detalle cargado para edición.');
+    }
+
+    public function cancelarEdicionDetalle(): void
+    {
+        $this->limpiarDetalleProducto();
+        $this->mostrarToast('Edición cancelada.');
     }
 
     public function quitarDetalle(int $indice): void
@@ -619,8 +746,16 @@ new class extends Component
             return;
         }
 
+        $quitandoDetalleEditado = $this->editandoDetalle && $this->indiceDetalleEditando === $indice;
+
         unset($this->detalles[$indice]);
         $this->detalles = array_values($this->detalles);
+
+        if ($quitandoDetalleEditado) {
+            $this->limpiarDetalleProducto();
+        } elseif ($this->editandoDetalle && $this->indiceDetalleEditando !== null && $this->indiceDetalleEditando > $indice) {
+            $this->indiceDetalleEditando--;
+        }
 
         $this->mostrarToast('Producto quitado de la compra.');
     }
@@ -679,6 +814,11 @@ new class extends Component
     public function guardarCompra(): void
     {
         $this->resetErrorBag();
+
+        if ($this->editandoDetalle) {
+            $this->mostrarToast('Primero termine o cancele la edición del detalle.', 'error');
+            return;
+        }
 
         $this->validate([
             'idProveedor' => 'required|exists:proveedor,Id_Proveedor',
@@ -869,6 +1009,9 @@ new class extends Component
         $this->precioCompra = '0';
         $this->precioVenta = '0';
         $this->seriesTexto = '';
+
+        $this->editandoDetalle = false;
+        $this->indiceDetalleEditando = null;
 
         $this->resetErrorBag();
         $this->resetValidation();
@@ -1102,9 +1245,11 @@ new class extends Component
         <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
             <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                    <h2 class="text-xl font-bold text-[#1A2B42]">Agregar producto</h2>
+                    <h2 class="text-xl font-bold text-[#1A2B42]">
+                        {{ $editandoDetalle ? 'Editar detalle' : 'Agregar producto' }}
+                    </h2>
                     <p class="text-sm text-[#5F6B7A]">
-                        Busque un producto existente o registre uno nuevo.
+                        {{ $editandoDetalle ? 'Modifique los datos del detalle seleccionado.' : 'Busque un producto existente o registre uno nuevo.' }}
                     </p>
                 </div>
 
@@ -1126,6 +1271,12 @@ new class extends Component
                     </button>
                 </div>
             </div>
+
+            @if ($editandoDetalle)
+                <div class="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-800">
+                    Está editando un detalle ya agregado. Actualice los datos o cancele la edición.
+                </div>
+            @endif
 
             @if ($modoProducto === 'existente')
                 <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
@@ -1454,7 +1605,7 @@ new class extends Component
                     <textarea
                         wire:model.defer="seriesTexto"
                         rows="2"
-                        placeholder="Opcional. Ej: SN001, SN002"
+                        placeholder="Opcional. Si ingresa series, debe escribir una por cada unidad. Ej: SN001, SN002"
                         class="w-full rounded-lg border-0 bg-[#F0F3F7] px-3 py-2 text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
                     ></textarea>
                     @error('seriesTexto')
@@ -1464,20 +1615,37 @@ new class extends Component
             </div>
 
             <div class="mt-5 flex flex-wrap justify-end gap-3">
-                <x-button
-                    label="Limpiar producto"
-                    type="button"
-                    wire:click="limpiarDetalleProducto"
-                    class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]"
-                />
+                @if ($editandoDetalle)
+                    <x-button
+                        label="Cancelar edición"
+                        type="button"
+                        wire:click="cancelarEdicionDetalle"
+                        class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]"
+                    />
 
-                <x-button
-                    label="Agregar a la compra"
-                    icon="o-plus"
-                    type="button"
-                    wire:click="agregarDetalle"
-                    class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]"
-                />
+                    <x-button
+                        label="Actualizar detalle"
+                        icon="o-pencil-square"
+                        type="button"
+                        wire:click="agregarDetalle"
+                        class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]"
+                    />
+                @else
+                    <x-button
+                        label="Limpiar producto"
+                        type="button"
+                        wire:click="limpiarDetalleProducto"
+                        class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]"
+                    />
+
+                    <x-button
+                        label="Agregar a la compra"
+                        icon="o-plus"
+                        type="button"
+                        wire:click="agregarDetalle"
+                        class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]"
+                    />
+                @endif
             </div>
         </x-card>
 
@@ -1512,7 +1680,7 @@ new class extends Component
 
             <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-white">
                 <div class="max-h-[430px] overflow-x-auto overflow-y-auto">
-                    <table class="min-w-[1200px] w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
+                    <table class="min-w-[1250px] w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
                         <thead class="sticky top-0 z-10">
                             <tr>
                                 <th class="rounded-tl-xl bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">Tipo</th>
@@ -1530,7 +1698,7 @@ new class extends Component
 
                         <tbody>
                             @forelse ($detalles as $index => $detalle)
-                                <tr class="odd:bg-white even:bg-[#F8FBFF]">
+                                <tr class="{{ $editandoDetalle && $indiceDetalleEditando === $index ? 'bg-blue-50' : 'odd:bg-white even:bg-[#F8FBFF]' }}">
                                     <td class="px-3 py-3 whitespace-nowrap">
                                         <span class="{{ $detalle['modo'] === 'nuevo' ? 'bg-[#EAF4FD] text-[#0E48A1]' : 'bg-green-100 text-green-700' }} rounded-full px-2.5 py-1 text-xs font-semibold">
                                             {{ $detalle['modo'] === 'nuevo' ? 'Nuevo' : 'Existente' }}
@@ -1551,11 +1719,19 @@ new class extends Component
                                     <td class="px-3 py-3 text-right font-semibold whitespace-nowrap">C$ {{ number_format($detalle['subtotal'], 2) }}</td>
 
                                     <td class="px-3 py-3 text-center whitespace-nowrap">
-                                        <x-button
-                                            icon="o-trash"
-                                            wire:click="quitarDetalle({{ $index }})"
-                                            class="h-8 min-h-8 border-0 bg-red-50 px-3 text-xs text-red-700 hover:bg-red-100"
-                                        />
+                                        <div class="flex items-center justify-center gap-2">
+                                            <x-button
+                                                icon="o-pencil-square"
+                                                wire:click="editarDetalle({{ $index }})"
+                                                class="h-8 min-h-8 border-0 bg-blue-50 px-3 text-xs text-blue-700 hover:bg-blue-100"
+                                            />
+
+                                            <x-button
+                                                icon="o-trash"
+                                                wire:click="quitarDetalle({{ $index }})"
+                                                class="h-8 min-h-8 border-0 bg-red-50 px-3 text-xs text-red-700 hover:bg-red-100"
+                                            />
+                                        </div>
                                     </td>
                                 </tr>
                             @empty
