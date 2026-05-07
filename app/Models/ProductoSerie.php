@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -13,6 +14,11 @@ class ProductoSerie extends Model
     protected $primaryKey = 'id_producto_serie';
 
     public $timestamps = false;
+
+    public const ESTADO_DISPONIBLE = 'DISPONIBLE';
+    public const ESTADO_RESERVADO = 'RESERVADO';
+    public const ESTADO_DANADO = 'DANADO';
+    public const ESTADO_VENDIDO = 'VENDIDO';
 
     protected $fillable = [
         'Id_Producto',
@@ -51,5 +57,15 @@ class ProductoSerie extends Model
     public function servicioTecnicoProductos(): HasMany
     {
         return $this->hasMany(ServicioTecnicoProducto::class, 'Id_Producto_Serie', 'id_producto_serie');
+    }
+
+    public function scopeDisponibles(Builder $query): Builder
+    {
+        return $query->where('Estado', self::ESTADO_DISPONIBLE);
+    }
+
+    public function scopeNoVendidas(Builder $query): Builder
+    {
+        return $query->where('Estado', '<>', self::ESTADO_VENDIDO);
     }
 }

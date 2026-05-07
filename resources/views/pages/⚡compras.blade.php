@@ -1,9 +1,14 @@
 <?php
 
+use App\Models\CategoriaProducto;
 use App\Models\Compra;
 use App\Models\DetalleCompra;
+use App\Models\Marca;
+use App\Models\Producto;
+use App\Models\ProductoSerie;
+use App\Models\Proveedor;
+use App\Models\Usuario;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 
 new class extends Component
@@ -155,11 +160,10 @@ new class extends Component
 
     protected function cargarCatalogos(): void
     {
-        $categoriasDb = DB::table('categoria_producto')
-            ->select('Id_Categoria', 'Nombre_Categoria')
+        $categoriasDb = CategoriaProducto::query()
             ->orderBy('Nombre_Categoria')
-            ->get()
-            ->map(fn ($categoria) => [
+            ->get(['Id_Categoria', 'Nombre_Categoria'])
+            ->map(fn (CategoriaProducto $categoria) => [
                 'valor' => 'db:' . $categoria->Id_Categoria,
                 'id' => $categoria->Id_Categoria,
                 'nombre' => $categoria->Nombre_Categoria,
@@ -167,11 +171,10 @@ new class extends Component
             ])
             ->toArray();
 
-        $marcasDb = DB::table('marca')
-            ->select('Id_Marca', 'Nombre_Marca')
+        $marcasDb = Marca::query()
             ->orderBy('Nombre_Marca')
-            ->get()
-            ->map(fn ($marca) => [
+            ->get(['Id_Marca', 'Nombre_Marca'])
+            ->map(fn (Marca $marca) => [
                 'valor' => 'db:' . $marca->Id_Marca,
                 'id' => $marca->Id_Marca,
                 'nombre' => $marca->Nombre_Marca,
@@ -192,27 +195,26 @@ new class extends Component
             return;
         }
 
-        $query = DB::table('proveedor as pr')
-            ->leftJoin('persona as pe', 'pr.Id_Persona', '=', 'pe.Id_Persona')
+        $this->proveedoresEncontrados = Proveedor::query()
+            ->leftJoin('persona as pe', 'proveedor.Id_Persona', '=', 'pe.Id_Persona')
             ->select(
-                'pr.Id_Proveedor',
-                'pr.Codigo_RUC',
+                'proveedor.Id_Proveedor',
+                'proveedor.Codigo_RUC',
                 'pe.Primer_Nombre',
                 'pe.Segundo_Nombre',
                 'pe.Primer_Apellido',
                 'pe.Segundo_Apellido'
             )
             ->where(function ($q) use ($busqueda) {
-                $q->where('pr.Codigo_RUC', 'like', "%{$busqueda}%")
+                $q->where('proveedor.Codigo_RUC', 'like', "%{$busqueda}%")
                     ->orWhere('pe.Primer_Nombre', 'like', "%{$busqueda}%")
                     ->orWhere('pe.Segundo_Nombre', 'like', "%{$busqueda}%")
                     ->orWhere('pe.Primer_Apellido', 'like', "%{$busqueda}%")
                     ->orWhere('pe.Segundo_Apellido', 'like', "%{$busqueda}%");
             })
             ->orderBy('pe.Primer_Nombre')
-            ->limit(8);
-
-        $this->proveedoresEncontrados = $query->get()
+            ->limit(8)
+            ->get()
             ->map(function ($proveedor) {
                 $nombre = trim(
                     ($proveedor->Primer_Nombre ?? '') . ' ' .
@@ -232,17 +234,17 @@ new class extends Component
 
     public function seleccionarProveedor(int $idProveedor): void
     {
-        $proveedor = DB::table('proveedor as pr')
-            ->leftJoin('persona as pe', 'pr.Id_Persona', '=', 'pe.Id_Persona')
+        $proveedor = Proveedor::query()
+            ->leftJoin('persona as pe', 'proveedor.Id_Persona', '=', 'pe.Id_Persona')
             ->select(
-                'pr.Id_Proveedor',
-                'pr.Codigo_RUC',
+                'proveedor.Id_Proveedor',
+                'proveedor.Codigo_RUC',
                 'pe.Primer_Nombre',
                 'pe.Segundo_Nombre',
                 'pe.Primer_Apellido',
                 'pe.Segundo_Apellido'
             )
-            ->where('pr.Id_Proveedor', $idProveedor)
+            ->where('proveedor.Id_Proveedor', $idProveedor)
             ->first();
 
         if (! $proveedor) {
@@ -274,33 +276,27 @@ new class extends Component
             return;
         }
 
-        $this->productosEncontrados = DB::table('producto as p')
-            ->leftJoin('categoria_producto as c', 'p.Id_Categoria', '=', 'c.Id_Categoria')
-            ->leftJoin('marca as m', 'p.Id_Marca', '=', 'm.Id_Marca')
-            ->select(
-                'p.Id_Producto',
-                'p.Nombre_Producto',
-                'p.Modelo',
-                'p.Precio_Venta',
-                'p.Stock_Actual',
-                'c.Nombre_Categoria',
-                'm.Nombre_Marca'
-            )
+        $this->productosEncontrados = Producto::query()
+            ->with(['categoria', 'marca'])
             ->where(function ($q) use ($busqueda) {
-                $q->where('p.Nombre_Producto', 'like', "%{$busqueda}%")
-                    ->orWhere('p.Modelo', 'like', "%{$busqueda}%")
-                    ->orWhere('c.Nombre_Categoria', 'like', "%{$busqueda}%")
-                    ->orWhere('m.Nombre_Marca', 'like', "%{$busqueda}%");
+                $q->where('Nombre_Producto', 'like', "%{$busqueda}%")
+                    ->orWhere('Modelo', 'like', "%{$busqueda}%")
+                    ->orWhereHas('categoria', function ($categoria) use ($busqueda) {
+                        $categoria->where('Nombre_Categoria', 'like', "%{$busqueda}%");
+                    })
+                    ->orWhereHas('marca', function ($marca) use ($busqueda) {
+                        $marca->where('Nombre_Marca', 'like', "%{$busqueda}%");
+                    });
             })
-            ->orderBy('p.Nombre_Producto')
+            ->orderBy('Nombre_Producto')
             ->limit(8)
             ->get()
-            ->map(fn ($producto) => [
+            ->map(fn (Producto $producto) => [
                 'id' => $producto->Id_Producto,
                 'nombre' => $producto->Nombre_Producto,
                 'modelo' => $producto->Modelo ?: 'Sin modelo',
-                'categoria' => $producto->Nombre_Categoria ?: 'Sin categoría',
-                'marca' => $producto->Nombre_Marca ?: 'Sin marca',
+                'categoria' => $producto->categoria?->Nombre_Categoria ?: 'Sin categoría',
+                'marca' => $producto->marca?->Nombre_Marca ?: 'Sin marca',
                 'precio_venta' => (float) $producto->Precio_Venta,
                 'stock' => (int) $producto->Stock_Actual,
             ])
@@ -309,19 +305,9 @@ new class extends Component
 
     public function seleccionarProducto(int $idProducto): void
     {
-        $producto = DB::table('producto as p')
-            ->leftJoin('categoria_producto as c', 'p.Id_Categoria', '=', 'c.Id_Categoria')
-            ->leftJoin('marca as m', 'p.Id_Marca', '=', 'm.Id_Marca')
-            ->select(
-                'p.Id_Producto',
-                'p.Nombre_Producto',
-                'p.Modelo',
-                'p.Precio_Venta',
-                'c.Nombre_Categoria',
-                'm.Nombre_Marca'
-            )
-            ->where('p.Id_Producto', $idProducto)
-            ->first();
+        $producto = Producto::query()
+            ->with(['categoria', 'marca'])
+            ->find($idProducto);
 
         if (! $producto) {
             $this->mostrarToast('No se encontró el producto seleccionado.', 'error');
@@ -331,8 +317,8 @@ new class extends Component
         $this->idProducto = $producto->Id_Producto;
         $this->productoNombre = $producto->Nombre_Producto;
         $this->productoModelo = $producto->Modelo ?: 'Sin modelo';
-        $this->productoCategoria = $producto->Nombre_Categoria ?: 'Sin categoría';
-        $this->productoMarca = $producto->Nombre_Marca ?: 'Sin marca';
+        $this->productoCategoria = $producto->categoria?->Nombre_Categoria ?: 'Sin categoría';
+        $this->productoMarca = $producto->marca?->Nombre_Marca ?: 'Sin marca';
 
         $this->precioVentaActual = (float) $producto->Precio_Venta;
         $this->precioVenta = (string) $this->precioVentaActual;
@@ -359,7 +345,7 @@ new class extends Component
 
         $nombre = trim($this->nombreCategoriaNueva);
 
-        $existeDb = DB::table('categoria_producto')
+        $existeDb = CategoriaProducto::query()
             ->whereRaw('LOWER(Nombre_Categoria) = ?', [mb_strtolower($nombre)])
             ->exists();
 
@@ -398,7 +384,7 @@ new class extends Component
 
         $nombre = trim($this->nombreMarcaNueva);
 
-        $existeDb = DB::table('marca')
+        $existeDb = Marca::query()
             ->whereRaw('LOWER(Nombre_Marca) = ?', [mb_strtolower($nombre)])
             ->exists();
 
@@ -460,8 +446,12 @@ new class extends Component
             return true;
         }
 
-        if (count($series) > $cantidad) {
-            $this->addError('seriesTexto', 'No puede ingresar más números de serie que la cantidad comprada.');
+        if (count($series) !== $cantidad) {
+            $this->addError(
+                'seriesTexto',
+                'Si ingresa números de serie, debe ingresar exactamente ' . $cantidad . ' número(s) de serie, uno por cada producto comprado.'
+            );
+
             return false;
         }
 
@@ -488,7 +478,7 @@ new class extends Component
             }
         }
 
-        $seriesExistentes = DB::table('producto_serie')
+        $seriesExistentes = ProductoSerie::query()
             ->whereIn('Numero_Serie', $series)
             ->pluck('Numero_Serie')
             ->toArray();
@@ -648,9 +638,11 @@ new class extends Component
                 throw new \RuntimeException('No se encontró la categoría temporal.');
             }
 
-            $categoriasCreadas[$valor] = DB::table('categoria_producto')->insertGetId([
+            $categoria = CategoriaProducto::query()->create([
                 'Nombre_Categoria' => $categoriaTemporal['nombre'],
             ]);
+
+            $categoriasCreadas[$valor] = $categoria->Id_Categoria;
         }
 
         return (int) $categoriasCreadas[$valor];
@@ -673,10 +665,12 @@ new class extends Component
                 throw new \RuntimeException('No se encontró la marca temporal.');
             }
 
-            $marcasCreadas[$valor] = DB::table('marca')->insertGetId([
+            $marca = Marca::query()->create([
                 'Nombre_Marca' => $marcaTemporal['nombre'],
                 'Estado' => 1,
             ]);
+
+            $marcasCreadas[$valor] = $marca->Id_Marca;
         }
 
         return (int) $marcasCreadas[$valor];
@@ -701,6 +695,18 @@ new class extends Component
             return;
         }
 
+        foreach ($this->detalles as $detalle) {
+            $series = $detalle['series'] ?? [];
+
+            if (count($series) > 0 && count($series) !== (int) $detalle['cantidad']) {
+                $this->mostrarToast(
+                    'Si un producto tiene números de serie, la cantidad de series debe coincidir exactamente con la cantidad comprada.',
+                    'error'
+                );
+                return;
+            }
+        }
+
         $idUsuario = $this->obtenerUsuarioActual();
 
         if (! $idUsuario) {
@@ -719,7 +725,7 @@ new class extends Component
         }
 
         if (count($todasLasSeries) > 0) {
-            $seriesExistentes = DB::table('producto_serie')
+            $seriesExistentes = ProductoSerie::query()
                 ->whereIn('Numero_Serie', $todasLasSeries)
                 ->pluck('Numero_Serie')
                 ->toArray();
@@ -731,30 +737,30 @@ new class extends Component
         }
 
         try {
-            DB::transaction(function () use ($idUsuario) {
+            Compra::query()->getConnection()->transaction(function () use ($idUsuario) {
                 $categoriasCreadas = [];
                 $marcasCreadas = [];
                 $primerProductoId = null;
 
-                $compra = new Compra();
-                $compra->Numero_Compra = trim($this->numeroCompra);
-                $compra->Fecha_Compra = Carbon::parse($this->fechaCompra)->startOfDay();
-                $compra->Id_Proveedor = (int) $this->idProveedor;
-                $compra->Id_Usuario = (int) $idUsuario;
-                $compra->Tipo_Compra = $this->tipoCompra;
-                $compra->Total = $this->totalGeneral();
-                $compra->Observacion = trim($this->observacion) !== '' ? trim($this->observacion) : null;
-                $compra->Retencion = (float) $this->retencion;
-                $compra->Iva = (float) $this->iva;
-                $compra->Id_producto = null;
-                $compra->save();
+                $compra = Compra::query()->create([
+                    'Numero_Compra' => trim($this->numeroCompra),
+                    'Fecha_Compra' => Carbon::parse($this->fechaCompra)->startOfDay(),
+                    'Id_Proveedor' => (int) $this->idProveedor,
+                    'Id_Usuario' => (int) $idUsuario,
+                    'Tipo_Compra' => $this->tipoCompra,
+                    'Total' => $this->totalGeneral(),
+                    'Observacion' => trim($this->observacion) !== '' ? trim($this->observacion) : null,
+                    'Retencion' => (float) $this->retencion,
+                    'Iva' => (float) $this->iva,
+                    'Id_producto' => null,
+                ]);
 
                 foreach ($this->detalles as $detalle) {
                     if ($detalle['modo'] === 'nuevo') {
                         $categoriaId = $this->resolverCategoriaId($detalle['categoria_valor'], $categoriasCreadas);
                         $marcaId = $this->resolverMarcaId($detalle['marca_valor'], $marcasCreadas);
 
-                        $productoId = DB::table('producto')->insertGetId([
+                        $producto = Producto::query()->create([
                             'Id_Categoria' => $categoriaId,
                             'Id_Marca' => $marcaId,
                             'Nombre_Producto' => $detalle['nombre_producto'],
@@ -768,42 +774,37 @@ new class extends Component
                             'Estado' => $detalle['estado'],
                         ]);
                     } else {
-                        $productoId = (int) $detalle['producto_id'];
+                        $producto = Producto::query()->findOrFail((int) $detalle['producto_id']);
 
                         if ($detalle['actualizar_precio_venta']) {
-                            DB::table('producto')
-                                ->where('Id_Producto', $productoId)
-                                ->update([
-                                    'Precio_Venta' => $detalle['precio_venta'],
-                                ]);
+                            $producto->Precio_Venta = $detalle['precio_venta'];
+                            $producto->save();
                         }
                     }
 
                     if ($primerProductoId === null) {
-                        $primerProductoId = $productoId;
+                        $primerProductoId = $producto->Id_Producto;
                     }
 
-                    DB::table('producto')
-                        ->where('Id_Producto', $productoId)
-                        ->increment('Stock_Actual', $detalle['cantidad']);
+                    $producto->increment('Stock_Actual', (int) $detalle['cantidad']);
 
                     foreach ($detalle['series'] as $serie) {
-                        DB::table('producto_serie')->insert([
-                            'Id_Producto' => $productoId,
+                        ProductoSerie::query()->create([
+                            'Id_Producto' => $producto->Id_Producto,
                             'Numero_Serie' => $serie,
                             'Fecha_Ingreso' => now(),
-                            'Estado' => 'DISPONIBLE',
+                            'Estado' => ProductoSerie::ESTADO_DISPONIBLE,
                             'Observacion' => null,
                         ]);
                     }
 
-                    $detalleCompra = new DetalleCompra();
-                    $detalleCompra->Id_Compra = $compra->Id_Compra;
-                    $detalleCompra->Id_Producto = $productoId;
-                    $detalleCompra->Cantidad = $detalle['cantidad'];
-                    $detalleCompra->Precio_Compra = $detalle['precio_compra'];
-                    $detalleCompra->Subtotal = $detalle['subtotal'];
-                    $detalleCompra->save();
+                    DetalleCompra::query()->create([
+                        'Id_Compra' => $compra->Id_Compra,
+                        'Id_Producto' => $producto->Id_Producto,
+                        'Cantidad' => $detalle['cantidad'],
+                        'Precio_Compra' => $detalle['precio_compra'],
+                        'Subtotal' => $detalle['subtotal'],
+                    ]);
                 }
 
                 $compra->Id_producto = $primerProductoId;
@@ -821,11 +822,11 @@ new class extends Component
     {
         $idAuth = auth()->id();
 
-        if ($idAuth && DB::table('usuario')->where('Id_Usuario', $idAuth)->exists()) {
+        if ($idAuth && Usuario::query()->where('Id_Usuario', $idAuth)->exists()) {
             return (int) $idAuth;
         }
 
-        $primerUsuario = DB::table('usuario')
+        $primerUsuario = Usuario::query()
             ->orderBy('Id_Usuario')
             ->value('Id_Usuario');
 
@@ -1484,7 +1485,6 @@ new class extends Component
             <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                     <h2 class="text-xl font-bold text-[#1A2B42]">Detalle de compra</h2>
-
                 </div>
 
                 <div class="grid grid-cols-2 gap-2 text-right md:grid-cols-4">
