@@ -63,10 +63,6 @@ El sistema busca reducir tareas manuales, mejorar el control de datos y mantener
 
 ---
 
-## Capturas referenciales
-
-> Imágenes usadas desde la web como referencia visual del sistema.
-
 | Dashboard | Productos | Ventas |
 |---|---|---|
 | <img src="https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=1200&auto=format&fit=crop" width="100%" /> | <img src="https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=1200&auto=format&fit=crop" width="100%" /> | <img src="https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?q=80&w=1200&auto=format&fit=crop" width="100%" /> |
