@@ -65,4 +65,9 @@ class Venta extends Model
     {
         return $this->hasMany(PagoVenta::class, 'Id_Venta', 'Id_Venta');
     }
+
+    public function movimientosCreditoGeneral(): HasMany
+    {
+        return $this->hasMany(ClienteCreditoMovimiento::class, 'Id_Venta', 'Id_Venta');
+    }
 }
