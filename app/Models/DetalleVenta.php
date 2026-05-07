@@ -14,6 +14,9 @@ class DetalleVenta extends Model
 
     public $timestamps = false;
 
+    public const TIPO_PRODUCTO = 'PRODUCTO';
+    public const TIPO_COPIA = 'COPIA';
+
     protected $fillable = [
         'Id_Venta',
         'Tipo_Detalle',
@@ -27,6 +30,7 @@ class DetalleVenta extends Model
         'Cantidad',
         'Precio_Unitario',
         'Subtotal',
+        'Descuento',
         'Observacion',
     ];
 
@@ -42,6 +46,7 @@ class DetalleVenta extends Model
         'Cantidad' => 'decimal:2',
         'Precio_Unitario' => 'decimal:2',
         'Subtotal' => 'decimal:2',
+        'Descuento' => 'decimal:2',
     ];
 
     public function producto(): BelongsTo

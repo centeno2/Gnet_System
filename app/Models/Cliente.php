@@ -16,7 +16,6 @@ class Cliente extends Model
     public $timestamps = false;
 
     public const TIPO_NATURAL = 1;
-
     public const TIPO_INSTITUCION = 2;
 
     protected $fillable = [
@@ -76,11 +75,36 @@ class Cliente extends Model
 
     public function esNatural(): bool
     {
-        return $this->Tipo_Cliente === self::TIPO_NATURAL;
+        return (int) $this->Tipo_Cliente === self::TIPO_NATURAL;
     }
 
     public function esInstitucion(): bool
     {
-        return $this->Tipo_Cliente === self::TIPO_INSTITUCION;
+        return (int) $this->Tipo_Cliente === self::TIPO_INSTITUCION;
+    }
+
+    public function getNombreFacturacionAttribute(): string
+    {
+        if ($this->esInstitucion()) {
+            return $this->Institucion ?: 'Institución';
+        }
+
+        $nombre = trim(implode(' ', array_filter([
+            $this->persona?->Primer_Nombre,
+            $this->persona?->Segundo_Nombre,
+            $this->persona?->Primer_Apellido,
+            $this->persona?->Segundo_Apellido,
+        ])));
+
+        return $nombre !== '' ? $nombre : 'Cliente';
+    }
+
+    public function getTelefonoFacturacionAttribute(): string
+    {
+        if ($this->esInstitucion()) {
+            return $this->Telefono_Institucion ?: 'Sin teléfono';
+        }
+
+        return $this->persona?->Telefono ?: 'Sin teléfono';
     }
 }

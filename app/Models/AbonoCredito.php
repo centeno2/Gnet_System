@@ -13,6 +13,9 @@ class AbonoCredito extends Model
 
     public $timestamps = false;
 
+    public const MONEDA_CORDOBA = 'NIO';
+    public const MONEDA_DOLAR = 'USD';
+
     protected $fillable = [
         'Id_Credito',
         'Fecha_Abono',
@@ -40,6 +43,6 @@ class AbonoCredito extends Model
 
     public function getMonedaNombreAttribute(): string
     {
-        return strtoupper((string) $this->Moneda) === 'USD' ? 'USD' : 'NIO';
+        return strtoupper((string) $this->Moneda) === self::MONEDA_DOLAR ? 'USD' : 'NIO';
     }
 }

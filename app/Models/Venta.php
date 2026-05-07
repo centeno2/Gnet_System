@@ -15,6 +15,12 @@ class Venta extends Model
 
     public $timestamps = false;
 
+    public const TIPO_CONTADO = 'CONTADO';
+    public const TIPO_CREDITO = 'CREDITO';
+
+    public const ESTADO_ANULADA = 0;
+    public const ESTADO_ACTIVA = 1;
+
     protected $fillable = [
         'Numero_Factura',
         'Fecha_venta',

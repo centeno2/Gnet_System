@@ -1,14 +1,46 @@
 <?php
 
+use App\Models\AbonoCredito;
+use App\Models\Cliente;
+use App\Models\Credito;
+use App\Models\DetalleVenta;
+use App\Models\PagoVenta;
+use App\Models\Producto;
+use App\Models\ProductoSerie;
+use App\Models\Servicio;
+use App\Models\TarifaCopia;
+use App\Models\Usuario;
+use App\Models\Venta;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 
 new class extends Component
 {
+    private const TIPO_CONTADO = 'CONTADO';
+    private const TIPO_CREDITO = 'CREDITO';
+
+    private const TIPO_PRODUCTO = 'PRODUCTO';
+    private const TIPO_COPIA = 'COPIA';
+
+    private const ESTADO_SERIE_DISPONIBLE = 'DISPONIBLE';
+    private const ESTADO_SERIE_VENDIDO = 'VENDIDO';
+
+    private const SERVICIO_COPIA = 'COPIA';
+
+    private const MONEDA_CORDOBA = 0;
+    private const MONEDA_DOLAR = 1;
+
+    private const MONEDA_ABONO_CORDOBA = 'NIO';
+    private const MONEDA_ABONO_DOLAR = 'USD';
+
+    private const ESTADO_CREDITO_PENDIENTE = 'PENDIENTE';
+    private const ESTADO_CREDITO_PARCIAL = 'PARCIAL';
+    private const ESTADO_CREDITO_CANCELADO = 'CANCELADO';
+
     public bool $modalCobro = false;
 
-    public string $tipoVenta = 'CONTADO';
+    public string $tipoVenta = self::TIPO_CONTADO;
 
     public string $tipoPagoCordobas = 'EFECTIVO';
     public string $tipoPagoDolares = 'EFECTIVO';
@@ -111,7 +143,7 @@ new class extends Component
 
     public function updatedTipoVenta(): void
     {
-        if ($this->tipoVenta === 'CONTADO') {
+        if ($this->tipoVenta === self::TIPO_CONTADO) {
             $this->abonoCordobas = '0';
             $this->abonoDolares = '0';
             $this->abonoInicial = '0';
@@ -119,7 +151,7 @@ new class extends Component
             $this->departamentoMunicipio = '';
         }
 
-        if ($this->tipoVenta === 'CREDITO') {
+        if ($this->tipoVenta === self::TIPO_CREDITO) {
             $this->pagoCordobas = '0';
             $this->pagoDolares = '0';
         }
@@ -135,42 +167,28 @@ new class extends Component
             return;
         }
 
-        $this->clientesEncontrados = DB::table('cliente as c')
-            ->leftJoin('persona as p', 'c.Id_Persona', '=', 'p.Id_Persona')
-            ->select(
-                'c.Id_Cliente',
-                'c.Institucion',
-                'c.Municipio',
-                'p.Primer_Nombre',
-                'p.Segundo_Nombre',
-                'p.Primer_Apellido',
-                'p.Segundo_Apellido',
-                'p.Telefono'
-            )
-            ->where('c.Estado', 1)
-            ->where(function ($q) use ($busqueda) {
-                $q->where('c.Institucion', 'like', "%{$busqueda}%")
-                    ->orWhere('p.Primer_Nombre', 'like', "%{$busqueda}%")
-                    ->orWhere('p.Segundo_Nombre', 'like', "%{$busqueda}%")
-                    ->orWhere('p.Primer_Apellido', 'like', "%{$busqueda}%")
-                    ->orWhere('p.Segundo_Apellido', 'like', "%{$busqueda}%")
-                    ->orWhere('p.Telefono', 'like', "%{$busqueda}%");
+        $this->clientesEncontrados = Cliente::query()
+            ->with('persona')
+            ->where('Estado', true)
+            ->where(function ($query) use ($busqueda) {
+                $query->where('Institucion', 'like', "%{$busqueda}%")
+                    ->orWhere('Telefono_Institucion', 'like', "%{$busqueda}%")
+                    ->orWhere('Municipio', 'like', "%{$busqueda}%")
+                    ->orWhereHas('persona', function ($persona) use ($busqueda) {
+                        $persona->where('Primer_Nombre', 'like', "%{$busqueda}%")
+                            ->orWhere('Segundo_Nombre', 'like', "%{$busqueda}%")
+                            ->orWhere('Primer_Apellido', 'like', "%{$busqueda}%")
+                            ->orWhere('Segundo_Apellido', 'like', "%{$busqueda}%")
+                            ->orWhere('Telefono', 'like', "%{$busqueda}%");
+                    });
             })
-            ->orderBy('p.Primer_Nombre')
             ->limit(8)
             ->get()
-            ->map(function ($cliente) {
-                $nombrePersona = trim(implode(' ', array_filter([
-                    $cliente->Primer_Nombre,
-                    $cliente->Segundo_Nombre,
-                    $cliente->Primer_Apellido,
-                    $cliente->Segundo_Apellido,
-                ])));
-
+            ->map(function (Cliente $cliente) {
                 return [
                     'id' => (int) $cliente->Id_Cliente,
-                    'nombre' => $cliente->Institucion ?: $nombrePersona ?: 'Cliente',
-                    'telefono' => $cliente->Telefono ?: 'Sin teléfono',
+                    'nombre' => $this->nombreClienteFacturacion($cliente),
+                    'telefono' => $this->telefonoClienteFacturacion($cliente),
                     'municipio' => $cliente->Municipio ?: '',
                 ];
             })
@@ -181,18 +199,9 @@ new class extends Component
 
     public function seleccionarCliente(int $idCliente): void
     {
-        $cliente = DB::table('cliente as c')
-            ->leftJoin('persona as p', 'c.Id_Persona', '=', 'p.Id_Persona')
-            ->select(
-                'c.Id_Cliente',
-                'c.Institucion',
-                'c.Municipio',
-                'p.Primer_Nombre',
-                'p.Segundo_Nombre',
-                'p.Primer_Apellido',
-                'p.Segundo_Apellido'
-            )
-            ->where('c.Id_Cliente', $idCliente)
+        $cliente = Cliente::query()
+            ->with('persona')
+            ->where('Id_Cliente', $idCliente)
             ->first();
 
         if (! $cliente) {
@@ -200,18 +209,11 @@ new class extends Component
             return;
         }
 
-        $nombrePersona = trim(implode(' ', array_filter([
-            $cliente->Primer_Nombre,
-            $cliente->Segundo_Nombre,
-            $cliente->Primer_Apellido,
-            $cliente->Segundo_Apellido,
-        ])));
-
         $this->clienteId = (int) $cliente->Id_Cliente;
-        $this->clienteNombre = $cliente->Institucion ?: $nombrePersona ?: 'Cliente';
+        $this->clienteNombre = $this->nombreClienteFacturacion($cliente);
         $this->buscarCliente = $this->clienteNombre;
 
-        if ($this->tipoVenta === 'CREDITO') {
+        if ($this->tipoVenta === self::TIPO_CREDITO) {
             $this->departamentoMunicipio = $cliente->Municipio ?? '';
         }
 
@@ -240,40 +242,30 @@ new class extends Component
             return;
         }
 
-        $productos = DB::table('producto as p')
-            ->leftJoin('marca as m', 'p.Id_Marca', '=', 'm.Id_Marca')
-            ->select(
-                'p.Id_Producto',
-                'p.Nombre_Producto',
-                'p.Modelo',
-                'p.Stock_Actual',
-                'p.Precio_Venta',
-                'm.Nombre_Marca'
-            )
-            ->where('p.Estado', 1)
-            ->where('p.Stock_Actual', '>', 0)
-            ->where(function ($q) use ($busqueda, $seriesUsadas) {
-                $q->where('p.Nombre_Producto', 'like', "%{$busqueda}%")
-                    ->orWhere('p.Modelo', 'like', "%{$busqueda}%")
-                    ->orWhere('m.Nombre_Marca', 'like', "%{$busqueda}%")
-                    ->orWhereExists(function ($sub) use ($busqueda, $seriesUsadas) {
-                        $sub->select(DB::raw(1))
-                            ->from('producto_serie as ps')
-                            ->whereColumn('ps.Id_Producto', 'p.Id_Producto')
-                            ->where('ps.Estado', 'DISPONIBLE')
-                            ->where('ps.Numero_Serie', 'like', "%{$busqueda}%")
+        $productos = Producto::query()
+            ->with('marca')
+            ->where('Estado', true)
+            ->where('Stock_Actual', '>', 0)
+            ->where(function ($query) use ($busqueda, $seriesUsadas) {
+                $query->where('Nombre_Producto', 'like', "%{$busqueda}%")
+                    ->orWhere('Modelo', 'like', "%{$busqueda}%")
+                    ->orWhereHas('marca', function ($marca) use ($busqueda) {
+                        $marca->where('Nombre_Marca', 'like', "%{$busqueda}%");
+                    })
+                    ->orWhereHas('series', function ($serie) use ($busqueda, $seriesUsadas) {
+                        $serie->where('Estado', self::ESTADO_SERIE_DISPONIBLE)
+                            ->where('Numero_Serie', 'like', "%{$busqueda}%")
                             ->when(count($seriesUsadas) > 0, function ($query) use ($seriesUsadas) {
-                                $query->whereNotIn('ps.id_producto_serie', $seriesUsadas);
+                                $query->whereNotIn('id_producto_serie', $seriesUsadas);
                             });
                     });
             })
-            ->orderBy('p.Nombre_Producto')
+            ->orderBy('Nombre_Producto')
             ->limit(8)
             ->get()
-            ->map(function ($producto) use ($busqueda, $seriesUsadas) {
-                $serie = DB::table('producto_serie')
-                    ->where('Id_Producto', $producto->Id_Producto)
-                    ->where('Estado', 'DISPONIBLE')
+            ->map(function (Producto $producto) use ($busqueda, $seriesUsadas) {
+                $serie = $producto->series()
+                    ->where('Estado', self::ESTADO_SERIE_DISPONIBLE)
                     ->where('Numero_Serie', 'like', "%{$busqueda}%")
                     ->when(count($seriesUsadas) > 0, function ($query) use ($seriesUsadas) {
                         $query->whereNotIn('id_producto_serie', $seriesUsadas);
@@ -282,47 +274,45 @@ new class extends Component
                     ->first();
 
                 $titulo = $this->nombreProductoLimpio(
-                    $producto->Nombre_Marca,
+                    $producto->marca?->Nombre_Marca,
                     $producto->Nombre_Producto
                 );
 
                 return [
-                    'tipo' => 'PRODUCTO',
+                    'tipo' => self::TIPO_PRODUCTO,
                     'id' => (int) $producto->Id_Producto,
                     'serie_id' => $serie ? (int) $serie->id_producto_serie : null,
                     'titulo' => $titulo,
-                    'subtitulo' => trim(($producto->Modelo ?: 'Sin modelo') . ' · Stock: ' . $producto->Stock_Actual . ($serie ? ' · Serie: ' . $serie->Numero_Serie : '')),
+                    'subtitulo' => trim(
+                        ($producto->Modelo ?: 'Sin modelo')
+                        . ' · Stock: ' . $producto->Stock_Actual
+                        . ($serie ? ' · Serie: ' . $serie->Numero_Serie : '')
+                    ),
                     'precio' => (float) $producto->Precio_Venta,
                     'precio_texto' => 'C$ ' . number_format((float) $producto->Precio_Venta, 0, '.', ','),
                 ];
             })
             ->toArray();
 
-        $copias = DB::table('tarifa_copia as tc')
-            ->join('servicio as s', 'tc.Id_Servicio', '=', 's.Id_Servicio')
-            ->select(
-                'tc.Id_Tarifa_Copia',
-                'tc.Nombre_Tarifa',
-                'tc.Tipo_Color',
-                'tc.Formato',
-                'tc.Lados',
-                'tc.Precio_Unitario'
-            )
-            ->where('tc.Estado', 1)
-            ->where('s.Estado', 1)
-            ->where('s.Tipo_Servicio', 'COPIA')
-            ->where(function ($q) use ($busqueda) {
-                $q->where('tc.Nombre_Tarifa', 'like', "%{$busqueda}%")
-                    ->orWhere('tc.Tipo_Color', 'like', "%{$busqueda}%")
-                    ->orWhere('tc.Formato', 'like', "%{$busqueda}%")
-                    ->orWhere('tc.Lados', 'like', "%{$busqueda}%");
+        $copias = TarifaCopia::query()
+            ->with('servicio')
+            ->where('Estado', true)
+            ->whereHas('servicio', function ($servicio) {
+                $servicio->where('Estado', true)
+                    ->where('Tipo_Servicio', self::SERVICIO_COPIA);
             })
-            ->orderBy('tc.Nombre_Tarifa')
+            ->where(function ($query) use ($busqueda) {
+                $query->where('Nombre_Tarifa', 'like', "%{$busqueda}%")
+                    ->orWhere('Tipo_Color', 'like', "%{$busqueda}%")
+                    ->orWhere('Formato', 'like', "%{$busqueda}%")
+                    ->orWhere('Lados', 'like', "%{$busqueda}%");
+            })
+            ->orderBy('Nombre_Tarifa')
             ->limit(8)
             ->get()
-            ->map(function ($tarifa) {
+            ->map(function (TarifaCopia $tarifa) {
                 return [
-                    'tipo' => 'COPIA',
+                    'tipo' => self::TIPO_COPIA,
                     'id' => (int) $tarifa->Id_Tarifa_Copia,
                     'serie_id' => null,
                     'titulo' => $tarifa->Nombre_Tarifa,
@@ -339,19 +329,16 @@ new class extends Component
 
     protected function cargarCopiasRapidas(): void
     {
-        $this->copiasRapidas = DB::table('tarifa_copia as tc')
-            ->join('servicio as s', 'tc.Id_Servicio', '=', 's.Id_Servicio')
-            ->select(
-                'tc.Id_Tarifa_Copia',
-                'tc.Nombre_Tarifa',
-                'tc.Precio_Unitario'
-            )
-            ->where('tc.Estado', 1)
-            ->where('s.Estado', 1)
-            ->where('s.Tipo_Servicio', 'COPIA')
-            ->orderBy('tc.Nombre_Tarifa')
+        $this->copiasRapidas = TarifaCopia::query()
+            ->with('servicio')
+            ->where('Estado', true)
+            ->whereHas('servicio', function ($servicio) {
+                $servicio->where('Estado', true)
+                    ->where('Tipo_Servicio', self::SERVICIO_COPIA);
+            })
+            ->orderBy('Nombre_Tarifa')
             ->get()
-            ->map(fn ($tarifa) => [
+            ->map(fn (TarifaCopia $tarifa) => [
                 'id' => (int) $tarifa->Id_Tarifa_Copia,
                 'name' => $tarifa->Nombre_Tarifa . ' · C$ ' . number_format((float) $tarifa->Precio_Unitario, 0, '.', ','),
             ])
@@ -362,19 +349,11 @@ new class extends Component
     {
         $this->descuentoItem = '0';
 
-        if ($tipo === 'PRODUCTO') {
-            $producto = DB::table('producto as p')
-                ->leftJoin('marca as m', 'p.Id_Marca', '=', 'm.Id_Marca')
-                ->select(
-                    'p.Id_Producto',
-                    'p.Nombre_Producto',
-                    'p.Modelo',
-                    'p.Stock_Actual',
-                    'p.Precio_Venta',
-                    'm.Nombre_Marca'
-                )
-                ->where('p.Id_Producto', $id)
-                ->where('p.Estado', 1)
+        if ($tipo === self::TIPO_PRODUCTO) {
+            $producto = Producto::query()
+                ->with('marca')
+                ->where('Id_Producto', $id)
+                ->where('Estado', true)
                 ->first();
 
             if (! $producto) {
@@ -384,30 +363,28 @@ new class extends Component
 
             $seriesUsadas = $this->seriesUsadasEnDetalle((int) $producto->Id_Producto);
 
-            $seriesTotalesDisponibles = DB::table('producto_serie')
-                ->where('Id_Producto', $producto->Id_Producto)
-                ->where('Estado', 'DISPONIBLE')
+            $seriesTotalesDisponibles = $producto->series()
+                ->where('Estado', self::ESTADO_SERIE_DISPONIBLE)
                 ->count();
 
             $this->productoUsaSerie = $seriesTotalesDisponibles > 0;
 
-            $this->seriesDisponibles = DB::table('producto_serie')
-                ->where('Id_Producto', $producto->Id_Producto)
-                ->where('Estado', 'DISPONIBLE')
+            $this->seriesDisponibles = $producto->series()
+                ->where('Estado', self::ESTADO_SERIE_DISPONIBLE)
                 ->when(count($seriesUsadas) > 0, function ($query) use ($seriesUsadas) {
                     $query->whereNotIn('id_producto_serie', $seriesUsadas);
                 })
                 ->orderBy('Numero_Serie')
                 ->limit(50)
                 ->get()
-                ->map(fn ($serie) => [
+                ->map(fn (ProductoSerie $serie) => [
                     'id' => (int) $serie->id_producto_serie,
                     'name' => $serie->Numero_Serie,
                 ])
                 ->toArray();
 
             $descripcion = $this->nombreProductoLimpio(
-                $producto->Nombre_Marca,
+                $producto->marca?->Nombre_Marca,
                 $producto->Nombre_Producto,
                 $producto->Modelo
             );
@@ -420,7 +397,7 @@ new class extends Component
             }
 
             $this->itemSeleccionado = [
-                'tipo' => 'PRODUCTO',
+                'tipo' => self::TIPO_PRODUCTO,
                 'id_producto' => (int) $producto->Id_Producto,
                 'id_tarifa_copia' => null,
                 'id_servicio' => null,
@@ -430,17 +407,17 @@ new class extends Component
             ];
 
             $this->descripcionSeleccionada = $descripcion;
-            $this->tipoItemSeleccionado = 'PRODUCTO';
+            $this->tipoItemSeleccionado = self::TIPO_PRODUCTO;
             $this->stockDisponible = (int) $producto->Stock_Actual;
             $this->precioItem = number_format((float) $producto->Precio_Venta, 0, '.', ',');
             $this->cantidadItem = '1';
             $this->serieProductoId = $serieIdValida;
         }
 
-        if ($tipo === 'COPIA') {
-            $tarifa = DB::table('tarifa_copia')
+        if ($tipo === self::TIPO_COPIA) {
+            $tarifa = TarifaCopia::query()
                 ->where('Id_Tarifa_Copia', $id)
-                ->where('Estado', 1)
+                ->where('Estado', true)
                 ->first();
 
             if (! $tarifa) {
@@ -449,7 +426,7 @@ new class extends Component
             }
 
             $this->itemSeleccionado = [
-                'tipo' => 'COPIA',
+                'tipo' => self::TIPO_COPIA,
                 'id_producto' => null,
                 'id_tarifa_copia' => (int) $tarifa->Id_Tarifa_Copia,
                 'id_servicio' => (int) $tarifa->Id_Servicio,
@@ -459,7 +436,7 @@ new class extends Component
             ];
 
             $this->descripcionSeleccionada = $tarifa->Nombre_Tarifa;
-            $this->tipoItemSeleccionado = 'COPIA';
+            $this->tipoItemSeleccionado = self::TIPO_COPIA;
             $this->stockDisponible = 0;
             $this->seriesDisponibles = [];
             $this->serieProductoId = null;
@@ -481,7 +458,7 @@ new class extends Component
         }
 
         $this->descuentoItem = '0';
-        $this->seleccionarItem('COPIA', (int) $this->copiaRapidaId);
+        $this->seleccionarItem(self::TIPO_COPIA, (int) $this->copiaRapidaId);
         $this->cantidadItem = (string) max(1, (int) $this->cantidadCopiaRapida);
         $this->agregarItem();
 
@@ -504,7 +481,7 @@ new class extends Component
             return;
         }
 
-        if ($this->itemSeleccionado['tipo'] === 'PRODUCTO') {
+        if ($this->itemSeleccionado['tipo'] === self::TIPO_PRODUCTO) {
             if ($this->productoUsaSerie && ! $this->serieProductoId) {
                 $this->mostrarToast('Seleccione una serie disponible para este producto.', 'error');
                 return;
@@ -515,7 +492,7 @@ new class extends Component
             }
 
             $stockUsadoEnDetalle = collect($this->detalleVenta)
-                ->where('tipo', 'PRODUCTO')
+                ->where('tipo', self::TIPO_PRODUCTO)
                 ->where('id_producto', $this->itemSeleccionado['id_producto'])
                 ->sum('cantidad');
 
@@ -533,7 +510,7 @@ new class extends Component
         $serieTexto = null;
 
         if ($this->serieProductoId) {
-            $serieTexto = DB::table('producto_serie')
+            $serieTexto = ProductoSerie::query()
                 ->where('id_producto_serie', $this->serieProductoId)
                 ->value('Numero_Serie');
         }
@@ -545,7 +522,7 @@ new class extends Component
         $this->detalleVenta[] = [
             'uid' => uniqid('det_', true),
             'tipo' => $this->itemSeleccionado['tipo'],
-            'codigo' => $this->itemSeleccionado['tipo'] === 'PRODUCTO'
+            'codigo' => $this->itemSeleccionado['tipo'] === self::TIPO_PRODUCTO
                 ? 'P-' . $this->itemSeleccionado['id_producto']
                 : 'C-' . $this->itemSeleccionado['id_tarifa_copia'],
             'descripcion' => $this->itemSeleccionado['descripcion'] . ($serieTexto ? ' · Serie: ' . $serieTexto : ''),
@@ -580,17 +557,17 @@ new class extends Component
             return;
         }
 
-        if ($this->tipoVenta === 'CREDITO' && ! $this->clienteId) {
+        if ($this->tipoVenta === self::TIPO_CREDITO && ! $this->clienteId) {
             $this->mostrarToast('Para crédito debe seleccionar un cliente registrado.', 'error');
             return;
         }
 
-        if ($this->tipoVenta === 'CONTADO') {
+        if ($this->tipoVenta === self::TIPO_CONTADO) {
             $this->pagoCordobas = '0';
             $this->pagoDolares = '0';
         }
 
-        if ($this->tipoVenta === 'CREDITO') {
+        if ($this->tipoVenta === self::TIPO_CREDITO) {
             $this->abonoCordobas = '0';
             $this->abonoDolares = '0';
             $this->abonoInicial = '0';
@@ -621,12 +598,12 @@ new class extends Component
         $equivalenteAbonoDolares = $abonoDolares * $this->tasaCambio();
         $abonoInicial = $abonoCordobas + $equivalenteAbonoDolares;
 
-        if ($this->tipoVenta === 'CONTADO' && $totalPagado < $total) {
+        if ($this->tipoVenta === self::TIPO_CONTADO && $totalPagado < $total) {
             $this->mostrarToast('El monto recibido no puede ser menor que el total.', 'error');
             return;
         }
 
-        if ($this->tipoVenta === 'CREDITO' && $abonoInicial > $total) {
+        if ($this->tipoVenta === self::TIPO_CREDITO && $abonoInicial > $total) {
             $this->mostrarToast('El abono inicial no puede ser mayor al total.', 'error');
             return;
         }
@@ -646,7 +623,7 @@ new class extends Component
                 $idUsuario = $this->obtenerUsuarioId();
                 $numeroFactura = $this->generarNumeroFactura();
 
-                $idVenta = DB::table('venta')->insertGetId([
+                $venta = Venta::create([
                     'Numero_Factura' => $numeroFactura,
                     'Fecha_venta' => now(),
                     'Id_Cliente' => $this->clienteId,
@@ -658,8 +635,8 @@ new class extends Component
                 ]);
 
                 foreach ($this->detalleVenta as $item) {
-                    if ($item['tipo'] === 'PRODUCTO') {
-                        $producto = DB::table('producto')
+                    if ($item['tipo'] === self::TIPO_PRODUCTO) {
+                        $producto = Producto::query()
                             ->where('Id_Producto', $item['id_producto'])
                             ->lockForUpdate()
                             ->first();
@@ -679,9 +656,9 @@ new class extends Component
                         }
 
                         if ($item['id_producto_serie']) {
-                            $serie = DB::table('producto_serie')
+                            $serie = ProductoSerie::query()
                                 ->where('id_producto_serie', $item['id_producto_serie'])
-                                ->where('Estado', 'DISPONIBLE')
+                                ->where('Estado', self::ESTADO_SERIE_DISPONIBLE)
                                 ->lockForUpdate()
                                 ->first();
 
@@ -691,28 +668,23 @@ new class extends Component
                                 ]);
                             }
 
-                            DB::table('producto_serie')
-                                ->where('id_producto_serie', $item['id_producto_serie'])
-                                ->update(['Estado' => 'VENDIDO']);
+                            $serie->Estado = self::ESTADO_SERIE_VENDIDO;
+                            $serie->save();
                         }
 
-                        DB::table('producto')
-                            ->where('Id_Producto', $item['id_producto'])
-                            ->update([
-                                'Stock_Actual' => ((int) $producto->Stock_Actual) - $cantidad,
-                            ]);
+                        $producto->Stock_Actual = ((int) $producto->Stock_Actual) - $cantidad;
+                        $producto->save();
                     }
 
-                    DB::table('detalle_venta')->insert([
-                        'Id_Venta' => $idVenta,
+                    $venta->detalles()->create([
                         'Tipo_Detalle' => $item['tipo'],
                         'Id_Producto' => $item['id_producto'],
                         'Id_Producto_serie' => $item['id_producto_serie'],
                         'Id_Servicio' => $item['id_servicio'],
                         'Id_Tarifa_Copia' => $item['id_tarifa_copia'],
-                        'Nombre_Formato' => $item['tipo'] === 'COPIA' ? $item['descripcion'] : null,
-                        'Formato_Copia' => $item['tipo'] === 'COPIA' ? $this->formatoCopiaValor($item['formato']) : null,
-                        'Lados_Copia' => $item['tipo'] === 'COPIA' ? $this->ladosCopiaValor($item['lados']) : null,
+                        'Nombre_Formato' => $item['tipo'] === self::TIPO_COPIA ? $item['descripcion'] : null,
+                        'Formato_Copia' => $item['tipo'] === self::TIPO_COPIA ? $this->formatoCopiaValor($item['formato']) : null,
+                        'Lados_Copia' => $item['tipo'] === self::TIPO_COPIA ? $this->ladosCopiaValor($item['lados']) : null,
                         'Cantidad' => $item['cantidad'],
                         'Precio_Unitario' => $item['precio_unitario'],
                         'Subtotal' => $item['subtotal_valor'],
@@ -721,12 +693,11 @@ new class extends Component
                     ]);
                 }
 
-                if ($this->tipoVenta === 'CONTADO') {
+                if ($this->tipoVenta === self::TIPO_CONTADO) {
                     if ($pagoCordobas > 0) {
-                        DB::table('pago_venta')->insert([
-                            'Id_Venta' => $idVenta,
+                        $venta->pagos()->create([
                             'Fecha_Pago' => now(),
-                            'Moneda' => 0,
+                            'Moneda' => self::MONEDA_CORDOBA,
                             'Tipo_Pago' => $this->tipoPagoCordobas,
                             'Monto' => $pagoCordobas,
                             'Tipo_Cambio' => 1,
@@ -735,10 +706,9 @@ new class extends Component
                     }
 
                     if ($pagoDolares > 0) {
-                        DB::table('pago_venta')->insert([
-                            'Id_Venta' => $idVenta,
+                        $venta->pagos()->create([
                             'Fecha_Pago' => now(),
-                            'Moneda' => 1,
+                            'Moneda' => self::MONEDA_DOLAR,
                             'Tipo_Pago' => $this->tipoPagoDolares,
                             'Monto' => $pagoDolares,
                             'Tipo_Cambio' => $this->tasaCambio(),
@@ -747,15 +717,14 @@ new class extends Component
                     }
                 }
 
-                if ($this->tipoVenta === 'CREDITO') {
+                if ($this->tipoVenta === self::TIPO_CREDITO) {
                     $saldo = max($total - $abonoInicial, 0);
 
                     $estadoCredito = $saldo <= 0
-                        ? 'CANCELADO'
-                        : ($abonoInicial > 0 ? 'PARCIAL' : 'PENDIENTE');
+                        ? self::ESTADO_CREDITO_CANCELADO
+                        : ($abonoInicial > 0 ? self::ESTADO_CREDITO_PARCIAL : self::ESTADO_CREDITO_PENDIENTE);
 
-                    $idCredito = DB::table('credito')->insertGetId([
-                        'Id_Venta' => $idVenta,
+                    $credito = $venta->credito()->create([
                         'Fecha_Credito' => now()->toDateString(),
                         'Abono_Inicial' => $abonoInicial,
                         'Saldo_Actual' => $saldo,
@@ -765,10 +734,9 @@ new class extends Component
 
                     if ($abonoInicial > 0) {
                         if ($abonoCordobas > 0) {
-                            DB::table('abono_credito')->insert([
-                                'Id_Credito' => $idCredito,
+                            $credito->abonos()->create([
                                 'Fecha_Abono' => now(),
-                                'Moneda' => 'NIO',
+                                'Moneda' => self::MONEDA_ABONO_CORDOBA,
                                 'Monto' => $abonoCordobas,
                                 'Tipo_Cambio' => 1,
                                 'Monto_Equivalente_Cordobas' => $abonoCordobas,
@@ -776,10 +744,9 @@ new class extends Component
                                 'Observacion' => 'Abono inicial en córdobas desde facturación.',
                             ]);
 
-                            DB::table('pago_venta')->insert([
-                                'Id_Venta' => $idVenta,
+                            $venta->pagos()->create([
                                 'Fecha_Pago' => now(),
-                                'Moneda' => 0,
+                                'Moneda' => self::MONEDA_CORDOBA,
                                 'Tipo_Pago' => $this->tipoPagoCordobas,
                                 'Monto' => $abonoCordobas,
                                 'Tipo_Cambio' => 1,
@@ -788,10 +755,9 @@ new class extends Component
                         }
 
                         if ($abonoDolares > 0) {
-                            DB::table('abono_credito')->insert([
-                                'Id_Credito' => $idCredito,
+                            $credito->abonos()->create([
                                 'Fecha_Abono' => now(),
-                                'Moneda' => 'USD',
+                                'Moneda' => self::MONEDA_ABONO_DOLAR,
                                 'Monto' => $abonoDolares,
                                 'Tipo_Cambio' => $this->tasaCambio(),
                                 'Monto_Equivalente_Cordobas' => $equivalenteAbonoDolares,
@@ -799,10 +765,9 @@ new class extends Component
                                 'Observacion' => 'Abono inicial en dólares desde facturación.',
                             ]);
 
-                            DB::table('pago_venta')->insert([
-                                'Id_Venta' => $idVenta,
+                            $venta->pagos()->create([
                                 'Fecha_Pago' => now(),
-                                'Moneda' => 1,
+                                'Moneda' => self::MONEDA_DOLAR,
                                 'Tipo_Pago' => $this->tipoPagoDolares,
                                 'Monto' => $abonoDolares,
                                 'Tipo_Cambio' => $this->tasaCambio(),
@@ -813,12 +778,12 @@ new class extends Component
                 }
 
                 return [
-                    'id_venta' => $idVenta,
+                    'id_venta' => (int) $venta->Id_Venta,
                     'numero_factura' => $numeroFactura,
                 ];
             });
 
-            if ($this->tipoVenta === 'CREDITO') {
+            if ($this->tipoVenta === self::TIPO_CREDITO) {
                 session(['venta_municipio_' . $resultado['id_venta'] => $this->departamentoMunicipio]);
             }
 
@@ -840,7 +805,7 @@ new class extends Component
 
     protected function limpiarVentaActual(): void
     {
-        $this->tipoVenta = 'CONTADO';
+        $this->tipoVenta = self::TIPO_CONTADO;
         $this->tipoPagoCordobas = 'EFECTIVO';
         $this->tipoPagoDolares = 'EFECTIVO';
 
@@ -917,7 +882,7 @@ new class extends Component
 
     public function cambioVenta(): float
     {
-        if ($this->tipoVenta !== 'CONTADO') {
+        if ($this->tipoVenta !== self::TIPO_CONTADO) {
             return 0;
         }
 
@@ -986,7 +951,7 @@ new class extends Component
     protected function seriesUsadasEnDetalle(?int $idProducto = null): array
     {
         return collect($this->detalleVenta)
-            ->filter(fn ($item) => $item['tipo'] === 'PRODUCTO')
+            ->filter(fn ($item) => $item['tipo'] === self::TIPO_PRODUCTO)
             ->filter(fn ($item) => ! empty($item['id_producto_serie']))
             ->when($idProducto, fn ($items) => $items->filter(fn ($item) => (int) $item['id_producto'] === $idProducto))
             ->pluck('id_producto_serie')
@@ -1015,6 +980,31 @@ new class extends Component
         }
 
         return trim($base);
+    }
+
+    protected function nombreClienteFacturacion(Cliente $cliente): string
+    {
+        if ((int) $cliente->Tipo_Cliente === Cliente::TIPO_INSTITUCION) {
+            return $cliente->Institucion ?: 'Institución';
+        }
+
+        $nombre = trim(implode(' ', array_filter([
+            $cliente->persona?->Primer_Nombre,
+            $cliente->persona?->Segundo_Nombre,
+            $cliente->persona?->Primer_Apellido,
+            $cliente->persona?->Segundo_Apellido,
+        ])));
+
+        return $nombre !== '' ? $nombre : 'Cliente';
+    }
+
+    protected function telefonoClienteFacturacion(Cliente $cliente): string
+    {
+        if ((int) $cliente->Tipo_Cliente === Cliente::TIPO_INSTITUCION) {
+            return $cliente->Telefono_Institucion ?: 'Sin teléfono';
+        }
+
+        return $cliente->persona?->Telefono ?: 'Sin teléfono';
     }
 
     protected function formatoCopiaValor(?string $formato): ?int
@@ -1053,7 +1043,7 @@ new class extends Component
             return (int) $sessionId;
         }
 
-        $idUsuario = DB::table('usuario')->value('Id_Usuario');
+        $idUsuario = Usuario::query()->value('Id_Usuario');
 
         if (! $idUsuario) {
             throw ValidationException::withMessages([
@@ -1068,7 +1058,7 @@ new class extends Component
     {
         do {
             $numero = 'F-' . now()->format('Ymd-His') . '-' . random_int(100, 999);
-        } while (DB::table('venta')->where('Numero_Factura', $numero)->exists());
+        } while (Venta::query()->where('Numero_Factura', $numero)->exists());
 
         return $numero;
     }
