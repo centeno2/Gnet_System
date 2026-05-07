@@ -11,7 +11,7 @@ new class extends Component
             'cargo' => 'Full Stack Developer',
             'descripcion' => 'Participa en el desarrollo visual y funcional del sistema, integrando interfaz, lógica y estructura de datos.',
             'iniciales' => 'I1',
-            'foto' => 'img/equipo/integrante1.jpg',
+            'foto' => 'img/BananCat4.jpg',
         ],
         [
             'nombre' => 'Integrante 2',
@@ -53,7 +53,8 @@ new class extends Component
 
         <div class="relative grid grid-cols-1 gap-8 lg:grid-cols-[1.2fr_.8fr] lg:items-center">
             <div class="space-y-4">
-                <div class="inline-flex items-center rounded-full bg-[#EAF2FB] px-4 py-2 text-sm font-semibold text-[#0E48A1]">
+                <div
+                    class="inline-flex items-center rounded-full bg-[#EAF2FB] px-4 py-2 text-sm font-semibold text-[#0E48A1]">
                     Acerca del equipo
                 </div>
 
@@ -70,12 +71,10 @@ new class extends Component
             <div class="flex items-center justify-center">
                 <div class="relative">
                     <div class="absolute inset-0 rounded-full bg-[#EAF2FB] blur-3xl"></div>
-                    <div class="relative flex h-44 w-44 items-center justify-center rounded-4xl border border-[#D7E4F3] bg-linear-to-br from-[#F8FBFF] to-[#EAF2FB] shadow-md md:h-52 md:w-52">
-                        <img
-                            src="{{ asset('img/gnetlogo.png') }}"
-                            alt="Logo GNET"
-                            class="h-28 w-28 object-contain md:h-36 md:w-36"
-                        />
+                    <div
+                        class="relative flex h-44 w-44 items-center justify-center rounded-4xl border border-[#D7E4F3] bg-linear-to-br from-[#F8FBFF] to-[#EAF2FB] shadow-md md:h-52 md:w-52">
+                        <img src="{{ asset('img/gnetlogo.png') }}" alt="Logo GNET"
+                            class="h-28 w-28 object-contain md:h-36 md:w-36" />
                     </div>
                 </div>
             </div>
@@ -84,41 +83,42 @@ new class extends Component
 
     <div class="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
         @foreach ($equipo as $persona)
-            <x-card class="group rounded-3xl border border-[#D7E4F3] bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl">
-                <div class="flex items-start gap-4">
-                    <div class="relative shrink-0">
-                        <div class="absolute inset-0 rounded-2xl bg-[#EAF2FB] blur-md opacity-70 transition duration-300 group-hover:opacity-100"></div>
-
-                        <div class="relative h-20 w-20 overflow-hidden rounded-2xl border border-[#D7E4F3] bg-[#EAF2FB]">
-                            <img
-
-                                alt="{{ $persona['nombre'] }}"
-                                class="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-                            />
-                        </div>
+        <x-card
+            class="group rounded-3xl border border-[#D7E4F3] bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl">
+            <div class="flex items-start gap-4">
+                <div class="relative shrink-0">
+                    <div
+                        class="absolute inset-0 rounded-2xl bg-[#EAF2FB] blur-md opacity-70 transition duration-300 group-hover:opacity-100">
                     </div>
 
-                    <div class="min-w-0">
-                        <h3 class="text-xl font-bold text-[#1A2B42]">
-                            {{ $persona['nombre'] }}
-                        </h3>
-
-                        <p class="mt-1 text-sm font-semibold text-[#0E48A1]">
-                            {{ $persona['cargo'] }}
-                        </p>
-
-                        <div class="mt-3 inline-flex items-center rounded-full bg-[#F0F3F7] px-3 py-1 text-xs font-semibold text-[#5F6B7A]">
-                            {{ $persona['iniciales'] }}
-                        </div>
+                    <div class="relative h-20 w-20 overflow-hidden rounded-2xl border border-[#D7E4F3] bg-[#EAF2FB]">
+                        <img alt="{{ $persona['nombre'] }}"
+                            class="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
                     </div>
                 </div>
 
-                <div class="mt-5 rounded-2xl bg-[#F0F3F7] p-4">
-                    <p class="text-sm leading-6 text-[#5F6B7A]">
-                        {{ $persona['descripcion'] }}
+                <div class="min-w-0">
+                    <h3 class="text-xl font-bold text-[#1A2B42]">
+                        {{ $persona['nombre'] }}
+                    </h3>
+
+                    <p class="mt-1 text-sm font-semibold text-[#0E48A1]">
+                        {{ $persona['cargo'] }}
                     </p>
+
+                    <div
+                        class="mt-3 inline-flex items-center rounded-full bg-[#F0F3F7] px-3 py-1 text-xs font-semibold text-[#5F6B7A]">
+                        {{ $persona['iniciales'] }}
+                    </div>
                 </div>
-            </x-card>
+            </div>
+
+            <div class="mt-5 rounded-2xl bg-[#F0F3F7] p-4">
+                <p class="text-sm leading-6 text-[#5F6B7A]">
+                    {{ $persona['descripcion'] }}
+                </p>
+            </div>
+        </x-card>
         @endforeach
     </div>
 </div>

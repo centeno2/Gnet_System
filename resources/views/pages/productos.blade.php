@@ -632,7 +632,7 @@ new class extends Component
 ?>
 
 <div class="w-full min-h-[calc(100vh-3rem)] bg-[#F0F3F7] px-4 py-4 md:px-6 md:py-5">
-    <div class="mx-auto flex w-full max-w-[1400px] flex-col gap-4">
+    <div class="mx-auto flex w-full max-w-350 flex-col gap-4">
         <div class="flex shrink-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
                 <h1 class="text-2xl font-bold text-[#1A2B42]">Productos</h1>
@@ -656,7 +656,7 @@ new class extends Component
         </div>
 
         @if ($mostrarToast)
-        <div class="fixed right-5 top-5 z-[999] w-full max-w-sm">
+        <div class="fixed right-5 top-5 z-999 w-full max-w-sm">
             <div
                 class="{{ $toastTipo === 'success' ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#1A2B42]' : 'border-red-200 bg-red-50 text-red-700' }} rounded-2xl border px-4 py-4 shadow-lg">
                 <div class="flex items-start justify-between gap-3">
@@ -868,8 +868,8 @@ new class extends Component
             </div>
 
             <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-white">
-                <div class="max-h-[26rem] overflow-x-auto overflow-y-auto">
-                    <table class="min-w-[1050px] w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
+                <div class="max-h-104 overflow-x-auto overflow-y-auto">
+                    <table class="min-w-262.5 w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
                         <thead class="sticky top-0 z-10">
                             <tr>
                                 <th
@@ -916,7 +916,7 @@ new class extends Component
                                 </td>
                                 <td class="px-3 py-3 text-center align-middle whitespace-nowrap">
                                     <span
-                                        class="inline-flex min-w-[2.125rem] justify-center rounded-full bg-[#EAF4FD] px-2.5 py-1 text-xs font-semibold text-[#0E48A1]">
+                                        class="inline-flex min-w-8.5 justify-center rounded-full bg-[#EAF4FD] px-2.5 py-1 text-xs font-semibold text-[#0E48A1]">
                                         {{ $producto['series_registradas'] }}
                                     </span>
                                 </td>

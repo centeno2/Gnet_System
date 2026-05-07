@@ -1316,8 +1316,7 @@ new class extends Component
 
                     <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-white">
                         <div class="w-full overflow-x-auto">
-                            <table
-                                class="min-w-205 w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
+                            <table class="min-w-205 w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
                                 <thead>
                                     <tr>
                                         <th
