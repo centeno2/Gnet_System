@@ -1447,7 +1447,7 @@ new class extends Component
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                         Número de serie
                         <span class="text-xs font-normal text-[#5F6B7A]">
-                            opcional, uno por línea, coma o punto y coma
+                            Opcional
                         </span>
                     </label>
                     <textarea
