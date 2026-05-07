@@ -45,4 +45,14 @@ class Persona extends Model
     {
         return $this->hasOne(Usuario::class, 'Id_Persona', 'Id_Persona');
     }
+
+    public function getNombreCompletoAttribute(): string
+    {
+        return trim(implode(' ', array_filter([
+            $this->Primer_Nombre,
+            $this->Segundo_Nombre,
+            $this->Primer_Apellido,
+            $this->Segundo_Apellido,
+        ])));
+    }
 }
