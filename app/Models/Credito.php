@@ -14,6 +14,11 @@ class Credito extends Model
 
     public $timestamps = false;
 
+    public const ESTADO_PENDIENTE = 'PENDIENTE';
+    public const ESTADO_PARCIAL = 'PARCIAL';
+    public const ESTADO_CANCELADO = 'CANCELADO';
+    public const ESTADO_VENCIDO = 'VENCIDO';
+
     protected $fillable = [
         'Id_Cliente_Credito',
         'Id_Venta',

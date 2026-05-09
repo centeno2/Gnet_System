@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -12,6 +13,8 @@ class Servicio extends Model
     protected $primaryKey = 'Id_Servicio';
 
     public $timestamps = false;
+
+    public const TIPO_COPIA = 'COPIA';
 
     protected $fillable = [
         'Nombre_Servicio',
@@ -56,5 +59,10 @@ class Servicio extends Model
     public function tarifasCopias(): HasMany
     {
         return $this->hasMany(TarifaCopia::class, 'Id_Servicio', 'Id_Servicio');
+    }
+
+    public function scopeActivos(Builder $query): Builder
+    {
+        return $query->where('Estado', true);
     }
 }

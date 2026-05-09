@@ -13,6 +13,13 @@ class PagoVenta extends Model
 
     public $timestamps = false;
 
+    public const MONEDA_CORDOBA = 0;
+    public const MONEDA_DOLAR = 1;
+
+    public const TIPO_EFECTIVO = 'EFECTIVO';
+    public const TIPO_TRANSFERENCIA = 'TRANSFERENCIA';
+    public const TIPO_TARJETA = 'TARJETA';
+
     protected $fillable = [
         'Id_Venta',
         'Fecha_Pago',
@@ -40,6 +47,6 @@ class PagoVenta extends Model
 
     public function getMonedaNombreAttribute(): string
     {
-        return (int) $this->Moneda === 1 ? 'USD' : 'NIO';
+        return (int) $this->Moneda === self::MONEDA_DOLAR ? 'USD' : 'NIO';
     }
 }

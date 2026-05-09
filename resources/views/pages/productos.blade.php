@@ -9,6 +9,11 @@ use Livewire\Component;
 
 new class extends Component
 {
+    private const ESTADO_SERIE_DISPONIBLE = 'DISPONIBLE';
+    private const ESTADO_SERIE_RESERVADO = 'RESERVADO';
+    private const ESTADO_SERIE_DANADO = 'DAÑADO';
+    private const ESTADO_SERIE_VENDIDO = 'VENDIDO';
+
     public bool $modalCategoria = false;
     public bool $modalMarca = false;
     public bool $modalSeries = false;
@@ -48,7 +53,7 @@ new class extends Component
     public int $productoIdAgregarSerie = 0;
     public string $numeroSerieExtra = '';
     public string $observacionSerieExtra = '';
-    public string $estadoSerieExtra = 'DISPONIBLE';
+    public string $estadoSerieExtra = self::ESTADO_SERIE_DISPONIBLE;
 
     public array $categorias = [];
     public array $marcas = [];
@@ -105,25 +110,30 @@ new class extends Component
             return;
         }
 
-        $this->coincidenciasProducto = DB::table('producto as p')
-            ->leftJoin('categoria_producto as c', 'p.Id_Categoria', '=', 'c.Id_Categoria')
-            ->leftJoin('marca as m', 'p.Id_Marca', '=', 'm.Id_Marca')
-            ->select(
-                'p.Id_Producto',
-                'p.Nombre_Producto',
-                'p.Modelo',
-                'p.Precio_Venta',
-                'c.Nombre_Categoria as categoria',
-                'm.Nombre_Marca as marca'
-            )
-            ->where(function ($q) use ($busqueda) {
-                $q->where('p.Nombre_Producto', 'like', "%{$busqueda}%")
-                    ->orWhere('p.Modelo', 'like', "%{$busqueda}%")
-                    ->orWhere('m.Nombre_Marca', 'like', "%{$busqueda}%")
-                    ->orWhere('c.Nombre_Categoria', 'like', "%{$busqueda}%");
+        $this->coincidenciasProducto = Producto::query()
+            ->with([
+                'categoria:Id_Categoria,Nombre_Categoria',
+                'marca:Id_Marca,Nombre_Marca',
+            ])
+            ->select([
+                'Id_Producto',
+                'Id_Categoria',
+                'Id_Marca',
+                'Nombre_Producto',
+                'Modelo',
+                'Precio_Venta',
+            ])
+            ->where(function ($query) use ($busqueda) {
+                $query->where('Nombre_Producto', 'like', "%{$busqueda}%")
+                    ->orWhere('Modelo', 'like', "%{$busqueda}%")
+                    ->orWhereHas('marca', function ($marca) use ($busqueda) {
+                        $marca->where('Nombre_Marca', 'like', "%{$busqueda}%");
+                    })
+                    ->orWhereHas('categoria', function ($categoria) use ($busqueda) {
+                        $categoria->where('Nombre_Categoria', 'like', "%{$busqueda}%");
+                    });
             })
-            ->orderByRaw('CASE WHEN p.Nombre_Producto LIKE ? THEN 0 ELSE 1 END', [$busqueda . '%'])
-            ->orderBy('p.Nombre_Producto')
+            ->orderBy('Nombre_Producto')
             ->limit(8)
             ->get()
             ->map(function ($producto) {
@@ -131,8 +141,8 @@ new class extends Component
                     'id_producto' => (int) $producto->Id_Producto,
                     'nombre' => $producto->Nombre_Producto,
                     'modelo' => $producto->Modelo ?: 'Sin modelo',
-                    'categoria' => $producto->categoria ?: 'Sin categoría',
-                    'marca' => $producto->marca ?: 'Sin marca',
+                    'categoria' => $producto->categoria?->Nombre_Categoria ?: 'Sin categoría',
+                    'marca' => $producto->marca?->Nombre_Marca ?: 'Sin marca',
                     'precio_venta' => 'C$ ' . number_format((float) $producto->Precio_Venta, 0, '.', ','),
                 ];
             })
@@ -143,8 +153,8 @@ new class extends Component
 
     public function seleccionarProducto(int $idProducto): void
     {
-        $producto = DB::table('producto')
-            ->select(
+        $producto = Producto::query()
+            ->select([
                 'Id_Producto',
                 'Id_Categoria',
                 'Id_Marca',
@@ -156,10 +166,9 @@ new class extends Component
                 'Fecha_Vencimiento',
                 'Meses_Garantia_Nuevo',
                 'Meses_Garantia_Usado',
-                'Estado'
-            )
-            ->where('Id_Producto', $idProducto)
-            ->first();
+                'Estado',
+            ])
+            ->find($idProducto);
 
         if (! $producto) {
             $this->coincidenciasProducto = [];
@@ -189,7 +198,7 @@ new class extends Component
             ? (string) $producto->Meses_Garantia_Usado
             : '';
 
-        $this->estado = (string) ($producto->Estado ?? 1);
+        $this->estado = (string) ((int) $producto->Estado);
 
         $this->fechaVencimiento = $producto->Fecha_Vencimiento
             ? \Carbon\Carbon::parse($producto->Fecha_Vencimiento)->format('Y-m-d')
@@ -241,9 +250,9 @@ new class extends Component
             'nombreCategoria' => 'required|string|max:100|unique:categoria_producto,Nombre_Categoria',
         ]);
 
-        $categoria = new CategoriaProducto();
-        $categoria->Nombre_Categoria = trim($this->nombreCategoria);
-        $categoria->save();
+        $categoria = CategoriaProducto::create([
+            'Nombre_Categoria' => trim($this->nombreCategoria),
+        ]);
 
         $this->idCategoria = (string) $categoria->Id_Categoria;
         $this->nombreCategoria = '';
@@ -278,10 +287,10 @@ new class extends Component
             'estadoMarca' => 'required|in:0,1',
         ]);
 
-        $marca = new Marca();
-        $marca->Nombre_Marca = trim($this->nombreMarca);
-        $marca->Estado = (int) $this->estadoMarca;
-        $marca->save();
+        $marca = Marca::create([
+            'Nombre_Marca' => trim($this->nombreMarca),
+            'Estado' => (int) $this->estadoMarca,
+        ]);
 
         $this->idMarca = (string) $marca->Id_Marca;
         $this->nombreMarca = '';
@@ -319,7 +328,9 @@ new class extends Component
 
         DB::transaction(function () use ($datos, $precioVentaLimpio, $productoBaseId) {
             if ($productoBaseId !== null) {
-                Producto::where('Id_Producto', $productoBaseId)->update([
+                $producto = Producto::query()->findOrFail($productoBaseId);
+
+                $producto->update([
                     'Id_Categoria' => (int) $datos['idCategoria'],
                     'Id_Marca' => $datos['idMarca'] !== '' ? (int) $datos['idMarca'] : null,
                     'Nombre_Producto' => trim($datos['nombreProducto']),
@@ -334,42 +345,40 @@ new class extends Component
                 ]);
 
                 if (! empty($datos['numeroSerie'])) {
-                    $serie = new ProductoSerie();
-                    $serie->Id_Producto = $productoBaseId;
-                    $serie->Numero_Serie = trim($datos['numeroSerie']);
-                    $serie->Fecha_Ingreso = now();
-                    $serie->Estado = 'DISPONIBLE';
-                    $serie->Observacion = null;
-                    $serie->save();
+                    $producto->series()->create([
+                        'Numero_Serie' => trim($datos['numeroSerie']),
+                        'Fecha_Ingreso' => now(),
+                        'Estado' => self::ESTADO_SERIE_DISPONIBLE,
+                        'Observacion' => null,
+                    ]);
 
-                    Producto::where('Id_Producto', $productoBaseId)->increment('Stock_Actual');
+                    $producto->increment('Stock_Actual');
                 }
 
                 return;
             }
 
-            $producto = new Producto();
-            $producto->Id_Categoria = (int) $datos['idCategoria'];
-            $producto->Id_Marca = $datos['idMarca'] !== '' ? (int) $datos['idMarca'] : null;
-            $producto->Nombre_Producto = trim($datos['nombreProducto']);
-            $producto->Modelo = $datos['modelo'] !== '' ? trim($datos['modelo']) : null;
-            $producto->Stock_Actual = (int) $datos['stockActual'];
-            $producto->Stock_Minimo = (int) $datos['stockMinimo'];
-            $producto->Precio_Venta = $precioVentaLimpio;
-            $producto->Fecha_Vencimiento = $datos['fechaVencimiento'] !== '' ? $datos['fechaVencimiento'] : null;
-            $producto->Meses_Garantia_Nuevo = $datos['garantiaNuevo'] !== '' ? (int) $datos['garantiaNuevo'] : null;
-            $producto->Meses_Garantia_Usado = $datos['garantiaUsado'] !== '' ? (int) $datos['garantiaUsado'] : null;
-            $producto->Estado = (int) $datos['estado'];
-            $producto->save();
+            $producto = Producto::create([
+                'Id_Categoria' => (int) $datos['idCategoria'],
+                'Id_Marca' => $datos['idMarca'] !== '' ? (int) $datos['idMarca'] : null,
+                'Nombre_Producto' => trim($datos['nombreProducto']),
+                'Modelo' => $datos['modelo'] !== '' ? trim($datos['modelo']) : null,
+                'Stock_Actual' => (int) $datos['stockActual'],
+                'Stock_Minimo' => (int) $datos['stockMinimo'],
+                'Precio_Venta' => $precioVentaLimpio,
+                'Fecha_Vencimiento' => $datos['fechaVencimiento'] !== '' ? $datos['fechaVencimiento'] : null,
+                'Meses_Garantia_Nuevo' => $datos['garantiaNuevo'] !== '' ? (int) $datos['garantiaNuevo'] : null,
+                'Meses_Garantia_Usado' => $datos['garantiaUsado'] !== '' ? (int) $datos['garantiaUsado'] : null,
+                'Estado' => (int) $datos['estado'],
+            ]);
 
             if (! empty($datos['numeroSerie'])) {
-                $serie = new ProductoSerie();
-                $serie->Id_Producto = $producto->Id_Producto;
-                $serie->Numero_Serie = trim($datos['numeroSerie']);
-                $serie->Fecha_Ingreso = now();
-                $serie->Estado = 'DISPONIBLE';
-                $serie->Observacion = null;
-                $serie->save();
+                $producto->series()->create([
+                    'Numero_Serie' => trim($datos['numeroSerie']),
+                    'Fecha_Ingreso' => now(),
+                    'Estado' => self::ESTADO_SERIE_DISPONIBLE,
+                    'Observacion' => null,
+                ]);
             }
         });
 
@@ -385,12 +394,17 @@ new class extends Component
 
     public function verSeries(int $idProducto): void
     {
-        $producto = DB::table('producto')
-            ->select('Id_Producto', 'Nombre_Producto', 'Modelo')
-            ->where('Id_Producto', $idProducto)
+        $producto = Producto::query()
+            ->select([
+                'Id_Producto',
+                'Nombre_Producto',
+                'Modelo',
+                'Estado',
+                'Stock_Actual',
+            ])
             ->where('Estado', 1)
             ->where('Stock_Actual', '>', 0)
-            ->first();
+            ->find($idProducto);
 
         if (! $producto) {
             $this->mostrarToast('Este producto ya no está disponible en inventario.', 'error');
@@ -401,9 +415,8 @@ new class extends Component
             $producto->Nombre_Producto . ($producto->Modelo ? ' - ' . $producto->Modelo : '')
         );
 
-        $this->seriesProducto = DB::table('producto_serie')
-            ->where('Id_Producto', $idProducto)
-            ->where('Estado', '<>', 'VENDIDO')
+        $this->seriesProducto = $producto->series()
+            ->where('Estado', '<>', self::ESTADO_SERIE_VENDIDO)
             ->orderByDesc('id_producto_serie')
             ->get([
                 'Numero_Serie',
@@ -438,33 +451,33 @@ new class extends Component
         $this->resetErrorBag();
         $this->resetValidation();
 
-        $producto = DB::table('producto')
-            ->leftJoin('marca as m', 'producto.Id_Marca', '=', 'm.Id_Marca')
-            ->select(
-                'producto.Id_Producto',
-                'producto.Nombre_Producto',
-                'producto.Modelo',
-                'm.Nombre_Marca'
-            )
-            ->where('producto.Id_Producto', $idProducto)
-            ->where('producto.Estado', 1)
-            ->first();
+        $producto = Producto::query()
+            ->with('marca:Id_Marca,Nombre_Marca')
+            ->select([
+                'Id_Producto',
+                'Id_Marca',
+                'Nombre_Producto',
+                'Modelo',
+                'Estado',
+            ])
+            ->where('Estado', 1)
+            ->find($idProducto);
 
         if (! $producto) {
             $this->mostrarToast('Este producto no está disponible para agregar series.', 'error');
             return;
         }
 
-        $this->productoIdAgregarSerie = $idProducto;
+        $this->productoIdAgregarSerie = (int) $producto->Id_Producto;
         $this->productoNombreAgregarSerie = trim(
-            ($producto->Nombre_Marca ? $producto->Nombre_Marca . ' ' : '') .
+            ($producto->marca?->Nombre_Marca ? $producto->marca->Nombre_Marca . ' ' : '') .
             $producto->Nombre_Producto .
             ($producto->Modelo ? ' - ' . $producto->Modelo : '')
         );
 
         $this->numeroSerieExtra = '';
         $this->observacionSerieExtra = '';
-        $this->estadoSerieExtra = 'DISPONIBLE';
+        $this->estadoSerieExtra = self::ESTADO_SERIE_DISPONIBLE;
         $this->modalAgregarSerie = true;
     }
 
@@ -475,7 +488,7 @@ new class extends Component
         $this->productoNombreAgregarSerie = '';
         $this->numeroSerieExtra = '';
         $this->observacionSerieExtra = '';
-        $this->estadoSerieExtra = 'DISPONIBLE';
+        $this->estadoSerieExtra = self::ESTADO_SERIE_DISPONIBLE;
         $this->resetErrorBag();
         $this->resetValidation();
     }
@@ -492,16 +505,20 @@ new class extends Component
         ]);
 
         DB::transaction(function () use ($datos) {
-            $serie = new ProductoSerie();
-            $serie->Id_Producto = (int) $datos['productoIdAgregarSerie'];
-            $serie->Numero_Serie = trim($datos['numeroSerieExtra']);
-            $serie->Fecha_Ingreso = now();
-            $serie->Estado = trim($datos['estadoSerieExtra']);
-            $serie->Observacion = $datos['observacionSerieExtra'] !== '' ? trim($datos['observacionSerieExtra']) : null;
-            $serie->save();
+            $producto = Producto::query()
+                ->where('Estado', 1)
+                ->findOrFail((int) $datos['productoIdAgregarSerie']);
 
-            Producto::where('Id_Producto', (int) $datos['productoIdAgregarSerie'])
-                ->increment('Stock_Actual');
+            $producto->series()->create([
+                'Numero_Serie' => trim($datos['numeroSerieExtra']),
+                'Fecha_Ingreso' => now(),
+                'Estado' => trim($datos['estadoSerieExtra']),
+                'Observacion' => $datos['observacionSerieExtra'] !== ''
+                    ? trim($datos['observacionSerieExtra'])
+                    : null,
+            ]);
+
+            $producto->increment('Stock_Actual');
         });
 
         $this->cerrarModalAgregarSerie();
@@ -534,8 +551,8 @@ new class extends Component
 
     protected function cargarCatalogos(): void
     {
-        $this->categorias = DB::table('categoria_producto')
-            ->select('Id_Categoria', 'Nombre_Categoria')
+        $this->categorias = CategoriaProducto::query()
+            ->select(['Id_Categoria', 'Nombre_Categoria'])
             ->orderBy('Nombre_Categoria')
             ->get()
             ->map(fn ($categoria) => [
@@ -544,8 +561,8 @@ new class extends Component
             ])
             ->toArray();
 
-        $this->marcas = DB::table('marca')
-            ->select('Id_Marca', 'Nombre_Marca')
+        $this->marcas = Marca::query()
+            ->select(['Id_Marca', 'Nombre_Marca'])
             ->orderBy('Nombre_Marca')
             ->get()
             ->map(fn ($marca) => [
@@ -559,66 +576,62 @@ new class extends Component
     {
         $busqueda = trim($this->buscar);
 
-        $query = DB::table('producto as p')
-            ->leftJoin('categoria_producto as c', 'p.Id_Categoria', '=', 'c.Id_Categoria')
-            ->leftJoin('marca as m', 'p.Id_Marca', '=', 'm.Id_Marca')
-            ->where('p.Estado', 1)
-            ->where('p.Stock_Actual', '>', 0)
-            ->select(
-                'p.Id_Producto',
-                'p.Nombre_Producto',
-                'p.Modelo',
-                'p.Stock_Actual',
-                'p.Precio_Venta',
-                'p.Estado',
-                'c.Nombre_Categoria as categoria',
-                'm.Nombre_Marca as marca'
-            )
-            ->selectSub(function ($sub) {
-                $sub->from('producto_serie as ps')
-                    ->selectRaw('COUNT(*)')
-                    ->whereColumn('ps.Id_Producto', 'p.Id_Producto')
-                    ->where('ps.Estado', '<>', 'VENDIDO');
-            }, 'total_series')
-            ->where(function ($q) {
-                $q->whereNotExists(function ($sub) {
-                    $sub->select(DB::raw(1))
-                        ->from('producto_serie as ps_check')
-                        ->whereColumn('ps_check.Id_Producto', 'p.Id_Producto');
-                })
-                ->orWhereExists(function ($sub) {
-                    $sub->select(DB::raw(1))
-                        ->from('producto_serie as ps_available')
-                        ->whereColumn('ps_available.Id_Producto', 'p.Id_Producto')
-                        ->where('ps_available.Estado', '<>', 'VENDIDO');
-                });
+        $query = Producto::query()
+            ->with([
+                'categoria:Id_Categoria,Nombre_Categoria',
+                'marca:Id_Marca,Nombre_Marca',
+            ])
+            ->withCount([
+                'series as total_series' => function ($serie) {
+                    $serie->where('Estado', '<>', self::ESTADO_SERIE_VENDIDO);
+                },
+            ])
+            ->select([
+                'Id_Producto',
+                'Id_Categoria',
+                'Id_Marca',
+                'Nombre_Producto',
+                'Modelo',
+                'Stock_Actual',
+                'Precio_Venta',
+                'Estado',
+            ])
+            ->where('Estado', 1)
+            ->where('Stock_Actual', '>', 0)
+            ->where(function ($query) {
+                $query->doesntHave('series')
+                    ->orWhereHas('series', function ($serie) {
+                        $serie->where('Estado', '<>', self::ESTADO_SERIE_VENDIDO);
+                    });
             })
-            ->orderByDesc('p.Id_Producto');
+            ->orderByDesc('Id_Producto');
 
         if ($busqueda !== '') {
-            $query->where(function ($q) use ($busqueda) {
-                $q->where('p.Nombre_Producto', 'like', "%{$busqueda}%")
-                    ->orWhere('p.Modelo', 'like', "%{$busqueda}%")
-                    ->orWhere('c.Nombre_Categoria', 'like', "%{$busqueda}%")
-                    ->orWhere('m.Nombre_Marca', 'like', "%{$busqueda}%")
-                    ->orWhereExists(function ($sub) use ($busqueda) {
-                        $sub->select(DB::raw(1))
-                            ->from('producto_serie as ps2')
-                            ->whereColumn('ps2.Id_Producto', 'p.Id_Producto')
-                            ->where('ps2.Estado', '<>', 'VENDIDO')
-                            ->where('ps2.Numero_Serie', 'like', "%{$busqueda}%");
+            $query->where(function ($query) use ($busqueda) {
+                $query->where('Nombre_Producto', 'like', "%{$busqueda}%")
+                    ->orWhere('Modelo', 'like', "%{$busqueda}%")
+                    ->orWhereHas('categoria', function ($categoria) use ($busqueda) {
+                        $categoria->where('Nombre_Categoria', 'like', "%{$busqueda}%");
+                    })
+                    ->orWhereHas('marca', function ($marca) use ($busqueda) {
+                        $marca->where('Nombre_Marca', 'like', "%{$busqueda}%");
+                    })
+                    ->orWhereHas('series', function ($serie) use ($busqueda) {
+                        $serie->where('Estado', '<>', self::ESTADO_SERIE_VENDIDO)
+                            ->where('Numero_Serie', 'like', "%{$busqueda}%");
                     });
             });
         }
 
-        $this->productos = $query->limit(25)->get()
+        $this->productos = $query->limit(25)
+            ->get()
             ->map(function ($producto) {
                 return [
                     'id_producto' => (int) $producto->Id_Producto,
                     'codigo' => (int) $producto->Id_Producto,
                     'producto' => $producto->Nombre_Producto,
-                    'categoria' => $producto->categoria ?: '—',
-                    'marca' => $producto->marca ?: '—',
+                    'categoria' => $producto->categoria?->Nombre_Categoria ?: '—',
+                    'marca' => $producto->marca?->Nombre_Marca ?: '—',
                     'modelo' => $producto->Modelo ?: '—',
                     'series_registradas' => (int) $producto->total_series,
                     'stock' => (int) $producto->Stock_Actual,

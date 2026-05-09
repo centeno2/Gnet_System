@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -41,5 +42,10 @@ class TarifaCopia extends Model
     public function detallesVenta(): HasMany
     {
         return $this->hasMany(DetalleVenta::class, 'Id_Tarifa_Copia', 'Id_Tarifa_Copia');
+    }
+
+    public function scopeActivas(Builder $query): Builder
+    {
+        return $query->where('Estado', true);
     }
 }

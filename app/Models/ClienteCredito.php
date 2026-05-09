@@ -14,6 +14,9 @@ class ClienteCredito extends Model
 
     public $timestamps = false;
 
+    public const ESTADO_INACTIVO = 0;
+    public const ESTADO_ACTIVO = 1;
+
     protected $fillable = [
         'Id_Cliente',
         'Limite_Credito',
@@ -27,6 +30,7 @@ class ClienteCredito extends Model
         'Id_Cliente' => 'integer',
         'Limite_Credito' => 'decimal:2',
         'Saldo_Actual' => 'decimal:2',
+        'Estado' => 'integer',
         'Fecha_Registro' => 'datetime',
     ];
 

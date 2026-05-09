@@ -13,6 +13,10 @@ class ClienteCreditoMovimiento extends Model
 
     public $timestamps = false;
 
+    public const TIPO_CARGO = 'CARGO';
+    public const TIPO_ABONO = 'ABONO';
+    public const TIPO_AJUSTE = 'AJUSTE';
+
     protected $fillable = [
         'Id_Cliente_Credito',
         'Id_Cliente',
