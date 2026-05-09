@@ -55,8 +55,5 @@ class Persona extends Model
             $this->Segundo_Apellido,
         ])));
     }
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 95ce7e872c620426037fc9ad56f918094f7be1eb
+
