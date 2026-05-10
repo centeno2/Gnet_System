@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -21,7 +22,6 @@ class Producto extends Model
         'Modelo',
         'Stock_Actual',
         'Stock_Minimo',
-        'Precio_Compra',
         'Precio_Venta',
         'Fecha_Vencimiento',
         'Meses_Garantia_Nuevo',
@@ -35,9 +35,8 @@ class Producto extends Model
         'Id_Marca' => 'integer',
         'Stock_Actual' => 'integer',
         'Stock_Minimo' => 'integer',
-        'Precio_Compra' => 'decimal:2',
         'Precio_Venta' => 'decimal:2',
-        'Fecha_Vencimiento' => 'date',
+        'Fecha_Vencimiento' => 'datetime',
         'Meses_Garantia_Nuevo' => 'integer',
         'Meses_Garantia_Usado' => 'integer',
         'Estado' => 'boolean',
@@ -81,5 +80,27 @@ class Producto extends Model
     public function servicioTecnicoProductos(): HasMany
     {
         return $this->hasMany(ServicioTecnicoProducto::class, 'Id_Producto', 'Id_Producto');
+    }
+
+    public function scopeActivos(Builder $query): Builder
+    {
+        return $query->where('Estado', true);
+    }
+
+    public function scopeConStock(Builder $query): Builder
+    {
+        return $query->where('Stock_Actual', '>', 0);
+    }
+
+    public function scopeDisponiblesParaVenta(Builder $query): Builder
+    {
+        return $query->activos()
+            ->conStock()
+            ->where(function ($query) {
+                $query->doesntHave('series')
+                    ->orWhereHas('series', function ($serie) {
+                        $serie->where('Estado', '<>', ProductoSerie::ESTADO_VENDIDO);
+                    });
+            });
     }
 }

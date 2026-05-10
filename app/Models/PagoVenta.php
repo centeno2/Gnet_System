@@ -13,12 +13,21 @@ class PagoVenta extends Model
 
     public $timestamps = false;
 
+    public const MONEDA_CORDOBA = 0;
+    public const MONEDA_DOLAR = 1;
+
+    public const TIPO_EFECTIVO = 'EFECTIVO';
+    public const TIPO_TRANSFERENCIA = 'TRANSFERENCIA';
+    public const TIPO_TARJETA = 'TARJETA';
+
     protected $fillable = [
         'Id_Venta',
         'Fecha_Pago',
         'Moneda',
         'Tipo_Pago',
         'Monto',
+        'Tipo_Cambio',
+        'Monto_Equivalente_Cordobas',
     ];
 
     protected $casts = [
@@ -27,10 +36,17 @@ class PagoVenta extends Model
         'Fecha_Pago' => 'datetime',
         'Moneda' => 'integer',
         'Monto' => 'decimal:2',
+        'Tipo_Cambio' => 'decimal:4',
+        'Monto_Equivalente_Cordobas' => 'decimal:2',
     ];
 
     public function venta(): BelongsTo
     {
         return $this->belongsTo(Venta::class, 'Id_Venta', 'Id_Venta');
+    }
+
+    public function getMonedaNombreAttribute(): string
+    {
+        return (int) $this->Moneda === self::MONEDA_DOLAR ? 'USD' : 'NIO';
     }
 }

@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\Cargo;
+use App\Models\Persona;
 use App\Models\Trabajador;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -10,7 +12,6 @@ new class extends Component
     public string $nombres = '';
     public string $apellidos = '';
     public string $cedula = '';
-    public string $correo = '';
     public string $telefono = '';
     public string $direccion = '';
     public string $fechaIngreso = '';
@@ -21,9 +22,14 @@ new class extends Component
     public bool $modalCargo = false;
     public string $nuevoCargo = '';
 
+    public bool $modalConfirmarPersonaExistente = false;
+
     public bool $cedulaExiste = false;
-    public bool $telefonoExiste = false;
-    public bool $correoExiste = false;
+    public bool $personaExiste = false;
+    public bool $personaYaEsTrabajador = false;
+
+    public ?int $personaExistenteId = null;
+    public ?string $personaExistenteNombre = null;
 
     public array $cargos = [];
     public array $trabajadores = [];
@@ -49,16 +55,20 @@ new class extends Component
 
     protected function rules(): array
     {
+        $personaNueva = ! $this->personaExiste;
+
         return [
             'nombres' => [
-                'required',
+                Rule::requiredIf($personaNueva),
+                'nullable',
                 'string',
                 'max:100',
                 'regex:/^\pL+(?:\s+\pL+)?$/u',
             ],
 
             'apellidos' => [
-                'required',
+                Rule::requiredIf($personaNueva),
+                'nullable',
                 'string',
                 'max:100',
                 'regex:/^\pL+(?:\s+\pL+)?$/u',
@@ -80,14 +90,6 @@ new class extends Component
             'telefono' => [
                 'required',
                 'regex:/^\d{8}$/',
-                Rule::unique('persona', 'Telefono'),
-            ],
-
-            'correo' => [
-                'nullable',
-                'email',
-                'max:120',
-                Rule::unique('persona', 'Correo'),
             ],
 
             'direccion' => [
@@ -134,11 +136,6 @@ new class extends Component
 
             'telefono.required' => 'Debe ingresar el teléfono.',
             'telefono.regex' => 'El teléfono debe contener exactamente 8 dígitos.',
-            'telefono.unique' => 'Este teléfono ya está registrado.',
-
-            'correo.email' => 'Ingrese un correo válido.',
-            'correo.max' => 'El correo no debe exceder los 120 caracteres.',
-            'correo.unique' => 'Este correo ya está registrado.',
 
             'direccion.max' => 'La dirección no debe exceder los 200 caracteres.',
 
@@ -163,7 +160,6 @@ new class extends Component
         return [
             'nombres' => 'nombres',
             'apellidos' => 'apellidos',
-            'correo' => 'correo',
             'telefono' => 'teléfono',
             'direccion' => 'dirección',
             'cedula' => 'cédula',
@@ -177,19 +173,25 @@ new class extends Component
     public function updatedCedula(): void
     {
         $this->cedula = strtoupper(trim($this->cedula));
+
         $this->verificarCedulaExistente();
     }
 
     public function updatedTelefono(): void
     {
-        $this->telefono = trim($this->telefono);
-        $this->verificarTelefonoExistente();
+        $this->telefono = preg_replace('/\D+/', '', trim($this->telefono));
+
+        $this->buscarPersonaPorTelefono();
     }
 
-    public function updatedCorreo(): void
+    protected function normalizarFormulario(): void
     {
-        $this->correo = trim($this->correo);
-        $this->verificarCorreoExistente();
+        $this->nombres = preg_replace('/\s+/', ' ', trim($this->nombres));
+        $this->apellidos = preg_replace('/\s+/', ' ', trim($this->apellidos));
+        $this->cedula = strtoupper(trim($this->cedula));
+        $this->telefono = preg_replace('/\D+/', '', trim($this->telefono));
+        $this->direccion = preg_replace('/\s+/', ' ', trim($this->direccion));
+        $this->salario = str_replace(',', '.', trim($this->salario));
     }
 
     protected function verificarCedulaExistente(): void
@@ -200,44 +202,40 @@ new class extends Component
             return;
         }
 
-        $this->cedulaExiste = DB::table('trabajador')
+        $this->cedulaExiste = Trabajador::query()
             ->where('Cedula', $this->cedula)
             ->exists();
     }
 
-    protected function verificarTelefonoExistente(): void
+    protected function limpiarPersonaEncontrada(): void
     {
-        $this->telefonoExiste = false;
+        $this->personaExiste = false;
+        $this->personaYaEsTrabajador = false;
+        $this->personaExistenteId = null;
+        $this->personaExistenteNombre = null;
+    }
+
+    protected function buscarPersonaPorTelefono(): void
+    {
+        $this->limpiarPersonaEncontrada();
 
         if (! preg_match('/^\d{8}$/', $this->telefono)) {
             return;
         }
 
-        $this->telefonoExiste = DB::table('persona')
+        $persona = Persona::query()
+            ->with('trabajador')
             ->where('Telefono', $this->telefono)
-            ->exists();
-    }
+            ->first();
 
-    protected function verificarCorreoExistente(): void
-    {
-        $this->correoExiste = false;
-
-        if ($this->correo === '' || ! filter_var($this->correo, FILTER_VALIDATE_EMAIL)) {
+        if (! $persona) {
             return;
         }
 
-        $this->correoExiste = DB::table('persona')
-            ->where('Correo', $this->correo)
-            ->exists();
-    }
-
-    protected function existenDatosDuplicados(): bool
-    {
-        $this->verificarCedulaExistente();
-        $this->verificarTelefonoExistente();
-        $this->verificarCorreoExistente();
-
-        return $this->cedulaExiste || $this->telefonoExiste || $this->correoExiste;
+        $this->personaExiste = true;
+        $this->personaExistenteId = $persona->Id_Persona;
+        $this->personaExistenteNombre = $persona->nombre_completo;
+        $this->personaYaEsTrabajador = $persona->trabajador !== null;
     }
 
     protected function fechaCedulaValida(string $cedula): bool
@@ -272,55 +270,35 @@ new class extends Component
 
     public function cargarCargos(): void
     {
-        $this->cargos = DB::table('cargo')
-            ->select('Id_Cargo as id', 'Cargo_Asignado as name')
+        $this->cargos = Cargo::query()
             ->orderBy('Cargo_Asignado')
-            ->get()
-            ->map(fn ($cargo) => [
-                'id' => (int) $cargo->id,
-                'name' => $cargo->name,
+            ->get(['Id_Cargo', 'Cargo_Asignado'])
+            ->map(fn (Cargo $cargo) => [
+                'id' => (int) $cargo->Id_Cargo,
+                'name' => $cargo->Cargo_Asignado,
             ])
+            ->values()
             ->toArray();
     }
 
     public function cargarTrabajadores(): void
     {
-        $this->trabajadores = DB::table('trabajador')
-            ->join('persona', 'persona.Id_Persona', '=', 'trabajador.Id_Persona')
-            ->leftJoin('cargo', 'cargo.Id_Cargo', '=', 'trabajador.Id_Cargo')
-            ->select(
-                'trabajador.Id_Trabajador',
-                'trabajador.Cedula',
-                'trabajador.Fecha_Ingreso',
-                'trabajador.Salario',
-                'trabajador.Estado',
-                'persona.Primer_Nombre',
-                'persona.Segundo_Nombre',
-                'persona.Primer_Apellido',
-                'persona.Segundo_Apellido',
-                'persona.Telefono',
-                'persona.Direccion',
-                'cargo.Cargo_Asignado'
-            )
-            ->orderByDesc('trabajador.Id_Trabajador')
+        $this->trabajadores = Trabajador::query()
+            ->with(['persona', 'cargo'])
+            ->orderByDesc('Id_Trabajador')
             ->get()
-            ->map(function ($trabajador) {
-                $nombreCompleto = trim(collect([
-                    $trabajador->Primer_Nombre,
-                    $trabajador->Segundo_Nombre,
-                    $trabajador->Primer_Apellido,
-                    $trabajador->Segundo_Apellido,
-                ])->filter()->implode(' '));
+            ->map(function (Trabajador $trabajador) {
+                $persona = $trabajador->persona;
 
                 return [
                     'id' => $trabajador->Id_Trabajador,
-                    'nombre_completo' => $nombreCompleto,
-                    'cargo' => $trabajador->Cargo_Asignado ?? 'Sin cargo',
+                    'nombre_completo' => $persona?->nombre_completo ?? 'Sin persona',
+                    'cargo' => $trabajador->cargo?->Cargo_Asignado ?? 'Sin cargo',
                     'cedula' => $trabajador->Cedula,
-                    'telefono' => $trabajador->Telefono,
-                    'direccion' => $trabajador->Direccion ?? 'No registrada',
+                    'telefono' => $persona?->Telefono ?? 'No registrado',
+                    'direccion' => $persona?->Direccion ?? 'No registrada',
                     'fecha_ingreso' => $trabajador->Fecha_Ingreso
-                        ? date('d/m/Y', strtotime($trabajador->Fecha_Ingreso))
+                        ? $trabajador->Fecha_Ingreso->format('d/m/Y')
                         : 'No registrada',
                     'salario' => $trabajador->Salario !== null
                         ? 'C$ ' . number_format((float) $trabajador->Salario, 2)
@@ -328,41 +306,88 @@ new class extends Component
                     'estado' => ((int) $trabajador->Estado === 1) ? 'Activo' : 'Inactivo',
                 ];
             })
+            ->values()
             ->toArray();
     }
 
     public function guardarTrabajador(): void
     {
-        $this->nombres = preg_replace('/\s+/', ' ', trim($this->nombres));
-        $this->apellidos = preg_replace('/\s+/', ' ', trim($this->apellidos));
-        $this->cedula = strtoupper(trim($this->cedula));
-        $this->correo = trim($this->correo);
-        $this->telefono = trim($this->telefono);
-        $this->direccion = trim($this->direccion);
-        $this->salario = trim($this->salario);
+        $this->normalizarFormulario();
+
+        $this->verificarCedulaExistente();
+        $this->buscarPersonaPorTelefono();
 
         $this->validate();
 
-        if ($this->existenDatosDuplicados()) {
+        if ($this->cedulaExiste) {
+            $this->addError('cedula', 'Esta cédula ya está registrada.');
             return;
         }
 
-        [$primerNombre, $segundoNombre] = $this->separarEnDosColumnas($this->nombres);
-        [$primerApellido, $segundoApellido] = $this->separarEnDosColumnas($this->apellidos);
+        if ($this->personaYaEsTrabajador) {
+            $this->addError('telefono', 'Esta persona ya está registrada como trabajador.');
+            return;
+        }
 
-        DB::transaction(function () use ($primerNombre, $segundoNombre, $primerApellido, $segundoApellido) {
-            $personaId = DB::table('persona')->insertGetId([
-                'Primer_Nombre' => $primerNombre,
-                'Segundo_Nombre' => $segundoNombre,
-                'Primer_Apellido' => $primerApellido,
-                'Segundo_Apellido' => $segundoApellido,
-                'Correo' => $this->correo !== '' ? $this->correo : null,
-                'Direccion' => $this->direccion !== '' ? $this->direccion : null,
-                'Telefono' => $this->telefono,
-            ], 'Id_Persona');
+        if ($this->personaExiste) {
+            $this->modalConfirmarPersonaExistente = true;
+            return;
+        }
 
-            Trabajador::create([
-                'Id_Persona' => $personaId,
+        $this->registrarTrabajador(false);
+    }
+
+    public function confirmarRegistroPersonaExistente(): void
+    {
+        $this->normalizarFormulario();
+
+        $this->verificarCedulaExistente();
+        $this->buscarPersonaPorTelefono();
+
+        $this->validate();
+
+        if (! $this->personaExiste || ! $this->personaExistenteId) {
+            $this->modalConfirmarPersonaExistente = false;
+            $this->addError('telefono', 'No se encontró la persona. Verifique el número de teléfono.');
+            return;
+        }
+
+        if ($this->personaYaEsTrabajador) {
+            $this->modalConfirmarPersonaExistente = false;
+            $this->addError('telefono', 'Esta persona ya está registrada como trabajador.');
+            return;
+        }
+
+        if ($this->cedulaExiste) {
+            $this->modalConfirmarPersonaExistente = false;
+            $this->addError('cedula', 'Esta cédula ya está registrada.');
+            return;
+        }
+
+        $this->registrarTrabajador(true);
+    }
+
+    protected function registrarTrabajador(bool $usarPersonaExistente): void
+    {
+        DB::transaction(function () use ($usarPersonaExistente) {
+            if ($usarPersonaExistente) {
+                $persona = Persona::query()->findOrFail($this->personaExistenteId);
+            } else {
+                [$primerNombre, $segundoNombre] = $this->separarEnDosColumnas($this->nombres);
+                [$primerApellido, $segundoApellido] = $this->separarEnDosColumnas($this->apellidos);
+
+                $persona = Persona::query()->create([
+                    'Primer_Nombre' => $primerNombre,
+                    'Segundo_Nombre' => $segundoNombre,
+                    'Primer_Apellido' => $primerApellido,
+                    'Segundo_Apellido' => $segundoApellido,
+                    'Direccion' => $this->direccion !== '' ? $this->direccion : null,
+                    'Telefono' => $this->telefono,
+                ]);
+            }
+
+            Trabajador::query()->create([
+                'Id_Persona' => $persona->Id_Persona,
                 'Fecha_Ingreso' => $this->fechaIngreso,
                 'Estado' => 1,
                 'Id_Cargo' => $this->cargoId,
@@ -370,6 +395,8 @@ new class extends Component
                 'Salario' => $this->salario,
             ]);
         });
+
+        $this->modalConfirmarPersonaExistente = false;
 
         $this->limpiarFormulario();
         $this->cargarTrabajadores();
@@ -390,11 +417,11 @@ new class extends Component
             ],
         ]);
 
-        $cargoId = DB::table('cargo')->insertGetId([
+        $cargo = Cargo::query()->create([
             'Cargo_Asignado' => $this->nuevoCargo,
-        ], 'Id_Cargo');
+        ]);
 
-        $this->cargoId = (int) $cargoId;
+        $this->cargoId = (int) $cargo->Id_Cargo;
         $this->nuevoCargo = '';
         $this->modalCargo = false;
 
@@ -403,20 +430,27 @@ new class extends Component
         session()->flash('success', 'Cargo agregado correctamente.');
     }
 
+    public function cerrarModalConfirmacion(): void
+    {
+        $this->modalConfirmarPersonaExistente = false;
+    }
+
     public function limpiarFormulario(): void
     {
         $this->reset([
             'nombres',
             'apellidos',
             'cedula',
-            'correo',
             'telefono',
             'direccion',
             'salario',
             'cargoId',
             'cedulaExiste',
-            'telefonoExiste',
-            'correoExiste',
+            'personaExiste',
+            'personaYaEsTrabajador',
+            'personaExistenteId',
+            'personaExistenteNombre',
+            'modalConfirmarPersonaExistente',
         ]);
 
         $this->fechaIngreso = now()->format('Y-m-d');
@@ -443,12 +477,25 @@ new class extends Component
         </x-alert>
     @endif
 
-    @if ($cedulaExiste || $telefonoExiste || $correoExiste)
+    @if ($personaExiste && ! $personaYaEsTrabajador)
+        <x-alert
+            icon="o-information-circle"
+            class="border border-blue-200 bg-blue-50 text-blue-800"
+        >
+            Esta persona ya existe en el sistema
+            @if ($personaExistenteNombre)
+                como <strong>{{ $personaExistenteNombre }}</strong>.
+            @endif
+            Al guardar, se pedirá confirmación para registrarla como trabajador sin duplicar sus datos personales.
+        </x-alert>
+    @endif
+
+    @if ($personaYaEsTrabajador)
         <x-alert
             icon="o-exclamation-triangle"
-            class="border border-yellow-200 bg-yellow-50 text-yellow-800"
+            class="border border-red-200 bg-red-50 text-red-800"
         >
-            Hay datos que ya existen en la base de datos. Corrígelos antes de guardar.
+            Esta persona ya está registrada como trabajador.
         </x-alert>
     @endif
 
@@ -502,11 +549,13 @@ new class extends Component
                         maxlength="14"
                         class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
                     />
+
                     @if ($cedulaExiste)
                         <span class="mt-1 block text-sm font-semibold text-red-600">
                             Esta cédula ya está registrada.
                         </span>
                     @endif
+
                     @error('cedula')
                         <span class="mt-1 block text-sm text-red-600">{{ $message }}</span>
                     @enderror
@@ -517,39 +566,26 @@ new class extends Component
                         Teléfono
                     </label>
                     <x-input
-                        wire:model.live.debounce.300ms="telefono"
+                        wire:model.live.debounce.400ms="telefono"
                         placeholder="Ejemplo: 88887777"
                         maxlength="8"
                         inputmode="numeric"
                         class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
                     />
-                    @if ($telefonoExiste)
-                        <span class="mt-1 block text-sm font-semibold text-red-600">
-                            Este teléfono ya está registrado.
-                        </span>
-                    @endif
-                    @error('telefono')
-                        <span class="mt-1 block text-sm text-red-600">{{ $message }}</span>
-                    @enderror
-                </div>
 
-                <div>
-                    <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                        Correo
-                    </label>
-                    <x-input
-                        wire:model.live.debounce.300ms="correo"
-                        type="email"
-                        placeholder="Ejemplo: trabajador@gnet.com"
-                        maxlength="120"
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
-                    @if ($correoExiste)
-                        <span class="mt-1 block text-sm font-semibold text-red-600">
-                            Este correo ya está registrado.
+                    @if ($personaExiste && ! $personaYaEsTrabajador)
+                        <span class="mt-1 block text-sm font-semibold text-blue-700">
+                            Esta persona ya existe en el sistema.
                         </span>
                     @endif
-                    @error('correo')
+
+                    @if ($personaYaEsTrabajador)
+                        <span class="mt-1 block text-sm font-semibold text-red-600">
+                            Esta persona ya está registrada como trabajador.
+                        </span>
+                    @endif
+
+                    @error('telefono')
                         <span class="mt-1 block text-sm text-red-600">{{ $message }}</span>
                     @enderror
                 </div>
@@ -564,21 +600,6 @@ new class extends Component
                         class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
                     />
                     @error('fechaIngreso')
-                        <span class="mt-1 block text-sm text-red-600">{{ $message }}</span>
-                    @enderror
-                </div>
-
-                <div class="md:col-span-2">
-                    <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                        Dirección
-                    </label>
-                    <x-input
-                        wire:model="direccion"
-                        placeholder="Ingrese la dirección"
-                        maxlength="200"
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
-                    @error('direccion')
                         <span class="mt-1 block text-sm text-red-600">{{ $message }}</span>
                     @enderror
                 </div>
@@ -609,6 +630,21 @@ new class extends Component
                     </div>
 
                     @error('cargoId')
+                        <span class="mt-1 block text-sm text-red-600">{{ $message }}</span>
+                    @enderror
+                </div>
+
+                <div class="md:col-span-2">
+                    <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
+                        Dirección
+                    </label>
+                    <x-input
+                        wire:model="direccion"
+                        placeholder="Ingrese la dirección"
+                        maxlength="200"
+                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
+                    />
+                    @error('direccion')
                         <span class="mt-1 block text-sm text-red-600">{{ $message }}</span>
                     @enderror
                 </div>
@@ -645,7 +681,7 @@ new class extends Component
                         label="Guardar trabajador"
                         type="submit"
                         spinner="guardarTrabajador"
-                        :disabled="$cedulaExiste || $telefonoExiste || $correoExiste"
+                        :disabled="$cedulaExiste || $personaYaEsTrabajador"
                         class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4] disabled:cursor-not-allowed disabled:opacity-50"
                     />
                 </div>
@@ -667,6 +703,54 @@ new class extends Component
             class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl"
         />
     </x-card>
+
+    <x-modal
+        wire:model="modalConfirmarPersonaExistente"
+        box-class="rounded-2xl border border-[#D7E4F3] bg-white"
+    >
+        <div class="space-y-4">
+            <div>
+                <h2 class="text-2xl font-bold text-[#1A2B42]">Persona existente</h2>
+                <p class="mt-1 text-base text-[#5F6B7A]">
+                    Esta persona ya existe en el sistema. ¿Desea registrarla como trabajador?
+                </p>
+            </div>
+
+            <div class="rounded-2xl border border-[#D7E4F3] bg-[#F0F3F7] p-4">
+                <p class="text-sm font-semibold text-[#5F6B7A]">Persona encontrada</p>
+                <p class="mt-1 text-lg font-bold text-[#1A2B42]">
+                    {{ $personaExistenteNombre ?? 'Sin nombre registrado' }}
+                </p>
+                <p class="mt-1 text-sm text-[#5F6B7A]">
+                    Teléfono: {{ $telefono }}
+                </p>
+            </div>
+
+            <x-alert
+                icon="o-information-circle"
+                class="border border-blue-200 bg-blue-50 text-blue-800"
+            >
+                Si confirma, no se creará otra persona. Solo se agregará el registro en trabajador relacionado al Id_Persona existente.
+            </x-alert>
+        </div>
+
+        <x-slot:actions>
+            <x-button
+                label="Cancelar"
+                type="button"
+                wire:click="cerrarModalConfirmacion"
+                class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB]"
+            />
+
+            <x-button
+                label="Sí, registrar trabajador"
+                type="button"
+                wire:click="confirmarRegistroPersonaExistente"
+                spinner="confirmarRegistroPersonaExistente"
+                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]"
+            />
+        </x-slot:actions>
+    </x-modal>
 
     <x-modal
         wire:model="modalCargo"

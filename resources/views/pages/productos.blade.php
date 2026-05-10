@@ -9,6 +9,11 @@ use Livewire\Component;
 
 new class extends Component
 {
+    private const ESTADO_SERIE_DISPONIBLE = 'DISPONIBLE';
+    private const ESTADO_SERIE_RESERVADO = 'RESERVADO';
+    private const ESTADO_SERIE_DANADO = 'DAÑADO';
+    private const ESTADO_SERIE_VENDIDO = 'VENDIDO';
+
     public bool $modalCategoria = false;
     public bool $modalMarca = false;
     public bool $modalSeries = false;
@@ -22,7 +27,7 @@ new class extends Component
 
     public string $stockActual = '0';
     public string $stockMinimo = '0';
-    public string $precioCompra = '0';
+
     public string $precioVenta = '0';
     public string $garantiaNuevo = '';
     public string $garantiaUsado = '';
@@ -35,6 +40,10 @@ new class extends Component
 
     public string $buscar = '';
 
+    public ?int $productoBaseSeleccionado = null;
+    public array $coincidenciasProducto = [];
+    public bool $mostrarCoincidenciasProducto = false;
+
     public string $toastMensaje = '';
     public string $toastTipo = 'success';
     public bool $mostrarToast = false;
@@ -44,7 +53,7 @@ new class extends Component
     public int $productoIdAgregarSerie = 0;
     public string $numeroSerieExtra = '';
     public string $observacionSerieExtra = '';
-    public string $estadoSerieExtra = 'DISPONIBLE';
+    public string $estadoSerieExtra = self::ESTADO_SERIE_DISPONIBLE;
 
     public array $categorias = [];
     public array $marcas = [];
@@ -60,6 +69,148 @@ new class extends Component
     public function updatedBuscar(): void
     {
         $this->cargarProductos();
+    }
+
+    public function updatedNombreProducto(): void
+    {
+        $this->productoBaseSeleccionado = null;
+        $this->buscarCoincidenciasProducto();
+    }
+
+    public function updatedPrecioVenta($value): void
+    {
+        $this->precioVenta = $this->formatearMonto((string) $value);
+    }
+
+    protected function formatearMonto(?string $valor): string
+    {
+        $limpio = preg_replace('/[^\d]/', '', $valor ?? '');
+
+        if ($limpio === '') {
+            return '';
+        }
+
+        return number_format((int) $limpio, 0, '.', ',');
+    }
+
+    protected function desformatearMonto(?string $valor): int
+    {
+        $limpio = preg_replace('/[^\d]/', '', $valor ?? '');
+
+        return $limpio === '' ? 0 : (int) $limpio;
+    }
+
+    protected function buscarCoincidenciasProducto(): void
+    {
+        $busqueda = trim($this->nombreProducto);
+
+        if (strlen($busqueda) < 2) {
+            $this->coincidenciasProducto = [];
+            $this->mostrarCoincidenciasProducto = false;
+            return;
+        }
+
+        $this->coincidenciasProducto = Producto::query()
+            ->with([
+                'categoria:Id_Categoria,Nombre_Categoria',
+                'marca:Id_Marca,Nombre_Marca',
+            ])
+            ->select([
+                'Id_Producto',
+                'Id_Categoria',
+                'Id_Marca',
+                'Nombre_Producto',
+                'Modelo',
+                'Precio_Venta',
+            ])
+            ->where(function ($query) use ($busqueda) {
+                $query->where('Nombre_Producto', 'like', "%{$busqueda}%")
+                    ->orWhere('Modelo', 'like', "%{$busqueda}%")
+                    ->orWhereHas('marca', function ($marca) use ($busqueda) {
+                        $marca->where('Nombre_Marca', 'like', "%{$busqueda}%");
+                    })
+                    ->orWhereHas('categoria', function ($categoria) use ($busqueda) {
+                        $categoria->where('Nombre_Categoria', 'like', "%{$busqueda}%");
+                    });
+            })
+            ->orderBy('Nombre_Producto')
+            ->limit(8)
+            ->get()
+            ->map(function ($producto) {
+                return [
+                    'id_producto' => (int) $producto->Id_Producto,
+                    'nombre' => $producto->Nombre_Producto,
+                    'modelo' => $producto->Modelo ?: 'Sin modelo',
+                    'categoria' => $producto->categoria?->Nombre_Categoria ?: 'Sin categoría',
+                    'marca' => $producto->marca?->Nombre_Marca ?: 'Sin marca',
+                    'precio_venta' => 'C$ ' . number_format((float) $producto->Precio_Venta, 0, '.', ','),
+                ];
+            })
+            ->toArray();
+
+        $this->mostrarCoincidenciasProducto = count($this->coincidenciasProducto) > 0;
+    }
+
+    public function seleccionarProducto(int $idProducto): void
+    {
+        $producto = Producto::query()
+            ->select([
+                'Id_Producto',
+                'Id_Categoria',
+                'Id_Marca',
+                'Nombre_Producto',
+                'Modelo',
+                'Stock_Actual',
+                'Stock_Minimo',
+                'Precio_Venta',
+                'Fecha_Vencimiento',
+                'Meses_Garantia_Nuevo',
+                'Meses_Garantia_Usado',
+                'Estado',
+            ])
+            ->find($idProducto);
+
+        if (! $producto) {
+            $this->coincidenciasProducto = [];
+            $this->mostrarCoincidenciasProducto = false;
+            $this->mostrarToast('No se encontró el producto seleccionado.', 'error');
+            return;
+        }
+
+        $this->productoBaseSeleccionado = (int) $producto->Id_Producto;
+
+        $this->nombreProducto = $producto->Nombre_Producto ?? '';
+        $this->modelo = $producto->Modelo ?? '';
+        $this->numeroSerie = '';
+
+        $this->idCategoria = $producto->Id_Categoria ? (string) $producto->Id_Categoria : '';
+        $this->idMarca = $producto->Id_Marca ? (string) $producto->Id_Marca : '';
+
+        $this->stockActual = (string) ($producto->Stock_Actual ?? 0);
+        $this->stockMinimo = (string) ($producto->Stock_Minimo ?? 0);
+        $this->precioVenta = number_format((float) ($producto->Precio_Venta ?? 0), 0, '.', ',');
+
+        $this->garantiaNuevo = $producto->Meses_Garantia_Nuevo !== null
+            ? (string) $producto->Meses_Garantia_Nuevo
+            : '';
+
+        $this->garantiaUsado = $producto->Meses_Garantia_Usado !== null
+            ? (string) $producto->Meses_Garantia_Usado
+            : '';
+
+        $this->estado = (string) ((int) $producto->Estado);
+
+        $this->fechaVencimiento = $producto->Fecha_Vencimiento
+            ? \Carbon\Carbon::parse($producto->Fecha_Vencimiento)->format('Y-m-d')
+            : '';
+
+        $this->coincidenciasProducto = [];
+        $this->mostrarCoincidenciasProducto = false;
+
+        $this->resetErrorBag();
+        $this->resetValidation();
+
+        $this->mostrarToast('Datos del producto cargados correctamente.');
     }
 
     protected function mostrarToast(string $mensaje, string $tipo = 'success'): void
@@ -99,9 +250,9 @@ new class extends Component
             'nombreCategoria' => 'required|string|max:100|unique:categoria_producto,Nombre_Categoria',
         ]);
 
-        $categoria = new CategoriaProducto();
-        $categoria->Nombre_Categoria = trim($this->nombreCategoria);
-        $categoria->save();
+        $categoria = CategoriaProducto::create([
+            'Nombre_Categoria' => trim($this->nombreCategoria),
+        ]);
 
         $this->idCategoria = (string) $categoria->Id_Categoria;
         $this->nombreCategoria = '';
@@ -136,10 +287,10 @@ new class extends Component
             'estadoMarca' => 'required|in:0,1',
         ]);
 
-        $marca = new Marca();
-        $marca->Nombre_Marca = trim($this->nombreMarca);
-        $marca->Estado = (int) $this->estadoMarca;
-        $marca->save();
+        $marca = Marca::create([
+            'Nombre_Marca' => trim($this->nombreMarca),
+            'Estado' => (int) $this->estadoMarca,
+        ]);
 
         $this->idMarca = (string) $marca->Id_Marca;
         $this->nombreMarca = '';
@@ -162,59 +313,110 @@ new class extends Component
             'idMarca' => 'nullable|exists:marca,Id_Marca',
             'stockActual' => 'required|integer|min:0',
             'stockMinimo' => 'required|integer|min:0',
-            'precioCompra' => 'required|numeric|min:0',
-            'precioVenta' => 'required|numeric|min:0',
+            'precioVenta' => ['required', 'regex:/^\d+(,\d{3})*$/'],
             'garantiaNuevo' => 'nullable|integer|min:0',
             'garantiaUsado' => 'nullable|integer|min:0',
             'estado' => 'required|in:0,1',
             'fechaVencimiento' => 'nullable|date',
+        ], [
+            'precioVenta.regex' => 'Ingrese el precio sin decimales. Ejemplo: 40,000',
         ]);
 
-        DB::transaction(function () use ($datos) {
-            $producto = new Producto();
-            $producto->Id_Categoria = (int) $datos['idCategoria'];
-            $producto->Id_Marca = $datos['idMarca'] !== '' ? (int) $datos['idMarca'] : null;
-            $producto->Nombre_Producto = trim($datos['nombreProducto']);
-            $producto->Modelo = $datos['modelo'] !== '' ? trim($datos['modelo']) : null;
-            $producto->Stock_Actual = (int) $datos['stockActual'];
-            $producto->Stock_Minimo = (int) $datos['stockMinimo'];
-            $producto->Precio_Compra = $datos['precioCompra'];
-            $producto->Precio_Venta = $datos['precioVenta'];
-            $producto->Fecha_Vencimiento = $datos['fechaVencimiento'] !== '' ? $datos['fechaVencimiento'] : null;
-            $producto->Meses_Garantia_Nuevo = $datos['garantiaNuevo'] !== '' ? (int) $datos['garantiaNuevo'] : null;
-            $producto->Meses_Garantia_Usado = $datos['garantiaUsado'] !== '' ? (int) $datos['garantiaUsado'] : null;
-            $producto->Estado = (int) $datos['estado'];
-            $producto->save();
+        $precioVentaLimpio = $this->desformatearMonto($datos['precioVenta']);
+        $productoBaseId = $this->productoBaseSeleccionado;
+        $esProductoExistente = $productoBaseId !== null;
 
-            if (!empty($datos['numeroSerie'])) {
-                $serie = new ProductoSerie();
-                $serie->Id_Producto = $producto->Id_Producto;
-                $serie->Numero_Serie = trim($datos['numeroSerie']);
-                $serie->Fecha_Ingreso = now();
-                $serie->Estado = 'DISPONIBLE';
-                $serie->Observacion = null;
-                $serie->save();
+        DB::transaction(function () use ($datos, $precioVentaLimpio, $productoBaseId) {
+            if ($productoBaseId !== null) {
+                $producto = Producto::query()->findOrFail($productoBaseId);
+
+                $producto->update([
+                    'Id_Categoria' => (int) $datos['idCategoria'],
+                    'Id_Marca' => $datos['idMarca'] !== '' ? (int) $datos['idMarca'] : null,
+                    'Nombre_Producto' => trim($datos['nombreProducto']),
+                    'Modelo' => $datos['modelo'] !== '' ? trim($datos['modelo']) : null,
+                    'Stock_Actual' => (int) $datos['stockActual'],
+                    'Stock_Minimo' => (int) $datos['stockMinimo'],
+                    'Precio_Venta' => $precioVentaLimpio,
+                    'Fecha_Vencimiento' => $datos['fechaVencimiento'] !== '' ? $datos['fechaVencimiento'] : null,
+                    'Meses_Garantia_Nuevo' => $datos['garantiaNuevo'] !== '' ? (int) $datos['garantiaNuevo'] : null,
+                    'Meses_Garantia_Usado' => $datos['garantiaUsado'] !== '' ? (int) $datos['garantiaUsado'] : null,
+                    'Estado' => (int) $datos['estado'],
+                ]);
+
+                if (! empty($datos['numeroSerie'])) {
+                    $producto->series()->create([
+                        'Numero_Serie' => trim($datos['numeroSerie']),
+                        'Fecha_Ingreso' => now(),
+                        'Estado' => self::ESTADO_SERIE_DISPONIBLE,
+                        'Observacion' => null,
+                    ]);
+
+                    $producto->increment('Stock_Actual');
+                }
+
+                return;
+            }
+
+            $producto = Producto::create([
+                'Id_Categoria' => (int) $datos['idCategoria'],
+                'Id_Marca' => $datos['idMarca'] !== '' ? (int) $datos['idMarca'] : null,
+                'Nombre_Producto' => trim($datos['nombreProducto']),
+                'Modelo' => $datos['modelo'] !== '' ? trim($datos['modelo']) : null,
+                'Stock_Actual' => (int) $datos['stockActual'],
+                'Stock_Minimo' => (int) $datos['stockMinimo'],
+                'Precio_Venta' => $precioVentaLimpio,
+                'Fecha_Vencimiento' => $datos['fechaVencimiento'] !== '' ? $datos['fechaVencimiento'] : null,
+                'Meses_Garantia_Nuevo' => $datos['garantiaNuevo'] !== '' ? (int) $datos['garantiaNuevo'] : null,
+                'Meses_Garantia_Usado' => $datos['garantiaUsado'] !== '' ? (int) $datos['garantiaUsado'] : null,
+                'Estado' => (int) $datos['estado'],
+            ]);
+
+            if (! empty($datos['numeroSerie'])) {
+                $producto->series()->create([
+                    'Numero_Serie' => trim($datos['numeroSerie']),
+                    'Fecha_Ingreso' => now(),
+                    'Estado' => self::ESTADO_SERIE_DISPONIBLE,
+                    'Observacion' => null,
+                ]);
             }
         });
 
         $this->resetFormularioProducto();
         $this->cargarProductos();
-        $this->mostrarToast('Producto guardado correctamente.');
+
+        $this->mostrarToast(
+            $esProductoExistente
+                ? 'Producto actualizado correctamente.'
+                : 'Producto guardado correctamente.'
+        );
     }
 
     public function verSeries(int $idProducto): void
     {
-        $producto = DB::table('producto')
-            ->select('Id_Producto', 'Nombre_Producto', 'Modelo')
-            ->where('Id_Producto', $idProducto)
-            ->first();
+        $producto = Producto::query()
+            ->select([
+                'Id_Producto',
+                'Nombre_Producto',
+                'Modelo',
+                'Estado',
+                'Stock_Actual',
+            ])
+            ->where('Estado', 1)
+            ->where('Stock_Actual', '>', 0)
+            ->find($idProducto);
 
-        $this->productoNombreSeries = $producto
-            ? trim($producto->Nombre_Producto . ($producto->Modelo ? ' - ' . $producto->Modelo : ''))
-            : 'Producto';
+        if (! $producto) {
+            $this->mostrarToast('Este producto ya no está disponible en inventario.', 'error');
+            return;
+        }
 
-        $this->seriesProducto = DB::table('producto_serie')
-            ->where('Id_Producto', $idProducto)
+        $this->productoNombreSeries = trim(
+            $producto->Nombre_Producto . ($producto->Modelo ? ' - ' . $producto->Modelo : '')
+        );
+
+        $this->seriesProducto = $producto->series()
+            ->where('Estado', '<>', self::ESTADO_SERIE_VENDIDO)
             ->orderByDesc('id_producto_serie')
             ->get([
                 'Numero_Serie',
@@ -249,25 +451,33 @@ new class extends Component
         $this->resetErrorBag();
         $this->resetValidation();
 
-        $producto = DB::table('producto')
-            ->leftJoin('marca as m', 'producto.Id_Marca', '=', 'm.Id_Marca')
-            ->select(
-                'producto.Id_Producto',
-                'producto.Nombre_Producto',
-                'producto.Modelo',
-                'm.Nombre_Marca'
-            )
-            ->where('producto.Id_Producto', $idProducto)
-            ->first();
+        $producto = Producto::query()
+            ->with('marca:Id_Marca,Nombre_Marca')
+            ->select([
+                'Id_Producto',
+                'Id_Marca',
+                'Nombre_Producto',
+                'Modelo',
+                'Estado',
+            ])
+            ->where('Estado', 1)
+            ->find($idProducto);
 
-        $this->productoIdAgregarSerie = $idProducto;
-        $this->productoNombreAgregarSerie = $producto
-            ? trim(($producto->Nombre_Marca ? $producto->Nombre_Marca . ' ' : '') . $producto->Nombre_Producto . ($producto->Modelo ? ' - ' . $producto->Modelo : ''))
-            : 'Producto';
+        if (! $producto) {
+            $this->mostrarToast('Este producto no está disponible para agregar series.', 'error');
+            return;
+        }
+
+        $this->productoIdAgregarSerie = (int) $producto->Id_Producto;
+        $this->productoNombreAgregarSerie = trim(
+            ($producto->marca?->Nombre_Marca ? $producto->marca->Nombre_Marca . ' ' : '') .
+            $producto->Nombre_Producto .
+            ($producto->Modelo ? ' - ' . $producto->Modelo : '')
+        );
 
         $this->numeroSerieExtra = '';
         $this->observacionSerieExtra = '';
-        $this->estadoSerieExtra = 'DISPONIBLE';
+        $this->estadoSerieExtra = self::ESTADO_SERIE_DISPONIBLE;
         $this->modalAgregarSerie = true;
     }
 
@@ -278,7 +488,7 @@ new class extends Component
         $this->productoNombreAgregarSerie = '';
         $this->numeroSerieExtra = '';
         $this->observacionSerieExtra = '';
-        $this->estadoSerieExtra = 'DISPONIBLE';
+        $this->estadoSerieExtra = self::ESTADO_SERIE_DISPONIBLE;
         $this->resetErrorBag();
         $this->resetValidation();
     }
@@ -290,21 +500,25 @@ new class extends Component
         $datos = $this->validate([
             'productoIdAgregarSerie' => 'required|integer|exists:producto,Id_Producto',
             'numeroSerieExtra' => 'required|string|max:100|unique:producto_serie,Numero_Serie',
-            'estadoSerieExtra' => 'required|string|max:50',
+            'estadoSerieExtra' => 'required|in:DISPONIBLE,RESERVADO,DAÑADO',
             'observacionSerieExtra' => 'nullable|string|max:255',
         ]);
 
         DB::transaction(function () use ($datos) {
-            $serie = new ProductoSerie();
-            $serie->Id_Producto = (int) $datos['productoIdAgregarSerie'];
-            $serie->Numero_Serie = trim($datos['numeroSerieExtra']);
-            $serie->Fecha_Ingreso = now();
-            $serie->Estado = trim($datos['estadoSerieExtra']);
-            $serie->Observacion = $datos['observacionSerieExtra'] !== '' ? trim($datos['observacionSerieExtra']) : null;
-            $serie->save();
+            $producto = Producto::query()
+                ->where('Estado', 1)
+                ->findOrFail((int) $datos['productoIdAgregarSerie']);
 
-            Producto::where('Id_Producto', (int) $datos['productoIdAgregarSerie'])
-                ->increment('Stock_Actual');
+            $producto->series()->create([
+                'Numero_Serie' => trim($datos['numeroSerieExtra']),
+                'Fecha_Ingreso' => now(),
+                'Estado' => trim($datos['estadoSerieExtra']),
+                'Observacion' => $datos['observacionSerieExtra'] !== ''
+                    ? trim($datos['observacionSerieExtra'])
+                    : null,
+            ]);
+
+            $producto->increment('Stock_Actual');
         });
 
         $this->cerrarModalAgregarSerie();
@@ -321,12 +535,15 @@ new class extends Component
         $this->idMarca = '';
         $this->stockActual = '0';
         $this->stockMinimo = '0';
-        $this->precioCompra = '0';
         $this->precioVenta = '0';
         $this->garantiaNuevo = '';
         $this->garantiaUsado = '';
         $this->estado = '1';
         $this->fechaVencimiento = '';
+
+        $this->productoBaseSeleccionado = null;
+        $this->coincidenciasProducto = [];
+        $this->mostrarCoincidenciasProducto = false;
 
         $this->resetErrorBag();
         $this->resetValidation();
@@ -334,8 +551,8 @@ new class extends Component
 
     protected function cargarCatalogos(): void
     {
-        $this->categorias = DB::table('categoria_producto')
-            ->select('Id_Categoria', 'Nombre_Categoria')
+        $this->categorias = CategoriaProducto::query()
+            ->select(['Id_Categoria', 'Nombre_Categoria'])
             ->orderBy('Nombre_Categoria')
             ->get()
             ->map(fn ($categoria) => [
@@ -344,8 +561,8 @@ new class extends Component
             ])
             ->toArray();
 
-        $this->marcas = DB::table('marca')
-            ->select('Id_Marca', 'Nombre_Marca')
+        $this->marcas = Marca::query()
+            ->select(['Id_Marca', 'Nombre_Marca'])
             ->orderBy('Nombre_Marca')
             ->get()
             ->map(fn ($marca) => [
@@ -359,61 +576,67 @@ new class extends Component
     {
         $busqueda = trim($this->buscar);
 
-        $query = DB::table('producto as p')
-            ->leftJoin('categoria_producto as c', 'p.Id_Categoria', '=', 'c.Id_Categoria')
-            ->leftJoin('marca as m', 'p.Id_Marca', '=', 'm.Id_Marca')
-            ->leftJoin('producto_serie as ps', 'p.Id_Producto', '=', 'ps.Id_Producto')
-            ->selectRaw('
-                p.Id_Producto,
-                p.Nombre_Producto,
-                p.Modelo,
-                p.Stock_Actual,
-                p.Precio_Venta,
-                p.Estado,
-                c.Nombre_Categoria as categoria,
-                m.Nombre_Marca as marca,
-                COUNT(ps.id_producto_serie) as total_series
-            ')
-            ->groupBy(
-                'p.Id_Producto',
-                'p.Nombre_Producto',
-                'p.Modelo',
-                'p.Stock_Actual',
-                'p.Precio_Venta',
-                'p.Estado',
-                'c.Nombre_Categoria',
-                'm.Nombre_Marca'
-            )
-            ->orderByDesc('p.Id_Producto');
+        $query = Producto::query()
+            ->with([
+                'categoria:Id_Categoria,Nombre_Categoria',
+                'marca:Id_Marca,Nombre_Marca',
+            ])
+            ->withCount([
+                'series as total_series' => function ($serie) {
+                    $serie->where('Estado', '<>', self::ESTADO_SERIE_VENDIDO);
+                },
+            ])
+            ->select([
+                'Id_Producto',
+                'Id_Categoria',
+                'Id_Marca',
+                'Nombre_Producto',
+                'Modelo',
+                'Stock_Actual',
+                'Precio_Venta',
+                'Estado',
+            ])
+            ->where('Estado', 1)
+            ->where('Stock_Actual', '>', 0)
+            ->where(function ($query) {
+                $query->doesntHave('series')
+                    ->orWhereHas('series', function ($serie) {
+                        $serie->where('Estado', '<>', self::ESTADO_SERIE_VENDIDO);
+                    });
+            })
+            ->orderByDesc('Id_Producto');
 
         if ($busqueda !== '') {
-            $query->where(function ($q) use ($busqueda) {
-                $q->where('p.Nombre_Producto', 'like', "%{$busqueda}%")
-                    ->orWhere('p.Modelo', 'like', "%{$busqueda}%")
-                    ->orWhere('c.Nombre_Categoria', 'like', "%{$busqueda}%")
-                    ->orWhere('m.Nombre_Marca', 'like', "%{$busqueda}%")
-                    ->orWhereExists(function ($sub) use ($busqueda) {
-                        $sub->select(DB::raw(1))
-                            ->from('producto_serie as ps2')
-                            ->whereColumn('ps2.Id_Producto', 'p.Id_Producto')
-                            ->where('ps2.Numero_Serie', 'like', "%{$busqueda}%");
+            $query->where(function ($query) use ($busqueda) {
+                $query->where('Nombre_Producto', 'like', "%{$busqueda}%")
+                    ->orWhere('Modelo', 'like', "%{$busqueda}%")
+                    ->orWhereHas('categoria', function ($categoria) use ($busqueda) {
+                        $categoria->where('Nombre_Categoria', 'like', "%{$busqueda}%");
+                    })
+                    ->orWhereHas('marca', function ($marca) use ($busqueda) {
+                        $marca->where('Nombre_Marca', 'like', "%{$busqueda}%");
+                    })
+                    ->orWhereHas('series', function ($serie) use ($busqueda) {
+                        $serie->where('Estado', '<>', self::ESTADO_SERIE_VENDIDO)
+                            ->where('Numero_Serie', 'like', "%{$busqueda}%");
                     });
             });
         }
 
-        $this->productos = $query->limit(25)->get()
+        $this->productos = $query->limit(25)
+            ->get()
             ->map(function ($producto) {
                 return [
-                    'id_producto' => $producto->Id_Producto,
-                    'codigo' => $producto->Id_Producto,
+                    'id_producto' => (int) $producto->Id_Producto,
+                    'codigo' => (int) $producto->Id_Producto,
                     'producto' => $producto->Nombre_Producto,
-                    'categoria' => $producto->categoria ?: '—',
-                    'marca' => $producto->marca ?: '—',
+                    'categoria' => $producto->categoria?->Nombre_Categoria ?: '—',
+                    'marca' => $producto->marca?->Nombre_Marca ?: '—',
                     'modelo' => $producto->Modelo ?: '—',
                     'series_registradas' => (int) $producto->total_series,
-                    'stock' => $producto->Stock_Actual,
-                    'precio_venta' => 'C$ ' . number_format((float) $producto->Precio_Venta, 2),
-                    'estado' => (int) $producto->Estado === 1 ? 'Activo' : 'Inactivo',
+                    'stock' => (int) $producto->Stock_Actual,
+                    'precio_venta' => 'C$ ' . number_format((float) $producto->Precio_Venta, 0, '.', ','),
+                    'estado' => 'Activo',
                 ];
             })
             ->toArray();
@@ -474,9 +697,48 @@ new class extends Component
                 <div class="grid grid-cols-1 gap-x-4 gap-y-3 md:grid-cols-2 xl:grid-cols-4">
                     <div class="xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Nombre del producto</label>
-                        <x-input wire:model.defer="nombreProducto" type="text"
-                            placeholder="Ingrese el nombre del producto"
-                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+
+                        <div class="relative">
+                            <x-input wire:model.live.debounce.300ms="nombreProducto" type="text" autocomplete="off"
+                                placeholder="Escriba para buscar coincidencias"
+                                class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+
+                            @if ($mostrarCoincidenciasProducto)
+                            <div
+                                class="absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-y-auto rounded-xl border border-[#D7E4F3] bg-white shadow-lg">
+                                @forelse ($coincidenciasProducto as $coincidencia)
+                                <button type="button"
+                                    wire:key="coincidencia-producto-{{ $coincidencia['id_producto'] }}"
+                                    wire:click="seleccionarProducto({{ $coincidencia['id_producto'] }})"
+                                    class="flex w-full flex-col gap-1 border-b border-[#EAF2FB] px-4 py-3 text-left transition hover:bg-[#EAF4FD] last:border-b-0">
+
+                                    <span class="text-sm font-semibold text-[#1A2B42]">
+                                        {{ $coincidencia['nombre'] }}
+                                    </span>
+
+                                    <span class="text-xs text-[#5F6B7A]">
+                                        {{ $coincidencia['marca'] }}
+                                        · {{ $coincidencia['modelo'] }}
+                                        · {{ $coincidencia['categoria'] }}
+                                        · {{ $coincidencia['precio_venta'] }}
+                                    </span>
+                                </button>
+                                @empty
+                                <div class="px-4 py-3 text-sm text-[#7B8794]">
+                                    No se encontraron coincidencias.
+                                </div>
+                                @endforelse
+                            </div>
+                            @endif
+                        </div>
+
+                        @if ($productoBaseSeleccionado)
+                        <p class="mt-1 text-xs font-medium text-[#0E48A1]">
+                            Producto base seleccionado. Si ingresa un nuevo número de serie, se agregará a este
+                            producto.
+                        </p>
+                        @endif
+
                         @error('nombreProducto')
                         <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                         @enderror
@@ -547,17 +809,9 @@ new class extends Component
                     </div>
 
                     <div>
-                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Precio de compra</label>
-                        <x-input wire:model.defer="precioCompra" type="number" step="0.01" min="0" placeholder="0.00"
-                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                        @error('precioCompra')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                        @enderror
-                    </div>
-
-                    <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Precio de venta</label>
-                        <x-input wire:model.defer="precioVenta" type="number" step="0.01" min="0" placeholder="0.00"
+                        <x-input wire:model.live.debounce.250ms="precioVenta" type="text" inputmode="numeric"
+                            placeholder="0"
                             class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
                         @error('precioVenta')
                         <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
@@ -613,7 +867,12 @@ new class extends Component
 
         <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
             <div class="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <h2 class="text-xl font-bold text-[#1A2B42]">Resumen de productos</h2>
+                <div>
+                    <h2 class="text-xl font-bold text-[#1A2B42]">Resumen de productos disponibles</h2>
+                    <p class="text-sm text-[#5F6B7A]">
+                        No se muestran productos sin stock ni series vendidas.
+                    </p>
+                </div>
 
                 <div class="w-full md:w-80">
                     <x-input wire:model.live.debounce.250ms="buscar" type="text" placeholder="Buscar productos"
@@ -622,8 +881,8 @@ new class extends Component
             </div>
 
             <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-white">
-                <div class="max-h-105 overflow-x-auto overflow-y-auto">
-                    <table class="min-w-275 w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
+                <div class="max-h-104 overflow-x-auto overflow-y-auto">
+                    <table class="min-w-262.5 w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
                         <thead class="sticky top-0 z-10">
                             <tr>
                                 <th
@@ -637,7 +896,7 @@ new class extends Component
                                     Modelo</th>
                                 <th
                                     class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white whitespace-nowrap">
-                                    Series</th>
+                                    Disponibles</th>
                                 <th
                                     class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white whitespace-nowrap">
                                     Stock</th>
@@ -656,25 +915,33 @@ new class extends Component
                         <tbody>
                             @forelse ($productos as $producto)
                             <tr class="odd:bg-white even:bg-[#F8FBFF]">
-                                <td class="px-3 py-3 align-middle whitespace-nowrap font-semibold">#{{
-                                    $producto['codigo'] }}</td>
-                                <td class="px-3 py-3 align-middle whitespace-nowrap font-medium">{{
-                                    $producto['producto'] }}</td>
-                                <td class="px-3 py-3 align-middle whitespace-nowrap">{{ $producto['marca'] }}</td>
-                                <td class="px-3 py-3 align-middle whitespace-nowrap">{{ $producto['modelo'] }}</td>
+                                <td class="px-3 py-3 align-middle whitespace-nowrap font-semibold">
+                                    #{{ $producto['codigo'] }}
+                                </td>
+                                <td class="px-3 py-3 align-middle whitespace-nowrap font-medium">
+                                    {{ $producto['producto'] }}
+                                </td>
+                                <td class="px-3 py-3 align-middle whitespace-nowrap">
+                                    {{ $producto['marca'] }}
+                                </td>
+                                <td class="px-3 py-3 align-middle whitespace-nowrap">
+                                    {{ $producto['modelo'] }}
+                                </td>
                                 <td class="px-3 py-3 text-center align-middle whitespace-nowrap">
                                     <span
                                         class="inline-flex min-w-8.5 justify-center rounded-full bg-[#EAF4FD] px-2.5 py-1 text-xs font-semibold text-[#0E48A1]">
                                         {{ $producto['series_registradas'] }}
                                     </span>
                                 </td>
-                                <td class="px-3 py-3 text-center align-middle whitespace-nowrap">{{ $producto['stock']
-                                    }}</td>
-                                <td class="px-3 py-3 text-right align-middle whitespace-nowrap">{{
-                                    $producto['precio_venta'] }}</td>
+                                <td class="px-3 py-3 text-center align-middle whitespace-nowrap">
+                                    {{ $producto['stock'] }}
+                                </td>
+                                <td class="px-3 py-3 text-right align-middle whitespace-nowrap">
+                                    {{ $producto['precio_venta'] }}
+                                </td>
                                 <td class="px-3 py-3 text-center align-middle whitespace-nowrap">
                                     <span
-                                        class="{{ $producto['estado'] === 'Activo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">
+                                        class="inline-flex rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">
                                         {{ $producto['estado'] }}
                                     </span>
                                 </td>
@@ -692,7 +959,7 @@ new class extends Component
                             @empty
                             <tr>
                                 <td colspan="9" class="px-4 py-8 text-center text-sm text-[#7B8794]">
-                                    No hay productos registrados.
+                                    No hay productos disponibles.
                                 </td>
                             </tr>
                             @endforelse
@@ -771,7 +1038,7 @@ new class extends Component
         <x-modal wire:model="modalSeries" class="backdrop-blur-sm"
             box-class="w-full max-w-5xl rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
             <div class="mb-5">
-                <h3 class="text-2xl font-bold text-[#1A2B42]">Series del producto</h3>
+                <h3 class="text-2xl font-bold text-[#1A2B42]">Series disponibles del producto</h3>
                 <p class="mt-1 text-sm text-[#5F6B7A]">{{ $productoNombreSeries }}</p>
             </div>
 
@@ -781,14 +1048,18 @@ new class extends Component
                         <tr>
                             <th
                                 class="rounded-tl-xl bg-[#2E8BC0] px-4 py-3 text-left font-semibold text-white whitespace-nowrap">
-                                Número de serie</th>
+                                Número de serie
+                            </th>
                             <th class="bg-[#2E8BC0] px-4 py-3 text-left font-semibold text-white whitespace-nowrap">
-                                Fecha ingreso</th>
+                                Fecha ingreso
+                            </th>
                             <th class="bg-[#2E8BC0] px-4 py-3 text-left font-semibold text-white whitespace-nowrap">
-                                Estado</th>
+                                Estado
+                            </th>
                             <th
                                 class="rounded-tr-xl bg-[#2E8BC0] px-4 py-3 text-left font-semibold text-white whitespace-nowrap">
-                                Observación</th>
+                                Observación
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
@@ -796,13 +1067,18 @@ new class extends Component
                         <tr class="odd:bg-white even:bg-[#F8FBFF]">
                             <td class="px-4 py-3 whitespace-nowrap">{{ $serie['numero_serie'] }}</td>
                             <td class="px-4 py-3 whitespace-nowrap">{{ $serie['fecha_ingreso'] }}</td>
-                            <td class="px-4 py-3 whitespace-nowrap">{{ $serie['estado'] }}</td>
+                            <td class="px-4 py-3 whitespace-nowrap">
+                                <span
+                                    class="{{ $serie['estado'] === 'DISPONIBLE' ? 'bg-green-100 text-green-700' : ($serie['estado'] === 'DAÑADO' ? 'bg-red-100 text-red-700' : 'bg-[#EAF4FD] text-[#0E48A1]') }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">
+                                    {{ $serie['estado'] }}
+                                </span>
+                            </td>
                             <td class="px-4 py-3">{{ $serie['observacion'] }}</td>
                         </tr>
                         @empty
                         <tr>
                             <td colspan="4" class="px-4 py-8 text-center text-sm text-[#7B8794]">
-                                Este producto no tiene series registradas.
+                                Este producto no tiene series disponibles.
                             </td>
                         </tr>
                         @endforelse
@@ -838,7 +1114,6 @@ new class extends Component
                     <select wire:model.defer="estadoSerieExtra"
                         class="w-full rounded-xl border-0 bg-[#F0F3F7] px-3 py-2 text-[#1A2B42]">
                         <option value="DISPONIBLE">Disponible</option>
-                        <option value="VENDIDO">Vendido</option>
                         <option value="RESERVADO">Reservado</option>
                         <option value="DAÑADO">Dañado</option>
                     </select>

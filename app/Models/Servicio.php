@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -13,6 +14,8 @@ class Servicio extends Model
 
     public $timestamps = false;
 
+    public const TIPO_COPIA = 'COPIA';
+
     protected $fillable = [
         'Nombre_Servicio',
         'Descripcion',
@@ -22,6 +25,9 @@ class Servicio extends Model
         'Porcentaje_Anticipo',
         'Garantia',
         'Estado',
+        'Tipo_Servicio',
+        'Unidad_Medida',
+        'Permite_Credito',
     ];
 
     protected $casts = [
@@ -32,6 +38,7 @@ class Servicio extends Model
         'Porcentaje_Anticipo' => 'decimal:2',
         'Garantia' => 'boolean',
         'Estado' => 'boolean',
+        'Permite_Credito' => 'boolean',
     ];
 
     public function contratosInstalacionCamara(): HasMany
@@ -47,5 +54,15 @@ class Servicio extends Model
     public function serviciosTecnicos(): HasMany
     {
         return $this->hasMany(ServicioTecnico::class, 'Id_Servicio', 'Id_Servicio');
+    }
+
+    public function tarifasCopias(): HasMany
+    {
+        return $this->hasMany(TarifaCopia::class, 'Id_Servicio', 'Id_Servicio');
+    }
+
+    public function scopeActivos(Builder $query): Builder
+    {
+        return $query->where('Estado', true);
     }
 }
