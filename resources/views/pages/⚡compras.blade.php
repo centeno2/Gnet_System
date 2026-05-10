@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Banco;
 use App\Models\CategoriaProducto;
 use App\Models\Compra;
 use App\Models\DetalleCompra;
@@ -8,7 +9,9 @@ use App\Models\Producto;
 use App\Models\ProductoSerie;
 use App\Models\Proveedor;
 use App\Models\Usuario;
+use App\Models\CuentaBancaria;
 use Carbon\Carbon;
+use Illuminate\Validation\Rule;
 use Livewire\Component;
 
 new class extends Component
@@ -20,6 +23,13 @@ new class extends Component
     public string $numeroCompra = '';
     public string $fechaCompra = '';
     public string $tipoCompra = 'CONTADO';
+    public string $fechaLimiteCredito = '';
+    public string $medioPago = 'TRANSFERENCIA';
+    public string $idCuentaBancaria = '';
+    public string $numeroReferenciaTransferencia = '';
+    public string $bancoCuentaSeleccionada = '';
+    public string $tipoCuentaSeleccionada = '';
+    public string $monedaCuentaSeleccionada = '';
     public string $observacion = '';
     public string $retencion = '0';
     public string $iva = '0';
@@ -73,13 +83,39 @@ new class extends Component
     public array $tiposCompra = [
         ['id' => 'CONTADO', 'nombre' => 'Contado'],
         ['id' => 'CREDITO', 'nombre' => 'Crédito'],
+    ];
+
+    public array $mediosPago = [
         ['id' => 'TRANSFERENCIA', 'nombre' => 'Transferencia'],
+        ['id' => 'PAGO_FISICO', 'nombre' => 'Pago físico'],
+    ];
+
+    public array $cuentasBancarias = [];
+
+    public bool $mostrarModalCuentaBancaria = false;
+    public string $nuevoBancoNombre = '';
+    public string $nuevoNombreTitular = '';
+    public string $nuevoNumeroCuenta = '';
+    public string $nuevoTipoCuenta = 'CUENTA_AHORRO';
+    public string $nuevoMonedaCuenta = 'CORDOBAS';
+
+    public array $tiposCuentaBancaria = [
+        ['id' => 'CUENTA_AHORRO', 'nombre' => 'Cuenta de ahorro'],
+        ['id' => 'CUENTA_CORRIENTE', 'nombre' => 'Cuenta corriente'],
+        ['id' => 'TARJETA_DEBITO', 'nombre' => 'Tarjeta de débito'],
+        ['id' => 'TARJETA_CREDITO', 'nombre' => 'Tarjeta de crédito'],
+    ];
+
+    public array $monedasCuentaBancaria = [
+        ['id' => 'CORDOBAS', 'nombre' => 'Córdobas'],
+        ['id' => 'DOLARES', 'nombre' => 'Dólares'],
     ];
 
     public function mount(): void
     {
         $this->fechaCompra = Carbon::today()->toDateString();
         $this->cargarCatalogos();
+        $this->cargarCuentasBancarias();
     }
 
     public function updatedBuscarProveedor(): void
@@ -118,6 +154,209 @@ new class extends Component
                 $this->precioVenta = (string) $this->precioVentaActual;
             }
         }
+    }
+
+    public function updatedTipoCompra(): void
+    {
+        if ($this->tipoCompra !== 'CREDITO') {
+            $this->fechaLimiteCredito = '';
+            $this->resetErrorBag('fechaLimiteCredito');
+        }
+    }
+
+    public function updatedMedioPago(): void
+    {
+        if ($this->medioPago !== 'TRANSFERENCIA') {
+            $this->limpiarCuentaSeleccionada();
+            $this->numeroReferenciaTransferencia = '';
+            $this->resetErrorBag('idCuentaBancaria');
+            $this->resetErrorBag('numeroReferenciaTransferencia');
+            return;
+        }
+
+        $this->cargarCuentasBancarias();
+    }
+
+    public function updatedIdCuentaBancaria(): void
+    {
+        $this->cargarDatosCuentaSeleccionada();
+    }
+
+
+    protected function cargarCuentasBancarias(): void
+    {
+        $this->cuentasBancarias = CuentaBancaria::query()
+            ->with('banco')
+            ->where('Estado', 1)
+            ->orderBy('Id_Cuenta_Bancaria', 'desc')
+            ->get()
+            ->map(fn (CuentaBancaria $cuenta) => [
+                'id' => $cuenta->Id_Cuenta_Bancaria,
+                'numero_mostrado' => $this->enmascararNumeroCuenta($cuenta->Numero_Cuenta),
+                'banco' => $cuenta->banco?->Nombre_Banco ?: 'Sin banco',
+                'tipo' => $this->nombreTipoCuenta($cuenta->Tipo_Cuenta),
+                'moneda' => $this->nombreMonedaCuenta($cuenta->Moneda),
+            ])
+            ->toArray();
+    }
+
+    protected function enmascararNumeroCuenta(?string $numeroCuenta): string
+    {
+        $limpio = preg_replace('/\D+/', '', (string) $numeroCuenta);
+
+        if ($limpio === '') {
+            return '*** **** ****';
+        }
+
+        $primeros = substr($limpio, 0, 3);
+        $ultimos = strlen($limpio) >= 4 ? substr($limpio, -4) : substr($limpio, -2);
+
+        return $primeros . ' **** ' . $ultimos;
+    }
+
+    protected function ultimosDigitosCuenta(string $numeroCuenta): string
+    {
+        $limpio = preg_replace('/\D+/', '', $numeroCuenta);
+
+        return substr($limpio, -4) ?: '';
+    }
+
+    protected function normalizarNumeroCuenta(string $numeroCuenta): string
+    {
+        return preg_replace('/\D+/', '', $numeroCuenta) ?: trim($numeroCuenta);
+    }
+
+    protected function nombreTipoCuenta(?string $tipo): string
+    {
+        return collect($this->tiposCuentaBancaria)->firstWhere('id', $tipo)['nombre'] ?? 'No definido';
+    }
+
+    protected function nombreMonedaCuenta(?string $moneda): string
+    {
+        return collect($this->monedasCuentaBancaria)->firstWhere('id', $moneda)['nombre'] ?? 'No definida';
+    }
+
+    protected function limpiarCuentaSeleccionada(): void
+    {
+        $this->idCuentaBancaria = '';
+        $this->bancoCuentaSeleccionada = '';
+        $this->tipoCuentaSeleccionada = '';
+        $this->monedaCuentaSeleccionada = '';
+    }
+
+    protected function cargarDatosCuentaSeleccionada(): void
+    {
+        if ($this->idCuentaBancaria === '') {
+            $this->bancoCuentaSeleccionada = '';
+            $this->tipoCuentaSeleccionada = '';
+            $this->monedaCuentaSeleccionada = '';
+            return;
+        }
+
+        $cuenta = CuentaBancaria::query()
+            ->with('banco')
+            ->where('Estado', 1)
+            ->find((int) $this->idCuentaBancaria);
+
+        if (! $cuenta) {
+            $this->limpiarCuentaSeleccionada();
+            $this->addError('idCuentaBancaria', 'La cuenta bancaria seleccionada no existe o está inactiva.');
+            return;
+        }
+
+        $this->bancoCuentaSeleccionada = $cuenta->banco?->Nombre_Banco ?: 'Sin banco';
+        $this->tipoCuentaSeleccionada = $this->nombreTipoCuenta($cuenta->Tipo_Cuenta);
+        $this->monedaCuentaSeleccionada = $this->nombreMonedaCuenta($cuenta->Moneda);
+        $this->resetErrorBag('idCuentaBancaria');
+    }
+
+    public function abrirModalCuentaBancaria(): void
+    {
+        $this->resetErrorBag();
+        $this->limpiarFormularioCuentaBancaria();
+        $this->mostrarModalCuentaBancaria = true;
+    }
+
+    public function cerrarModalCuentaBancaria(): void
+    {
+        $this->mostrarModalCuentaBancaria = false;
+        $this->limpiarFormularioCuentaBancaria();
+        $this->resetErrorBag();
+    }
+
+    protected function limpiarFormularioCuentaBancaria(): void
+    {
+        $this->nuevoBancoNombre = '';
+        $this->nuevoNombreTitular = '';
+        $this->nuevoNumeroCuenta = '';
+        $this->nuevoTipoCuenta = 'CUENTA_AHORRO';
+        $this->nuevoMonedaCuenta = 'CORDOBAS';
+    }
+
+    public function guardarCuentaBancaria(): void
+    {
+        $this->resetErrorBag();
+
+        $this->validate([
+            'nuevoBancoNombre' => 'required|string|max:100',
+            'nuevoNombreTitular' => 'required|string|max:150',
+            'nuevoNumeroCuenta' => 'required|string|min:6|max:50|regex:/^[0-9\s-]+$/',
+            'nuevoTipoCuenta' => 'required|in:CUENTA_AHORRO,CUENTA_CORRIENTE,TARJETA_DEBITO,TARJETA_CREDITO',
+            'nuevoMonedaCuenta' => 'required|in:CORDOBAS,DOLARES',
+        ], [
+            'nuevoBancoNombre.required' => 'Ingrese el nombre del banco.',
+            'nuevoNombreTitular.required' => 'Ingrese el nombre del titular de la cuenta.',
+            'nuevoNumeroCuenta.required' => 'Ingrese el número de cuenta.',
+            'nuevoNumeroCuenta.min' => 'El número de cuenta debe tener al menos 6 caracteres.',
+            'nuevoNumeroCuenta.regex' => 'El número de cuenta solo debe contener números, espacios o guiones.',
+        ]);
+
+        $numeroNormalizado = $this->normalizarNumeroCuenta($this->nuevoNumeroCuenta);
+
+        $cuentaDuplicada = CuentaBancaria::query()
+            ->where('Estado', 1)
+            ->get(['Id_Cuenta_Bancaria', 'Numero_Cuenta'])
+            ->contains(fn (CuentaBancaria $cuenta) => $this->normalizarNumeroCuenta($cuenta->Numero_Cuenta) === $numeroNormalizado);
+
+        if ($cuentaDuplicada) {
+            $this->addError('nuevoNumeroCuenta', 'Ya existe una cuenta bancaria activa con ese número.');
+            return;
+        }
+
+        $cuenta = CuentaBancaria::query()->getConnection()->transaction(function () {
+            $nombreBanco = trim($this->nuevoBancoNombre);
+
+            $banco = Banco::query()
+                ->whereRaw('LOWER(Nombre_Banco) = ?', [mb_strtolower($nombreBanco)])
+                ->first();
+
+            if (! $banco) {
+                $banco = Banco::query()->create([
+                    'Nombre_Banco' => $nombreBanco,
+                    'Estado' => 1,
+                ]);
+            } elseif (! $banco->Estado) {
+                $banco->Estado = 1;
+                $banco->save();
+            }
+
+            return CuentaBancaria::query()->create([
+                'Id_Banco' => $banco->Id_Banco,
+                'Nombre_Titular' => trim($this->nuevoNombreTitular),
+                'Numero_Cuenta' => trim($this->nuevoNumeroCuenta),
+                'Ultimos_Digitos' => $this->ultimosDigitosCuenta($this->nuevoNumeroCuenta),
+                'Tipo_Cuenta' => $this->nuevoTipoCuenta,
+                'Moneda' => $this->nuevoMonedaCuenta,
+                'Estado' => 1,
+            ]);
+        });
+
+        $this->cargarCuentasBancarias();
+        $this->idCuentaBancaria = (string) $cuenta->Id_Cuenta_Bancaria;
+        $this->cargarDatosCuentaSeleccionada();
+        $this->mostrarModalCuentaBancaria = false;
+        $this->limpiarFormularioCuentaBancaria();
+        $this->mostrarToast('Cuenta bancaria agregada correctamente.');
     }
 
     public function cambiarModoProducto(string $modo): void
@@ -824,10 +1063,32 @@ new class extends Component
             'idProveedor' => 'required|exists:proveedor,Id_Proveedor',
             'numeroCompra' => 'required|string|max:50',
             'fechaCompra' => 'required|date|before_or_equal:today',
-            'tipoCompra' => 'required|string|max:50',
+            'tipoCompra' => 'required|in:CONTADO,CREDITO',
+            'fechaLimiteCredito' => $this->tipoCompra === 'CREDITO'
+                ? 'required|date|after_or_equal:today'
+                : 'nullable|date',
+            'medioPago' => 'required|in:PAGO_FISICO,TRANSFERENCIA',
+            'idCuentaBancaria' => [
+                'nullable',
+                'integer',
+                Rule::requiredIf(fn () => $this->medioPago === 'TRANSFERENCIA'),
+                Rule::exists('cuenta_bancaria', 'Id_Cuenta_Bancaria')->where(fn ($query) => $query->where('Estado', 1)),
+            ],
+            'numeroReferenciaTransferencia' => [
+                'nullable',
+                'string',
+                'max:100',
+                Rule::requiredIf(fn () => $this->medioPago === 'TRANSFERENCIA'),
+            ],
             'retencion' => 'required|numeric|min:0',
             'iva' => 'required|numeric|min:0',
             'observacion' => 'nullable|string|max:255',
+        ], [
+            'fechaLimiteCredito.required' => 'Debe indicar la fecha límite de pago cuando la compra es a crédito.',
+            'fechaLimiteCredito.after_or_equal' => 'La fecha límite de pago no puede ser una fecha pasada.',
+            'idCuentaBancaria.required' => 'Debe seleccionar la cuenta bancaria cuando el medio de pago es transferencia.',
+            'idCuentaBancaria.exists' => 'La cuenta bancaria seleccionada no existe o está inactiva.',
+            'numeroReferenciaTransferencia.required' => 'Debe registrar el número de referencia o comprobante de la transferencia.',
         ]);
 
         if (count($this->detalles) === 0) {
@@ -888,6 +1149,16 @@ new class extends Component
                     'Id_Proveedor' => (int) $this->idProveedor,
                     'Id_Usuario' => (int) $idUsuario,
                     'Tipo_Compra' => $this->tipoCompra,
+                    'Fecha_Limite_Credito' => $this->tipoCompra === 'CREDITO'
+                        ? Carbon::parse($this->fechaLimiteCredito)->toDateString()
+                        : null,
+                    'Medio_Pago' => $this->medioPago,
+                    'Id_Cuenta_Bancaria' => $this->medioPago === 'TRANSFERENCIA'
+                        ? (int) $this->idCuentaBancaria
+                        : null,
+                    'Numero_Referencia_Transferencia' => $this->medioPago === 'TRANSFERENCIA'
+                        ? trim($this->numeroReferenciaTransferencia)
+                        : null,
                     'Total' => $this->totalGeneral(),
                     'Observacion' => trim($this->observacion) !== '' ? trim($this->observacion) : null,
                     'Retencion' => (float) $this->retencion,
@@ -982,6 +1253,10 @@ new class extends Component
         $this->numeroCompra = '';
         $this->fechaCompra = Carbon::today()->toDateString();
         $this->tipoCompra = 'CONTADO';
+        $this->fechaLimiteCredito = '';
+        $this->medioPago = 'TRANSFERENCIA';
+        $this->limpiarCuentaSeleccionada();
+        $this->numeroReferenciaTransferencia = '';
         $this->observacion = '';
         $this->retencion = '0';
         $this->iva = '0';
@@ -996,6 +1271,7 @@ new class extends Component
 
         $this->limpiarDetalleProducto();
         $this->cargarCatalogos();
+        $this->cargarCuentasBancarias();
 
         if ($mostrarMensaje) {
             $this->mostrarToast('Compra cancelada. No se guardó nada en la base de datos.');
@@ -1096,6 +1372,131 @@ new class extends Component
             </div>
         @endif
 
+
+        @if ($mostrarModalCuentaBancaria)
+            <div class="fixed inset-0 z-998 flex items-center justify-center bg-black/40 px-4 py-6">
+                <div class="w-full max-w-2xl rounded-2xl border border-[#D7E4F3] bg-white p-5 shadow-xl">
+                    <div class="mb-4 flex items-start justify-between gap-3">
+                        <div>
+                            <h3 class="text-xl font-bold text-[#1A2B42]">Agregar cuenta bancaria</h3>
+                            <p class="text-sm text-[#5F6B7A]">
+                                Esta cuenta quedará disponible de inmediato para compras por transferencia.
+                            </p>
+                        </div>
+                        <button type="button" wire:click="cerrarModalCuentaBancaria" class="text-2xl leading-none text-[#5F6B7A] hover:text-[#1A2B42]">
+                            ×
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <div>
+                            <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                                Banco <span class="text-red-600">*</span>
+                            </label>
+                            <x-input
+                                wire:model.defer="nuevoBancoNombre"
+                                type="text"
+                                maxlength="100"
+                                placeholder="Ej: BAC, Banpro, Lafise"
+                                class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
+                            />
+                            @error('nuevoBancoNombre')
+                                <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                            @enderror
+                        </div>
+
+                        <div>
+                            <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                                Titular <span class="text-red-600">*</span>
+                            </label>
+                            <x-input
+                                wire:model.defer="nuevoNombreTitular"
+                                type="text"
+                                maxlength="150"
+                                placeholder="Nombre del dueño de la cuenta"
+                                class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
+                            />
+                            @error('nuevoNombreTitular')
+                                <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                            @enderror
+                        </div>
+
+                        <div>
+                            <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                                Número de cuenta <span class="text-red-600">*</span>
+                            </label>
+                            <x-input
+                                wire:model.defer="nuevoNumeroCuenta"
+                                type="text"
+                                maxlength="50"
+                                placeholder="Solo números, espacios o guiones"
+                                class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
+                            />
+                            @error('nuevoNumeroCuenta')
+                                <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                            @enderror
+                        </div>
+
+                        <div>
+                            <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                                Tipo de cuenta <span class="text-red-600">*</span>
+                            </label>
+                            <select
+                                wire:model.defer="nuevoTipoCuenta"
+                                class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]"
+                            >
+                                @foreach ($tiposCuentaBancaria as $tipoCuenta)
+                                    <option value="{{ $tipoCuenta['id'] }}">{{ $tipoCuenta['nombre'] }}</option>
+                                @endforeach
+                            </select>
+                            @error('nuevoTipoCuenta')
+                                <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                            @enderror
+                        </div>
+
+                        <div>
+                            <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                                Moneda <span class="text-red-600">*</span>
+                            </label>
+                            <select
+                                wire:model.defer="nuevoMonedaCuenta"
+                                class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]"
+                            >
+                                @foreach ($monedasCuentaBancaria as $monedaCuenta)
+                                    <option value="{{ $monedaCuenta['id'] }}">{{ $monedaCuenta['nombre'] }}</option>
+                                @endforeach
+                            </select>
+                            @error('nuevoMonedaCuenta')
+                                <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                            @enderror
+                        </div>
+
+                        <div class="rounded-xl border border-[#D7E4F3] bg-[#F7F9FC] px-4 py-3 text-sm text-[#5F6B7A]">
+                            <p class="font-semibold text-[#1A2B42]">Importante</p>
+                            <p>No se guarda CVV, PIN, contraseña bancaria ni tokens. Solo datos necesarios para identificar la cuenta usada por la tienda.</p>
+                        </div>
+                    </div>
+
+                    <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                        <button
+                            type="button"
+                            wire:click="cerrarModalCuentaBancaria"
+                            class="rounded-lg border border-[#D7E4F3] px-4 py-2 text-sm font-semibold text-[#1A2B42] hover:bg-[#F0F3F7]"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            type="button"
+                            wire:click="guardarCuentaBancaria"
+                            class="rounded-lg bg-[#2E8BC0] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0B6FE4]"
+                        >
+                            Guardar cuenta
+                        </button>
+                    </div>
+                </div>
+            </div>
+        @endif
+
         <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
             <div class="mb-4">
                 <h2 class="text-xl font-bold text-[#1A2B42]">Datos generales de la compra</h2>
@@ -1185,7 +1586,7 @@ new class extends Component
                         Tipo de pago <span class="text-red-600">*</span>
                     </label>
                     <select
-                        wire:model.defer="tipoCompra"
+                        wire:model.live="tipoCompra"
                         class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]"
                     >
                         @foreach ($tiposCompra as $tipo)
@@ -1196,6 +1597,119 @@ new class extends Component
                         <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                     @enderror
                 </div>
+
+                @if ($tipoCompra === 'CREDITO')
+                    <div class="lg:col-span-2">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                            Fecha límite de pago <span class="text-red-600">*</span>
+                        </label>
+                        <x-input
+                            wire:model.defer="fechaLimiteCredito"
+                            type="date"
+                            min="{{ now()->toDateString() }}"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                        />
+                        @error('fechaLimiteCredito')
+                            <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                        @enderror
+                    </div>
+                @endif
+
+                <div class="lg:col-span-2">
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                        Medio de pago <span class="text-red-600">*</span>
+                    </label>
+                    <select
+                        wire:model.live="medioPago"
+                        class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]"
+                    >
+                        @foreach ($mediosPago as $medio)
+                            <option value="{{ $medio['id'] }}">{{ $medio['nombre'] }}</option>
+                        @endforeach
+                    </select>
+                    @error('medioPago')
+                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    @enderror
+                </div>
+
+                @if ($medioPago === 'TRANSFERENCIA')
+                    <div class="lg:col-span-3">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                            Cuenta destino <span class="text-red-600">*</span>
+                        </label>
+                        <div class="flex gap-2">
+                            <select
+                                wire:model.live="idCuentaBancaria"
+                                class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]"
+                            >
+                                <option value="">{{ count($cuentasBancarias) > 0 ? 'Seleccione una cuenta' : 'No hay cuentas registradas' }}</option>
+                                @foreach ($cuentasBancarias as $cuenta)
+                                    <option value="{{ $cuenta['id'] }}">
+                                        {{ $cuenta['numero_mostrado'] }} · {{ $cuenta['banco'] }}
+                                    </option>
+                                @endforeach
+                            </select>
+
+                            <button
+                                type="button"
+                                wire:click="abrirModalCuentaBancaria"
+                                title="Agregar cuenta bancaria"
+                                class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#2E8BC0] text-lg font-bold text-white hover:bg-[#0B6FE4]"
+                            >
+                                +
+                            </button>
+                        </div>
+                        @error('idCuentaBancaria')
+                            <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                        @enderror
+                    </div>
+
+                    <div class="lg:col-span-2">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Banco</label>
+                        <x-input
+                            value="{{ $bancoCuentaSeleccionada }}"
+                            readonly
+                            placeholder="Se carga al seleccionar"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                        />
+                    </div>
+
+                    <div class="lg:col-span-2">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo de cuenta</label>
+                        <x-input
+                            value="{{ $tipoCuentaSeleccionada }}"
+                            readonly
+                            placeholder="Se carga al seleccionar"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                        />
+                    </div>
+
+                    <div class="lg:col-span-1">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Moneda</label>
+                        <x-input
+                            value="{{ $monedaCuentaSeleccionada }}"
+                            readonly
+                            placeholder="--"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                        />
+                    </div>
+
+                    <div class="lg:col-span-2">
+                        <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                            Referencia <span class="text-red-600">*</span>
+                        </label>
+                        <x-input
+                            wire:model.defer="numeroReferenciaTransferencia"
+                            type="text"
+                            maxlength="100"
+                            placeholder="No. comprobante"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
+                        />
+                        @error('numeroReferenciaTransferencia')
+                            <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                        @enderror
+                    </div>
+                @endif
 
                 <div class="lg:col-span-1">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">IVA</label>
