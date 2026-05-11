@@ -14,10 +14,13 @@ class PagoVenta extends Model
     public $timestamps = false;
 
     public const MONEDA_CORDOBA = 0;
+
     public const MONEDA_DOLAR = 1;
 
     public const TIPO_EFECTIVO = 'EFECTIVO';
+
     public const TIPO_TRANSFERENCIA = 'TRANSFERENCIA';
+
     public const TIPO_TARJETA = 'TARJETA';
 
     protected $fillable = [
@@ -25,6 +28,7 @@ class PagoVenta extends Model
         'Fecha_Pago',
         'Moneda',
         'Tipo_Pago',
+        'Numero_Referencia',
         'Monto',
         'Tipo_Cambio',
         'Monto_Equivalente_Cordobas',
@@ -48,5 +52,22 @@ class PagoVenta extends Model
     public function getMonedaNombreAttribute(): string
     {
         return (int) $this->Moneda === self::MONEDA_DOLAR ? 'USD' : 'NIO';
+    }
+
+    public function requiereReferencia(): bool
+    {
+        return in_array($this->Tipo_Pago, [
+            self::TIPO_TRANSFERENCIA,
+            self::TIPO_TARJETA,
+        ], true);
+    }
+
+    public function getTipoPagoNombreAttribute(): string
+    {
+        return match ($this->Tipo_Pago) {
+            self::TIPO_TRANSFERENCIA => 'Transferencia',
+            self::TIPO_TARJETA => 'Tarjeta',
+            default => 'Efectivo',
+        };
     }
 }
