@@ -120,10 +120,10 @@ new class extends Component
             'nombreInstitucion.required' => 'El nombre de la institución es obligatorio.',
 
             'telefono.required' => 'El teléfono es obligatorio.',
-            'telefono.regex' => 'Ingrese un teléfono válido. Ejemplo: +505 58631620.',
+            'telefono.regex' => 'Ingrese un teléfono válido. Ejemplo: 58631620.',
 
             'correo.required' => 'El correo electrónico es obligatorio.',
-            'correo.email' => 'Ingrese un correo electrónico válido.',
+            'correo.email' => 'Ingrese un correo electrónico válido. Ejemplo Example@gmail.com.',
 
             'direccion.required' => 'La dirección es obligatoria.',
 
@@ -441,7 +441,7 @@ new class extends Component
                         <x-input
                             type="email"
                             wire:model="correo"
-                            placeholder="correo@ejemplo.com"
+                            placeholder="Ejemplo:example@gmail.com"
                             class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
                         />
 
