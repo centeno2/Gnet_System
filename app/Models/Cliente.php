@@ -18,6 +18,12 @@ class Cliente extends Model
     public const TIPO_NATURAL = 1;
     public const TIPO_INSTITUCION = 2;
 
+    public const TIPO_PAGO_CONTADO = 1;
+    public const TIPO_PAGO_CREDITO = 2;
+
+    public const ESTADO_INACTIVO = 0;
+    public const ESTADO_ACTIVO = 1;
+
     protected $fillable = [
         'Id_Persona',
         'Tipo_Cliente',
@@ -37,6 +43,7 @@ class Cliente extends Model
         'Estado' => 'boolean',
         'Tipo_pago' => 'integer',
     ];
+
 
     public function persona(): BelongsTo
     {
@@ -73,6 +80,8 @@ class Cliente extends Model
         return $this->hasMany(ClienteCreditoMovimiento::class, 'Id_Cliente', 'Id_Cliente');
     }
 
+ 
+
     public function esNatural(): bool
     {
         return (int) $this->Tipo_Cliente === self::TIPO_NATURAL;
@@ -82,6 +91,18 @@ class Cliente extends Model
     {
         return (int) $this->Tipo_Cliente === self::TIPO_INSTITUCION;
     }
+
+    public function esCredito(): bool
+    {
+        return (int) $this->Tipo_pago === self::TIPO_PAGO_CREDITO;
+    }
+
+    public function esContado(): bool
+    {
+        return (int) $this->Tipo_pago === self::TIPO_PAGO_CONTADO;
+    }
+
+   
 
     public function getNombreFacturacionAttribute(): string
     {
@@ -106,5 +127,38 @@ class Cliente extends Model
         }
 
         return $this->persona?->Telefono ?: 'Sin teléfono';
+    }
+
+    public function getCorreoFacturacionAttribute(): string
+    {
+        if ($this->esInstitucion()) {
+            return $this->Correo_Institucion ?: 'Sin correo';
+        }
+
+        return $this->persona?->Correo ?: 'Sin correo';
+    }
+
+    public function getDireccionFacturacionAttribute(): string
+    {
+        if ($this->esInstitucion()) {
+            return $this->Direccion_Institucion ?: 'Sin dirección';
+        }
+
+        return $this->persona?->Direccion ?: 'Sin dirección';
+    }
+
+    public function getTipoClienteNombreAttribute(): string
+    {
+        return $this->esInstitucion() ? 'Institucional' : 'Natural';
+    }
+
+    public function getTipoPagoNombreAttribute(): string
+    {
+        return $this->esCredito() ? 'Crédito' : 'Contado';
+    }
+
+    public function getEstadoNombreAttribute(): string
+    {
+        return $this->Estado ? 'Activo' : 'Inactivo';
     }
 }
