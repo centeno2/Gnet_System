@@ -20,14 +20,11 @@ class Compra extends Model
         'Id_Proveedor',
         'Id_Usuario',
         'Tipo_Compra',
-        'Subtotal',
-        'Descuento',
         'Total',
         'Observacion',
-        'Cantida',
-        'Precio_Compra',
         'Id_producto',
         'Retencion',
+        'Iva',
     ];
 
     protected $casts = [
@@ -35,13 +32,10 @@ class Compra extends Model
         'Fecha_Compra' => 'datetime',
         'Id_Proveedor' => 'integer',
         'Id_Usuario' => 'integer',
-        'Subtotal' => 'decimal:2',
-        'Descuento' => 'decimal:2',
         'Total' => 'decimal:2',
-        'Cantida' => 'integer',
-        'Precio_Compra' => 'integer',
         'Id_producto' => 'integer',
         'Retencion' => 'integer',
+        'Iva' => 'decimal:6',
     ];
 
     public function proveedor(): BelongsTo
@@ -52,6 +46,11 @@ class Compra extends Model
     public function usuario(): BelongsTo
     {
         return $this->belongsTo(Usuario::class, 'Id_Usuario', 'Id_Usuario');
+    }
+
+    public function producto(): BelongsTo
+    {
+        return $this->belongsTo(Producto::class, 'Id_producto', 'Id_Producto');
     }
 
     public function detallesCompra(): HasMany

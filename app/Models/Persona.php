@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Persona extends Model
@@ -19,7 +18,6 @@ class Persona extends Model
         'Segundo_Nombre',
         'Primer_Apellido',
         'Segundo_Apellido',
-        'Correo',
         'Direccion',
         'Telefono',
     ];
@@ -28,23 +26,33 @@ class Persona extends Model
         'Id_Persona' => 'integer',
     ];
 
-    public function clientes(): HasMany
+    public function cliente(): HasOne
     {
-        return $this->hasMany(Cliente::class, 'Id_Persona', 'Id_Persona');
+        return $this->hasOne(Cliente::class, 'Id_Persona', 'Id_Persona');
     }
 
-    public function proveedores(): HasMany
+    public function proveedor(): HasOne
     {
-        return $this->hasMany(Proveedor::class, 'Id_Persona', 'Id_Persona');
+        return $this->hasOne(Proveedor::class, 'Id_Persona', 'Id_Persona');
     }
 
-    public function trabajadores(): HasMany
+    public function trabajador(): HasOne
     {
-        return $this->hasMany(Trabajador::class, 'Id_Persona', 'Id_Persona');
+        return $this->hasOne(Trabajador::class, 'Id_Persona', 'Id_Persona');
     }
 
     public function usuario(): HasOne
     {
         return $this->hasOne(Usuario::class, 'Id_Persona', 'Id_Persona');
+    }
+
+    public function getNombreCompletoAttribute(): string
+    {
+        return trim(implode(' ', array_filter([
+            $this->Primer_Nombre,
+            $this->Segundo_Nombre,
+            $this->Primer_Apellido,
+            $this->Segundo_Apellido,
+        ])));
     }
 }

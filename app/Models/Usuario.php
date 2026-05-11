@@ -23,6 +23,7 @@ class Usuario extends Model
         'Token_Recuperacion',
         'Fecha_Recuperacion',
         'Intentos_Fallidos',
+        'Correo',
     ];
 
     protected $casts = [
