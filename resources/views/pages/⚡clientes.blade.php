@@ -1,710 +1,1182 @@
 <?php
 
-use App\Models\Cliente;
-use App\Models\Persona;
+use App\Models\AbonoCredito;
+use App\Models\ClienteCredito;
+use App\Models\Credito;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Livewire\Component;
-use Mary\Traits\Toast;
 
 new class extends Component
 {
-    use Toast;
+    protected const TASA_CAMBIO_FIJA = '36.5000';
 
-    public string $nombre = '';
-    public string $apellido = '';
-    public string $telefono = '';
-    public ?string $correo = '';
-    public ?string $direccion = '';
-    public string $municipio = '';
+    public string $valorBusqueda = '';
 
-    public int|string $tipoCliente = 1;
-    public ?string $institucion = '';
+    public int $idCreditoSeleccionado = 0;
 
-    public int|string $tipoPago = 1;
+    public string $cliente = '';
+    public string $cedula = '';
+    public string $codigoCredito = '';
+    public string $estadoCredito = 'Pendiente';
+    public string $fechaCredito = '';
+    public string $proximoPago = '';
 
-    public string $buscar = '';
+    public string $saldoOriginal = '0.00';
+    public string $saldoPendiente = '0.00';
 
-    public array $clientes = [];
+    public string $abonarCordobas = '0.00';
+    public string $abonarDolares = '0.00';
+    public string $tasaCambio = '36.5000';
+    public string $cambioCordobas = '0.00';
 
-    public ?int $clienteEditandoId = null;
-    public ?int $personaEditandoId = null;
+    public string $metodoPago = 'efectivo';
+    public string $referenciaPago = '';
+    public string $fechaPago = '';
+    public string $observacion = '';
+    public string $filtroSaldoFavor = '';
 
-    public array $headers = [
-        ['key' => 'codigo', 'label' => 'Código'],
-        ['key' => 'full_name', 'label' => 'Nombre completo'],
-        ['key' => 'telefono', 'label' => 'Teléfono'],
-        ['key' => 'correo', 'label' => 'Correo'],
-        ['key' => 'municipio', 'label' => 'Municipio'],
-        ['key' => 'tipo_cliente', 'label' => 'Tipo cliente'],
-        ['key' => 'tipo_pago', 'label' => 'Tipo pago'],
-        ['key' => 'estado', 'label' => 'Estado'],
-        ['key' => 'actions', 'label' => 'Acciones', 'class' => 'text-right'],
-    ];
+    public string $toastMensaje = '';
+    public string $toastTipo = 'success';
+    public bool $mostrarToast = false;
 
-    public array $tiposCliente = [
-        ['id' => 1, 'name' => 'Natural'],
-        ['id' => 2, 'name' => 'Institucional'],
-    ];
-
-    public array $tiposPago = [
-        ['id' => 1, 'name' => 'Contado'],
-        ['id' => 2, 'name' => 'Crédito'],
-    ];
-
-    public array $tiposPagoNatural = [
-        ['id' => 1, 'name' => 'Contado'],
-    ];
+    public array $metodosPagoOptions = [];
+    public array $detalleCredito = [];
+    public array $clientesSaldoFavor = [];
+    public array $headersDetalle = [];
+    public array $headersSaldoFavor = [];
 
     public function mount(): void
     {
-        $this->cargarClientes();
-    }
+        $this->fechaPago = now()->toDateString();
+        $this->tasaCambio = self::TASA_CAMBIO_FIJA;
 
-    public function updatedBuscar(): void
-    {
-        $this->cargarClientes();
-    }
-
-    public function updatedTipoCliente($value): void
-    {
-        if ((int) $value === 1) {
-            $this->tipoPago = 1;
-            $this->institucion = '';
-        }
-    }
-
-    protected function rules(): array
-    {
-        return [
-            'nombre' => [
-                'required',
-                'string',
-                'max:80',
-                'regex:/^[\p{L}]+(?:\s+[\p{L}]+)?$/u',
-            ],
-            'apellido' => [
-                'required',
-                'string',
-                'max:80',
-                'regex:/^[\p{L}]+(?:\s+[\p{L}]+)?$/u',
-            ],
-            'telefono' => [
-                'required',
-                'string',
-                'max:25',
-                'regex:/^\+?[0-9\s\-\(\)]{8,25}$/',
-                Rule::unique('persona', 'Telefono')->ignore($this->personaEditandoId, 'Id_Persona'),
-            ],
-            'correo' => [
-                'nullable',
-                'email',
-                'max:120',
-                Rule::unique('persona', 'Correo')->ignore($this->personaEditandoId, 'Id_Persona'),
-            ],
-            'direccion' => [
-                'nullable',
-                'string',
-                'max:255',
-            ],
-            'municipio' => [
-                'required',
-                'string',
-                'max:100',
-                'regex:/^[\p{L}\s\.\-]+$/u',
-            ],
-            'tipoCliente' => [
-                'required',
-                'integer',
-                'in:1,2',
-            ],
-            'institucion' => [
-                (int) $this->tipoCliente === 2 ? 'required' : 'nullable',
-                'string',
-                'max:150',
-            ],
-            'tipoPago' => [
-                'required',
-                'integer',
-                (int) $this->tipoCliente === 1 ? 'in:1' : 'in:1,2',
-            ],
+        $this->metodosPagoOptions = [
+            ['id' => 'efectivo', 'name' => 'Efectivo'],
+            ['id' => 'transferencia', 'name' => 'Transferencia'],
+            ['id' => 'tarjeta', 'name' => 'Tarjeta'],
+            ['id' => 'deposito', 'name' => 'Depósito'],
         ];
+
+        $this->headersDetalle = [
+            ['key' => 'numero', 'label' => 'No.', 'class' => 'w-14'],
+            ['key' => 'fecha_pago', 'label' => 'Fecha', 'class' => 'min-w-[120px]'],
+            ['key' => 'monto', 'label' => 'Monto aplicado', 'class' => 'min-w-[150px]'],
+            ['key' => 'moneda', 'label' => 'Moneda', 'class' => 'min-w-[100px]'],
+            ['key' => 'referencia', 'label' => 'Referencia', 'class' => 'min-w-[160px]'],
+            ['key' => 'observacion', 'label' => 'Observación', 'class' => 'min-w-[260px]'],
+            ['key' => 'estado', 'label' => 'Tipo', 'class' => 'min-w-[110px]'],
+        ];
+
+        $this->headersSaldoFavor = [
+            ['key' => 'cliente', 'label' => 'Cliente'],
+            ['key' => 'documento', 'label' => 'Documento', 'class' => 'hidden md:table-cell'],
+            ['key' => 'saldo', 'label' => 'Saldo', 'class' => 'w-32'],
+        ];
+
+        $this->cargarClientesSaldoFavor();
     }
 
-    protected array $messages = [
-        'nombre.required' => 'El nombre es obligatorio.',
-        'nombre.regex' => 'El nombre solo puede llevar letras y máximo 2 palabras.',
-        'nombre.max' => 'El nombre no debe superar los 80 caracteres.',
-
-        'apellido.required' => 'El apellido es obligatorio.',
-        'apellido.regex' => 'El apellido solo puede llevar letras y máximo 2 palabras.',
-        'apellido.max' => 'El apellido no debe superar los 80 caracteres.',
-
-        'telefono.required' => 'El teléfono es obligatorio.',
-        'telefono.regex' => 'Ingrese un teléfono válido. Puede incluir código de país, por ejemplo +505 8888 8888.',
-        'telefono.unique' => 'Este teléfono ya está registrado.',
-
-        'correo.email' => 'Ingrese un correo válido.',
-        'correo.unique' => 'Este correo ya está registrado.',
-        'correo.max' => 'El correo no debe superar los 120 caracteres.',
-
-        'direccion.max' => 'La dirección no debe superar los 255 caracteres.',
-
-        'municipio.required' => 'El municipio es obligatorio.',
-        'municipio.regex' => 'El municipio solo puede llevar letras, espacios, puntos o guiones.',
-        'municipio.max' => 'El municipio no debe superar los 100 caracteres.',
-
-        'tipoCliente.required' => 'Seleccione el tipo de cliente.',
-        'tipoCliente.in' => 'Seleccione un tipo de cliente válido.',
-
-        'institucion.required' => 'La institución es obligatoria para clientes institucionales.',
-        'institucion.max' => 'La institución no debe superar los 150 caracteres.',
-
-        'tipoPago.required' => 'Seleccione el tipo de pago.',
-        'tipoPago.in' => 'El cliente natural solo puede tener pago de contado.',
-    ];
-
-    public function guardarCliente(): void
+    public function updatedValorBusqueda(): void
     {
-        $this->normalizarCampos();
+        $this->resetErrorBag();
 
-        $this->validate();
+        $busqueda = trim($this->valorBusqueda);
 
-        if ($this->clienteEditandoId) {
-            $this->actualizarCliente();
+        if ($busqueda === '') {
+            $this->limpiarCreditoCargado();
             return;
         }
 
-        $this->crearCliente();
+        if (! ctype_digit($busqueda) && strlen($busqueda) < 2) {
+            $this->limpiarCreditoCargado();
+            return;
+        }
+
+        $this->buscarCredito(false);
     }
 
-    private function crearCliente(): void
+    public function updatedAbonarCordobas(): void
     {
-        [$primerNombre, $segundoNombre] = $this->separarEnDosPartes($this->nombre);
-        [$primerApellido, $segundoApellido] = $this->separarEnDosPartes($this->apellido);
+        if (trim($this->abonarCordobas) === '') {
+            $this->abonarCordobas = '0.00';
+        }
 
-        try {
-            DB::transaction(function () use ($primerNombre, $segundoNombre, $primerApellido, $segundoApellido) {
-                $persona = Persona::create([
-                    'Primer_Nombre' => $primerNombre,
-                    'Segundo_Nombre' => $segundoNombre,
-                    'Primer_Apellido' => $primerApellido,
-                    'Segundo_Apellido' => $segundoApellido,
-                    'Correo' => $this->correo,
-                    'Direccion' => $this->direccion,
-                    'Telefono' => $this->telefono,
-                ]);
+        $this->calcularCambio();
+    }
 
-                Cliente::create([
-                    'Id_Persona' => $persona->Id_Persona,
-                    'Tipo_Cliente' => (int) $this->tipoCliente,
-                    'Institucion' => (int) $this->tipoCliente === 2 ? $this->institucion : null,
-                    'Municipio' => $this->municipio,
-                    'Estado' => true,
-                    'Tipo_pago' => (int) $this->tipoPago,
-                ]);
-            });
+    public function updatedAbonarDolares(): void
+    {
+        if (trim($this->abonarDolares) === '') {
+            $this->abonarDolares = '0.00';
+        }
 
-            $this->limpiarFormulario();
-            $this->cargarClientes();
+        $this->calcularCambio();
+    }
 
-            $this->success(
-                'Cliente registrado correctamente.',
-                position: 'toast-top toast-end',
-                timeout: 2500
-            );
-        } catch (\Throwable $e) {
-            report($e);
+    public function updatedTasaCambio(): void
+    {
+        $this->tasaCambio = self::TASA_CAMBIO_FIJA;
+        $this->calcularCambio();
+    }
 
-            $this->error(
-                'No se pudo registrar el cliente.',
-                'Revise los datos e intente nuevamente.',
-                position: 'toast-top toast-end',
-                timeout: 3500
-            );
+    public function updatedFiltroSaldoFavor(): void
+    {
+        $this->cargarClientesSaldoFavor();
+    }
+
+    public function buscarCredito(bool $mostrarMensajes = true): void
+    {
+        $this->resetErrorBag();
+
+        $busqueda = trim($this->valorBusqueda);
+
+        if ($busqueda === '') {
+            $this->limpiarBusqueda();
+
+            if ($mostrarMensajes) {
+                $this->mostrarToast('Ingrese un cliente o número de venta para buscar.', 'error');
+            }
+
+            return;
+        }
+
+        if (! ctype_digit($busqueda) && strlen($busqueda) < 2) {
+            $this->limpiarCreditoCargado();
+
+            if ($mostrarMensajes) {
+                $this->mostrarToast('Escriba al menos 2 caracteres para buscar por cliente.', 'error');
+            }
+
+            return;
+        }
+
+        $credito = Credito::query()
+            ->with([
+                'venta.cliente.persona',
+                'clienteCredito.cliente.persona',
+            ])
+            ->where(function ($query) use ($busqueda) {
+                $query
+                    ->whereHas('venta', function ($ventaQuery) use ($busqueda) {
+                        $ventaQuery->where('Numero_Factura', 'like', "%{$busqueda}%");
+
+                        if (ctype_digit($busqueda)) {
+                            $ventaQuery->orWhere('Id_Venta', (int) $busqueda);
+                        }
+                    })
+                    ->orWhereHas('clienteCredito.cliente', function ($clienteQuery) use ($busqueda) {
+                        $this->aplicarFiltroCliente($clienteQuery, $busqueda);
+                    })
+                    ->orWhereHas('venta.cliente', function ($clienteQuery) use ($busqueda) {
+                        $this->aplicarFiltroCliente($clienteQuery, $busqueda);
+                    });
+            })
+            ->orderByRaw("
+                CASE
+                    WHEN Estado = ? THEN 1
+                    WHEN Estado = ? THEN 2
+                    WHEN Estado = ? THEN 3
+                    ELSE 4
+                END
+            ", [
+                Credito::ESTADO_PENDIENTE,
+                Credito::ESTADO_PARCIAL,
+                Credito::ESTADO_VENCIDO,
+            ])
+            ->orderByDesc('Id_Credito')
+            ->first();
+
+        if (! $credito) {
+            $this->limpiarCreditoCargado();
+            $this->valorBusqueda = $busqueda;
+
+            if ($mostrarMensajes) {
+                $this->mostrarToast('No se encontró ningún crédito con ese cliente o número de venta.', 'error');
+            }
+
+            return;
+        }
+
+        $this->cargarCreditoSeleccionado($credito);
+
+        if ($mostrarMensajes) {
+            $this->mostrarToast('Crédito cargado correctamente.');
         }
     }
 
-    private function actualizarCliente(): void
+    protected function aplicarFiltroCliente($clienteQuery, string $busqueda): void
     {
-        [$primerNombre, $segundoNombre] = $this->separarEnDosPartes($this->nombre);
-        [$primerApellido, $segundoApellido] = $this->separarEnDosPartes($this->apellido);
+        $like = "%{$busqueda}%";
 
-        try {
-            DB::transaction(function () use ($primerNombre, $segundoNombre, $primerApellido, $segundoApellido) {
-                $cliente = Cliente::with('persona')->findOrFail($this->clienteEditandoId);
+        $terminos = collect(preg_split('/\s+/', trim($busqueda)))
+            ->filter(fn ($valor) => filled($valor))
+            ->values();
 
-                $cliente->persona->update([
-                    'Primer_Nombre' => $primerNombre,
-                    'Segundo_Nombre' => $segundoNombre,
-                    'Primer_Apellido' => $primerApellido,
-                    'Segundo_Apellido' => $segundoApellido,
-                    'Correo' => $this->correo,
-                    'Direccion' => $this->direccion,
-                    'Telefono' => $this->telefono,
-                ]);
+        $clienteQuery->where(function ($query) use ($like, $terminos) {
+            $query
+                ->where('Institucion', 'like', $like)
+                ->orWhereHas('persona', function ($personaQuery) use ($terminos) {
+                    $personaQuery->where(function ($nombreQuery) use ($terminos) {
+                        foreach ($terminos as $termino) {
+                            $token = "%{$termino}%";
 
-                $cliente->update([
-                    'Tipo_Cliente' => (int) $this->tipoCliente,
-                    'Institucion' => (int) $this->tipoCliente === 2 ? $this->institucion : null,
-                    'Municipio' => $this->municipio,
-                    'Tipo_pago' => (int) $this->tipoPago,
-                ]);
-            });
-
-            $this->limpiarFormulario();
-            $this->cargarClientes();
-
-            $this->success(
-                'Cliente actualizado correctamente.',
-                position: 'toast-top toast-end',
-                timeout: 2500
-            );
-        } catch (\Throwable $e) {
-            report($e);
-
-            $this->error(
-                'No se pudo actualizar el cliente.',
-                'Revise los datos e intente nuevamente.',
-                position: 'toast-top toast-end',
-                timeout: 3500
-            );
-        }
+                            $nombreQuery->where(function ($tokenQuery) use ($token) {
+                                $tokenQuery
+                                    ->where('Primer_Nombre', 'like', $token)
+                                    ->orWhere('Segundo_Nombre', 'like', $token)
+                                    ->orWhere('Primer_Apellido', 'like', $token)
+                                    ->orWhere('Segundo_Apellido', 'like', $token);
+                            });
+                        }
+                    });
+                });
+        });
     }
 
-    public function cargarCliente(int $clienteId): void
+    public function registrarPago(): void
     {
-        $cliente = Cliente::with('persona')->findOrFail($clienteId);
+        $this->resetErrorBag();
 
-        $persona = $cliente->persona;
+        $this->fechaPago = now()->toDateString();
+        $this->tasaCambio = self::TASA_CAMBIO_FIJA;
 
-        $this->clienteEditandoId = $cliente->Id_Cliente;
-        $this->personaEditandoId = $persona?->Id_Persona;
+        $datos = $this->validate(
+            [
+                'idCreditoSeleccionado' => 'required|integer|exists:credito,Id_Credito',
+                'abonarCordobas' => 'nullable|numeric|min:0',
+                'abonarDolares' => 'nullable|numeric|min:0',
+                'tasaCambio' => 'nullable|numeric|min:0',
+                'metodoPago' => 'required|in:efectivo,transferencia,tarjeta,deposito',
+                'referenciaPago' => 'nullable|string|max:100',
+                'fechaPago' => 'required|date|before_or_equal:today',
+                'observacion' => 'nullable|string|max:300',
+            ],
+            [
+                'idCreditoSeleccionado.required' => 'Debe buscar y seleccionar un crédito.',
+                'idCreditoSeleccionado.exists' => 'El crédito seleccionado no existe.',
 
-        $this->nombre = trim(implode(' ', array_filter([
-            $persona?->Primer_Nombre,
-            $persona?->Segundo_Nombre,
-        ])));
+                'abonarCordobas.numeric' => 'El abono en córdobas debe ser numérico.',
+                'abonarCordobas.min' => 'El abono en córdobas no puede ser negativo.',
 
-        $this->apellido = trim(implode(' ', array_filter([
-            $persona?->Primer_Apellido,
-            $persona?->Segundo_Apellido,
-        ])));
+                'abonarDolares.numeric' => 'El abono en dólares debe ser numérico.',
+                'abonarDolares.min' => 'El abono en dólares no puede ser negativo.',
 
-        $this->telefono = $persona?->Telefono ?? '';
-        $this->correo = $persona?->Correo;
-        $this->direccion = $persona?->Direccion;
+                'tasaCambio.numeric' => 'La tasa de cambio debe ser numérica.',
+                'tasaCambio.min' => 'La tasa de cambio no puede ser negativa.',
 
-        $this->municipio = $cliente->Municipio ?? '';
-        $this->tipoCliente = (int) $cliente->Tipo_Cliente;
-        $this->institucion = $cliente->Institucion;
-        $this->tipoPago = (int) $cliente->Tipo_pago;
+                'metodoPago.required' => 'Debe seleccionar el método de pago.',
+                'metodoPago.in' => 'El método de pago seleccionado no es válido.',
 
-        if ((int) $this->tipoCliente === 1) {
-            $this->tipoPago = 1;
-            $this->institucion = '';
+                'referenciaPago.max' => 'La referencia no debe superar los 100 caracteres.',
+
+                'fechaPago.required' => 'Debe indicar la fecha del pago.',
+                'fechaPago.date' => 'La fecha de pago no es válida.',
+                'fechaPago.before_or_equal' => 'La fecha de pago no puede ser futura.',
+
+                'observacion.max' => 'La observación no debe superar los 300 caracteres.',
+            ]
+        );
+
+        $montoCordobas = $this->normalizarDecimal($datos['abonarCordobas'] ?? 0);
+        $montoDolares = $this->normalizarDecimal($datos['abonarDolares'] ?? 0);
+        $tasaCambio = $this->normalizarDecimal(self::TASA_CAMBIO_FIJA);
+
+        if ($montoCordobas <= 0 && $montoDolares <= 0) {
+            throw ValidationException::withMessages([
+                'abonarCordobas' => 'Debe ingresar al menos un monto a abonar.',
+            ]);
         }
 
-        $this->resetValidation();
+        if ($montoDolares > 0 && $tasaCambio <= 0) {
+            throw ValidationException::withMessages([
+                'tasaCambio' => 'Debe ingresar la tasa de cambio cuando se abona en dólares.',
+            ]);
+        }
 
-        $this->info(
-            'Cliente cargado para edición.',
-            position: 'toast-top toast-end',
-            timeout: 2200
+        $creditoActualizado = null;
+        $montoAplicadoTotal = 0.0;
+        $cambio = 0.0;
+
+        DB::transaction(function () use (
+            $datos,
+            $montoCordobas,
+            $montoDolares,
+            $tasaCambio,
+            &$creditoActualizado,
+            &$montoAplicadoTotal,
+            &$cambio
+        ) {
+            $credito = Credito::query()
+                ->with([
+                    'venta',
+                    'venta.cliente.persona',
+                    'clienteCredito',
+                    'clienteCredito.cliente.persona',
+                ])
+                ->whereKey((int) $datos['idCreditoSeleccionado'])
+                ->lockForUpdate()
+                ->first();
+
+            if (! $credito) {
+                throw ValidationException::withMessages([
+                    'idCreditoSeleccionado' => 'El crédito seleccionado no existe.',
+                ]);
+            }
+
+            $abonosPrevios = $this->obtenerAbonosCredito($credito, true);
+            $saldoPendienteReal = $this->calcularSaldoPendienteReal($credito, $abonosPrevios);
+
+            if ((string) $credito->Estado === Credito::ESTADO_CANCELADO || $saldoPendienteReal <= 0) {
+                $credito->Saldo_Actual = 0;
+                $credito->Estado = Credito::ESTADO_CANCELADO;
+                $credito->save();
+
+                if ($credito->clienteCredito) {
+                    $this->sincronizarSaldoClienteCredito($credito->clienteCredito);
+                }
+
+                throw ValidationException::withMessages([
+                    'idCreditoSeleccionado' => 'Este crédito ya está cancelado.',
+                ]);
+            }
+
+            $credito->Saldo_Actual = $saldoPendienteReal;
+            $credito->Estado = $saldoPendienteReal <= 0
+                ? Credito::ESTADO_CANCELADO
+                : ((float) $credito->Abono_Inicial > 0 || $abonosPrevios->isNotEmpty()
+                    ? Credito::ESTADO_PARCIAL
+                    : Credito::ESTADO_PENDIENTE);
+            $credito->save();
+
+            $totalRecibidoCordobas = round($montoCordobas + ($montoDolares * $tasaCambio), 2);
+
+            $montoAplicadoTotal = min($totalRecibidoCordobas, $saldoPendienteReal);
+            $cambio = max($totalRecibidoCordobas - $saldoPendienteReal, 0);
+
+            $saldoRestanteParaAplicar = $montoAplicadoTotal;
+
+            if ($montoCordobas > 0 && $saldoRestanteParaAplicar > 0) {
+                $aplicadoCordobas = min($montoCordobas, $saldoRestanteParaAplicar);
+
+                $this->crearAbonoCredito(
+                    credito: $credito,
+                    moneda: AbonoCredito::MONEDA_CORDOBA,
+                    monto: $aplicadoCordobas,
+                    tipoCambio: 1,
+                    montoEquivalenteCordobas: $aplicadoCordobas,
+                    fechaPago: $datos['fechaPago'],
+                    referencia: $datos['referenciaPago'] ?? null,
+                    metodoPago: $datos['metodoPago'],
+                    observacion: $datos['observacion'] ?? null
+                );
+
+                $saldoRestanteParaAplicar = round($saldoRestanteParaAplicar - $aplicadoCordobas, 2);
+            }
+
+            if ($montoDolares > 0 && $saldoRestanteParaAplicar > 0) {
+                $montoDolaresCordobas = round($montoDolares * $tasaCambio, 2);
+                $aplicadoDolaresCordobas = min($montoDolaresCordobas, $saldoRestanteParaAplicar);
+                $aplicadoDolares = round($aplicadoDolaresCordobas / $tasaCambio, 2);
+
+                $this->crearAbonoCredito(
+                    credito: $credito,
+                    moneda: AbonoCredito::MONEDA_DOLAR,
+                    monto: $aplicadoDolares,
+                    tipoCambio: $tasaCambio,
+                    montoEquivalenteCordobas: $aplicadoDolaresCordobas,
+                    fechaPago: $datos['fechaPago'],
+                    referencia: $datos['referenciaPago'] ?? null,
+                    metodoPago: $datos['metodoPago'],
+                    observacion: $datos['observacion'] ?? null
+                );
+
+                $saldoRestanteParaAplicar = round($saldoRestanteParaAplicar - $aplicadoDolaresCordobas, 2);
+            }
+
+            $nuevoSaldoCredito = max(round($saldoPendienteReal - $montoAplicadoTotal, 2), 0);
+
+            $credito->Saldo_Actual = $nuevoSaldoCredito;
+            $credito->Estado = $nuevoSaldoCredito <= 0
+                ? Credito::ESTADO_CANCELADO
+                : Credito::ESTADO_PARCIAL;
+            $credito->save();
+
+            if ($credito->clienteCredito) {
+                $this->sincronizarSaldoClienteCredito($credito->clienteCredito);
+            }
+
+            $creditoActualizado = Credito::query()
+                ->with([
+                    'venta',
+                    'venta.cliente.persona',
+                    'clienteCredito',
+                    'clienteCredito.cliente.persona',
+                ])
+                ->whereKey($credito->Id_Credito)
+                ->first();
+        });
+
+        if ($creditoActualizado) {
+            $this->cargarCreditoSeleccionado($creditoActualizado);
+        }
+
+        $this->cambioCordobas = $this->formatoMoneda($cambio);
+
+        $this->limpiarPago(false);
+        $this->cargarClientesSaldoFavor();
+
+        $mensaje = $montoAplicadoTotal > 0
+            ? 'Pago registrado correctamente.'
+            : 'No se aplicó ningún monto al crédito.';
+
+        $this->mostrarToast($mensaje);
+    }
+
+    protected function crearAbonoCredito(
+        Credito $credito,
+        string $moneda,
+        float $monto,
+        float $tipoCambio,
+        float $montoEquivalenteCordobas,
+        string $fechaPago,
+        ?string $referencia,
+        string $metodoPago,
+        ?string $observacion
+    ): void {
+        $textoObservacion = trim(
+            'Método: ' . ucfirst($metodoPago) .
+            ($observacion ? '. ' . trim($observacion) : '')
+        );
+
+        AbonoCredito::query()->create([
+            'Id_Credito' => (int) $credito->Id_Credito,
+            'Fecha_Abono' => $fechaPago,
+            'Moneda' => $moneda,
+            'Monto' => round($monto, 2),
+            'Tipo_Cambio' => round($tipoCambio, 4),
+            'Monto_Equivalente_Cordobas' => round($montoEquivalenteCordobas, 2),
+            'Numero_Transferencia' => filled($referencia) ? trim((string) $referencia) : null,
+            'Observacion' => $textoObservacion,
+        ]);
+    }
+
+    protected function obtenerAbonosCredito(Credito $credito, bool $bloquear = false)
+    {
+        $query = AbonoCredito::query()
+            ->where('Id_Credito', (int) $credito->Id_Credito)
+            ->orderBy('Fecha_Abono')
+            ->orderBy('Id_Abono_Credito');
+
+        if ($bloquear) {
+            $query->lockForUpdate();
+        }
+
+        return $query->get();
+    }
+
+    protected function calcularTotalCreditoBase(Credito $credito, $abonos = null): float
+    {
+        $totalVenta = $this->normalizarDecimal($credito->venta?->Total ?? 0);
+
+        if ($totalVenta > 0) {
+            return round($totalVenta, 2);
+        }
+
+        $abonos = $abonos ?? $this->obtenerAbonosCredito($credito);
+
+        return round(
+            (float) $credito->Abono_Inicial
+            + (float) $credito->Saldo_Actual
+            + (float) $abonos->sum('Monto_Equivalente_Cordobas'),
+            2
         );
     }
 
-    public function cancelarEdicion(): void
+    protected function calcularSaldoPendienteReal(Credito $credito, $abonos = null): float
     {
-        $this->limpiarFormulario();
+        $abonos = $abonos ?? $this->obtenerAbonosCredito($credito);
 
-        $this->info(
-            'Edición cancelada.',
-            position: 'toast-top toast-end',
-            timeout: 2200
-        );
+        $totalVenta = $this->normalizarDecimal($credito->venta?->Total ?? 0);
+
+        if ($totalVenta > 0) {
+            return max(
+                round(
+                    $totalVenta
+                    - (float) $credito->Abono_Inicial
+                    - (float) $abonos->sum('Monto_Equivalente_Cordobas'),
+                    2
+                ),
+                0
+            );
+        }
+
+        return max(round((float) $credito->Saldo_Actual, 2), 0);
     }
 
-    public function limpiarFormulario(): void
+    protected function sincronizarSaldoClienteCredito(ClienteCredito $clienteCredito): void
     {
-        $this->reset([
-            'nombre',
-            'apellido',
-            'telefono',
-            'correo',
-            'direccion',
-            'municipio',
-            'institucion',
-            'clienteEditandoId',
-            'personaEditandoId',
+        $saldoCreditosActivos = Credito::query()
+            ->where('Id_Cliente_Credito', (int) $clienteCredito->Id_Cliente_Credito)
+            ->whereIn('Estado', [
+                Credito::ESTADO_PENDIENTE,
+                Credito::ESTADO_PARCIAL,
+                Credito::ESTADO_VENCIDO,
+            ])
+            ->sum('Saldo_Actual');
+
+        $clienteCredito->Saldo_Actual = max(round((float) $saldoCreditosActivos, 2), 0);
+        $clienteCredito->Estado = ClienteCredito::ESTADO_ACTIVO;
+        $clienteCredito->save();
+    }
+
+    protected function formatearFecha($fecha): string
+    {
+        if ($fecha === null || $fecha === '') {
+            return '—';
+        }
+
+        try {
+            return Carbon::parse($fecha)->format('d/m/Y');
+        } catch (\Throwable) {
+            return '—';
+        }
+    }
+
+    protected function cargarCreditoSeleccionado(Credito $credito): void
+    {
+        $credito->loadMissing([
+            'venta',
+            'venta.cliente.persona',
+            'clienteCredito.cliente.persona',
         ]);
 
-        $this->tipoCliente = 1;
-        $this->tipoPago = 1;
+        $abonos = $this->obtenerAbonosCredito($credito);
 
-        $this->resetValidation();
+        $cliente = $credito->clienteCredito?->cliente ?? $credito->venta?->cliente;
+
+        $saldoOriginal = $this->calcularTotalCreditoBase($credito, $abonos);
+        $saldoPendienteReal = $this->calcularSaldoPendienteReal($credito, $abonos);
+
+        $this->idCreditoSeleccionado = (int) $credito->Id_Credito;
+        $this->cliente = $this->nombreCliente($cliente);
+        $this->cedula = $this->documentoCliente($cliente);
+        $this->codigoCredito = 'CR-' . str_pad((string) $credito->Id_Credito, 5, '0', STR_PAD_LEFT);
+        $this->estadoCredito = $saldoPendienteReal <= 0
+            ? Credito::ESTADO_CANCELADO
+            : ($credito->Estado ?: Credito::ESTADO_PENDIENTE);
+        $this->fechaCredito = $this->formatearFecha($credito->Fecha_Credito);
+        $this->proximoPago = '—';
+
+        $this->saldoOriginal = $this->formatoMoneda($saldoOriginal);
+        $this->saldoPendiente = $this->formatoMoneda($saldoPendienteReal);
+
+        $this->detalleCredito = $this->mapearDetalleCredito($credito, $abonos);
+        $this->calcularCambio();
     }
 
-    public function cargarClientes(): void
+    protected function mapearDetalleCredito(Credito $credito, $abonos = null): array
     {
-        $busqueda = trim($this->buscar);
+        $filas = [];
 
-        $this->clientes = Cliente::query()
-            ->with('persona')
-            ->when($busqueda !== '', function ($query) use ($busqueda) {
-                $query->where(function ($subQuery) use ($busqueda) {
-                    $subQuery
-                        ->where('Institucion', 'like', "%{$busqueda}%")
-                        ->orWhere('Municipio', 'like', "%{$busqueda}%")
-                        ->orWhereHas('persona', function ($personaQuery) use ($busqueda) {
-                            $personaQuery
-                                ->where('Primer_Nombre', 'like', "%{$busqueda}%")
-                                ->orWhere('Segundo_Nombre', 'like', "%{$busqueda}%")
-                                ->orWhere('Primer_Apellido', 'like', "%{$busqueda}%")
-                                ->orWhere('Segundo_Apellido', 'like', "%{$busqueda}%")
-                                ->orWhere('Telefono', 'like', "%{$busqueda}%")
-                                ->orWhere('Correo', 'like', "%{$busqueda}%");
-                        });
-                });
-            })
-            ->orderByDesc('Id_Cliente')
+        if ((float) $credito->Abono_Inicial > 0) {
+            $filas[] = [
+                'numero' => 1,
+                'fecha_pago' => $this->formatearFecha($credito->Fecha_Credito),
+                'monto' => 'C$ ' . $this->formatoMoneda((float) $credito->Abono_Inicial),
+                'moneda' => 'NIO',
+                'referencia' => 'Abono inicial',
+                'observacion' => 'Pago inicial registrado al crear el crédito',
+                'estado' => 'Inicial',
+            ];
+        }
+
+        $abonos = $abonos ?? $this->obtenerAbonosCredito($credito);
+
+        $numero = count($filas) + 1;
+
+        foreach ($abonos as $abono) {
+            $filas[] = [
+                'numero' => $numero++,
+                'fecha_pago' => $this->formatearFecha($abono->Fecha_Abono),
+                'monto' => 'C$ ' . $this->formatoMoneda((float) $abono->Monto_Equivalente_Cordobas),
+                'moneda' => $abono->moneda_nombre ?? (string) $abono->Moneda,
+                'referencia' => $abono->Numero_Transferencia ?: '—',
+                'observacion' => $abono->Observacion ?: '—',
+                'estado' => 'Abono',
+            ];
+        }
+
+        return $filas;
+    }
+
+    protected function cargarClientesSaldoFavor(): void
+    {
+        $filtro = trim($this->filtroSaldoFavor);
+
+        $query = ClienteCredito::query()
+            ->with(['cliente.persona'])
+            ->where('Saldo_Actual', '<', 0)
+            ->orderBy('Saldo_Actual');
+
+        if ($filtro !== '') {
+            $query->whereHas('cliente', function ($clienteQuery) use ($filtro) {
+                $clienteQuery->where('Institucion', 'like', "%{$filtro}%")
+                    ->orWhereHas('persona', function ($personaQuery) use ($filtro) {
+                        $personaQuery->where('Primer_Nombre', 'like', "%{$filtro}%")
+                            ->orWhere('Segundo_Nombre', 'like', "%{$filtro}%")
+                            ->orWhere('Primer_Apellido', 'like', "%{$filtro}%")
+                            ->orWhere('Segundo_Apellido', 'like', "%{$filtro}%")
+                            ->orWhere('Telefono', 'like', "%{$filtro}%");
+                    });
+            });
+        }
+
+        $this->clientesSaldoFavor = $query
+            ->limit(15)
             ->get()
-            ->map(function (Cliente $cliente) {
-                $persona = $cliente->persona;
-
-                $nombreCompleto = trim(implode(' ', array_filter([
-                    $persona?->Primer_Nombre,
-                    $persona?->Segundo_Nombre,
-                    $persona?->Primer_Apellido,
-                    $persona?->Segundo_Apellido,
-                ])));
-
+            ->map(function ($clienteCredito) {
                 return [
-                    'id' => $cliente->Id_Cliente,
-                    'codigo' => $cliente->Id_Cliente,
-                    'full_name' => $nombreCompleto !== '' ? $nombreCompleto : 'Sin nombre',
-                    'telefono' => $persona?->Telefono ?: 'Sin teléfono',
-                    'correo' => $persona?->Correo ?: 'No registrado',
-                    'municipio' => $cliente->Municipio ?: 'No registrado',
-                    'tipo_cliente' => $this->obtenerNombreTipoCliente($cliente->Tipo_Cliente),
-                    'tipo_pago' => $this->obtenerNombreTipoPago($cliente->Tipo_pago),
-                    'estado' => $cliente->Estado ? 'Activo' : 'Inactivo',
+                    'cliente' => $this->nombreCliente($clienteCredito->cliente),
+                    'documento' => $this->documentoCliente($clienteCredito->cliente),
+                    'saldo' => 'C$ ' . $this->formatoMoneda(abs((float) $clienteCredito->Saldo_Actual)),
                 ];
             })
             ->toArray();
     }
 
-    private function normalizarCampos(): void
+    public function limpiarBusqueda(): void
     {
-        $this->nombre = $this->limpiarTextoObligatorio($this->nombre);
-        $this->apellido = $this->limpiarTextoObligatorio($this->apellido);
-        $this->telefono = $this->limpiarTextoObligatorio($this->telefono);
-        $this->municipio = $this->limpiarTextoObligatorio($this->municipio);
+        $this->valorBusqueda = '';
+        $this->limpiarCreditoCargado();
+    }
 
-        $this->correo = $this->limpiarTextoOpcional($this->correo);
-        $this->direccion = $this->limpiarTextoOpcional($this->direccion);
-        $this->institucion = $this->limpiarTextoOpcional($this->institucion);
+    protected function limpiarCreditoCargado(): void
+    {
+        $this->reset([
+            'idCreditoSeleccionado',
+            'cliente',
+            'cedula',
+            'codigoCredito',
+            'fechaCredito',
+            'proximoPago',
+            'detalleCredito',
+        ]);
 
-        $this->tipoCliente = (int) $this->tipoCliente;
-        $this->tipoPago = (int) $this->tipoPago;
+        $this->estadoCredito = Credito::ESTADO_PENDIENTE;
+        $this->saldoOriginal = '0.00';
+        $this->saldoPendiente = '0.00';
 
-        if ((int) $this->tipoCliente === 1) {
-            $this->tipoPago = 1;
-            $this->institucion = null;
+        $this->limpiarPago();
+    }
+
+    public function limpiarPago(bool $limpiarCambio = true): void
+    {
+        $this->reset([
+            'abonarCordobas',
+            'abonarDolares',
+            'tasaCambio',
+            'referenciaPago',
+            'observacion',
+        ]);
+
+        $this->abonarCordobas = '0.00';
+        $this->abonarDolares = '0.00';
+        $this->tasaCambio = self::TASA_CAMBIO_FIJA;
+        $this->fechaPago = now()->toDateString();
+
+        if ($limpiarCambio) {
+            $this->cambioCordobas = '0.00';
+        }
+    }
+
+    protected function calcularCambio(): void
+    {
+        $saldo = $this->normalizarDecimal($this->saldoPendiente);
+        $cordobas = $this->normalizarDecimal($this->abonarCordobas);
+        $dolares = $this->normalizarDecimal($this->abonarDolares);
+        $tasa = $this->normalizarDecimal($this->tasaCambio);
+
+        $total = $cordobas + ($dolares * $tasa);
+        $cambio = max($total - $saldo, 0);
+
+        $this->cambioCordobas = $this->formatoMoneda($cambio);
+    }
+
+    protected function nombreCliente($cliente): string
+    {
+        if (! $cliente) {
+            return 'Sin cliente vinculado';
         }
 
-        if ($this->correo !== null) {
-            $this->correo = mb_strtolower($this->correo);
+        if (filled($cliente->Institucion ?? null)) {
+            return trim((string) $cliente->Institucion);
         }
+
+        $persona = $cliente->persona ?? null;
+
+        if (! $persona) {
+            return 'Cliente sin persona vinculada';
+        }
+
+        $nombre = collect([
+            $persona->Primer_Nombre ?? null,
+            $persona->Segundo_Nombre ?? null,
+            $persona->Primer_Apellido ?? null,
+            $persona->Segundo_Apellido ?? null,
+        ])
+            ->filter(fn ($valor) => filled($valor))
+            ->implode(' ');
+
+        return $nombre !== '' ? $nombre : 'Sin nombre registrado';
     }
 
-    private function limpiarTextoObligatorio(?string $valor): string
+    protected function documentoCliente($cliente): string
     {
-        return trim(preg_replace('/\s+/', ' ', (string) $valor));
+        if (! $cliente) {
+            return 'Sin documento';
+        }
+
+        if (filled($cliente->Cedula ?? null)) {
+            return (string) $cliente->Cedula;
+        }
+
+        if (filled($cliente->RUC ?? null)) {
+            return (string) $cliente->RUC;
+        }
+
+        if (filled($cliente->persona?->Telefono ?? null)) {
+            return (string) $cliente->persona->Telefono;
+        }
+
+        return 'Sin documento';
     }
 
-    private function limpiarTextoOpcional(?string $valor): ?string
+    protected function normalizarDecimal($valor): float
     {
-        $valor = trim(preg_replace('/\s+/', ' ', (string) $valor));
+        $valor = (string) $valor;
+        $valor = str_replace(',', '', $valor);
+        $valor = trim($valor);
 
-        return $valor === '' ? null : $valor;
+        return is_numeric($valor) ? round((float) $valor, 4) : 0.0;
     }
 
-    private function separarEnDosPartes(string $valor): array
+    protected function formatoMoneda(float $valor): string
     {
-        $partes = preg_split('/\s+/', trim($valor), 2, PREG_SPLIT_NO_EMPTY);
-
-        return [
-            $partes[0] ?? null,
-            $partes[1] ?? null,
-        ];
+        return number_format($valor, 2, '.', ',');
     }
 
-    private function obtenerNombreTipoCliente(int|string|null $tipo): string
+    protected function mostrarToast(string $mensaje, string $tipo = 'success'): void
     {
-        return (int) $tipo === 2 ? 'Institucional' : 'Natural';
+        $this->toastMensaje = $mensaje;
+        $this->toastTipo = $tipo;
+        $this->mostrarToast = true;
     }
 
-    private function obtenerNombreTipoPago(int|string|null $tipo): string
+    public function cerrarToast(): void
     {
-        return (int) $tipo === 2 ? 'Crédito' : 'Contado';
+        $this->mostrarToast = false;
+        $this->toastMensaje = '';
+        $this->toastTipo = 'success';
     }
 };
 ?>
 
-<div class="min-h-screen bg-[#F0F3F7] p-4 md:p-6 space-y-6">
-    <div>
-        <h1 class="text-3xl font-bold text-[#1A2B42]">Clientes</h1>
-        <p class="mt-1 text-sm text-[#5F6B7A]">
-            Registro y gestión de clientes del sistema.
-        </p>
-    </div>
+@php
+    $fieldClass = 'rounded-xl border-[#D7E4F3] bg-white text-[#1A2B42] placeholder:text-[#8A97A8] disabled:bg-[#EEF3F8] disabled:text-[#8A97A8] [&_.fieldset-legend]:text-[#1A2B42] [&_.label]:text-[#1A2B42] [&_label]:text-[#1A2B42]';
 
-    {{-- Formulario --}}
-    <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-        <x-form wire:submit="guardarCliente" no-separator>
-            <div class="mb-6 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                <div>
-                    <h2 class="text-2xl font-bold text-[#1A2B42]">
-                        {{ $clienteEditandoId ? 'Actualizar cliente' : 'Registrar cliente' }}
-                    </h2>
-                    <p class="text-base text-[#5F6B7A]">
-                        {{ $clienteEditandoId
-                            ? 'Modifique los datos del cliente seleccionado.'
-                            : 'Ingrese los datos del cliente. El correo y la dirección son opcionales.' }}
-                    </p>
-                </div>
+    $readonlyFieldClass = 'rounded-xl border-[#D7E4F3] bg-[#EEF3F8] font-semibold text-[#1A2B42] [&_.fieldset-legend]:text-[#1A2B42] [&_.label]:text-[#1A2B42] [&_label]:text-[#1A2B42]';
 
-                @if ($clienteEditandoId)
-                    <div class="rounded-xl border border-[#D7E4F3] bg-[#EAF2FB] px-4 py-2 text-sm font-semibold text-[#1A2B42]">
-                        Editando cliente #{{ $clienteEditandoId }}
+    $cardClass = 'border border-[#D7E4F3] bg-white shadow-sm [&_.text-base-content\\/70]:text-[#5F6B7A] [&_.text-sm]:text-[#5F6B7A] [&_.text-base-content]:text-[#1A2B42] [&_.card-title]:text-[#1A2B42] [&_label]:text-[#1A2B42] [&_.fieldset-legend]:text-[#1A2B42]';
+
+    $primaryButtonClass = 'btn-sm border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4] disabled:border-0 disabled:bg-[#B8CADB] disabled:text-white';
+
+    $secondaryButtonClass = 'btn-sm border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7] disabled:bg-[#EEF3F8] disabled:text-[#8A97A8]';
+
+    $pagoBloqueado = $idCreditoSeleccionado === 0
+        || $estadoCredito === \App\Models\Credito::ESTADO_CANCELADO
+        || (float) str_replace(',', '', $saldoPendiente) <= 0;
+
+    $estadoClass = $estadoCredito === \App\Models\Credito::ESTADO_CANCELADO
+        ? 'bg-green-100 text-green-700'
+        : ($estadoCredito === \App\Models\Credito::ESTADO_VENCIDO
+            ? 'bg-red-100 text-red-700'
+            : 'bg-[#EAF4FD] text-[#0B6FE4]');
+
+    $textoBusqueda = trim($valorBusqueda) === ''
+        ? 'Escribe el nombre del cliente, institución o número de venta.'
+        : ($idCreditoSeleccionado > 0
+            ? 'Crédito cargado automáticamente.'
+            : 'Sin coincidencias cargadas todavía.');
+@endphp
+
+<div class="flex h-[calc(100vh-3rem)] min-h-0 w-full flex-col gap-4 overflow-hidden bg-[#F0F3F7] px-4 py-4 md:px-6 md:py-5">
+    @if ($mostrarToast)
+        <div class="fixed right-5 top-5 z-[999] w-full max-w-sm">
+            <div
+                class="{{ $toastTipo === 'success'
+                    ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#1A2B42]'
+                    : 'border-red-200 bg-red-50 text-red-700' }} rounded-2xl border px-4 py-4 shadow-lg"
+            >
+                <div class="flex items-start justify-between gap-3">
+                    <div class="flex gap-3">
+                        <div
+                            class="{{ $toastTipo === 'success'
+                                ? 'bg-[#2E8BC0]'
+                                : 'bg-red-500' }} mt-0.5 h-2.5 w-2.5 rounded-full"
+                        ></div>
+
+                        <p class="text-sm font-semibold">{{ $toastMensaje }}</p>
                     </div>
-                @endif
-            </div>
 
-            <div class="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-                <div>
-                    <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                        Nombre
-                    </label>
-                    <x-input
-                        wire:model.blur="nombre"
-                        placeholder="Ej: Daniel Antonio"
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
-                    @error('nombre')
-                        <p class="mt-1 text-xs font-semibold text-red-600">{{ $message }}</p>
-                    @enderror
+                    <button
+                        type="button"
+                        wire:click="cerrarToast"
+                        class="text-lg leading-none text-[#5F6B7A] hover:text-[#1A2B42]"
+                    >
+                        ×
+                    </button>
                 </div>
-
-                <div>
-                    <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                        Apellido
-                    </label>
-                    <x-input
-                        wire:model.blur="apellido"
-                        placeholder="Ej: López Pérez"
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
-                    @error('apellido')
-                        <p class="mt-1 text-xs font-semibold text-red-600">{{ $message }}</p>
-                    @enderror
-                </div>
-
-                <div>
-                    <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                        Teléfono
-                    </label>
-                    <x-input
-                        wire:model.blur="telefono"
-                        placeholder="Ej: +505 8888 8888"
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
-                    @error('telefono')
-                        <p class="mt-1 text-xs font-semibold text-red-600">{{ $message }}</p>
-                    @enderror
-                </div>
-
-                <div>
-                    <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                        Correo electrónico
-                    </label>
-                    <x-input
-                        wire:model.blur="correo"
-                        placeholder="cliente@correo.com (opcional)"
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
-                    @error('correo')
-                        <p class="mt-1 text-xs font-semibold text-red-600">{{ $message }}</p>
-                    @enderror
-                </div>
-
-                <div>
-                    <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                        Municipio
-                    </label>
-                    <x-input
-                        wire:model.blur="municipio"
-                        placeholder="Ingrese el municipio"
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
-                    @error('municipio')
-                        <p class="mt-1 text-xs font-semibold text-red-600">{{ $message }}</p>
-                    @enderror
-                </div>
-
-                <div>
-                    <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                        Tipo de cliente
-                    </label>
-                    <x-select
-                        wire:model.live="tipoCliente"
-                        :options="$tiposCliente"
-                        option-value="id"
-                        option-label="name"
-                        placeholder="Seleccione el tipo"
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                    />
-                    @error('tipoCliente')
-                        <p class="mt-1 text-xs font-semibold text-red-600">{{ $message }}</p>
-                    @enderror
-                </div>
-
-                @if ((int) $tipoCliente === 2)
-                    <div>
-                        <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                            Institución
-                        </label>
-                        <x-input
-                            wire:model.blur="institucion"
-                            placeholder="Nombre de la institución"
-                            class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                        />
-                        @error('institucion')
-                            <p class="mt-1 text-xs font-semibold text-red-600">{{ $message }}</p>
-                        @enderror
-                    </div>
-                @endif
-
-                <div>
-                    <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                        Tipo de pago
-                    </label>
-                    <x-select
-                        wire:model="tipoPago"
-                        :options="(int) $tipoCliente === 1 ? $tiposPagoNatural : $tiposPago"
-                        option-value="id"
-                        option-label="name"
-                        placeholder="Seleccione el tipo de pago"
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                    />
-                    <p class="mt-1 text-xs font-medium text-[#5F6B7A]">
-                        {{ (int) $tipoCliente === 1
-                            ? 'Los clientes naturales solo pueden pagar de contado.'
-                            : 'Los clientes institucionales pueden pagar de contado o crédito.' }}
-                    </p>
-                    @error('tipoPago')
-                        <p class="mt-1 text-xs font-semibold text-red-600">{{ $message }}</p>
-                    @enderror
-                </div>
-
-                <div class="md:col-span-2 xl:col-span-3">
-                    <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                        Dirección
-                    </label>
-                    <x-textarea
-                        wire:model.blur="direccion"
-                        placeholder="Ingrese la dirección del cliente (opcional)"
-                        rows="3"
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
-                    @error('direccion')
-                        <p class="mt-1 text-xs font-semibold text-red-600">{{ $message }}</p>
-                    @enderror
-                </div>
-            </div>
-
-            <x-slot:actions>
-                <div class="flex w-full flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                    @if ($clienteEditandoId)
-                        <x-button
-                            type="button"
-                            label="Cancelar edición"
-                            wire:click="cancelarEdicion"
-                            class="rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB]"
-                        />
-                    @else
-                        <x-button
-                            type="button"
-                            label="Limpiar"
-                            wire:click="limpiarFormulario"
-                            class="rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB]"
-                        />
-                    @endif
-
-                    <x-button
-                        type="submit"
-                        label="{{ $clienteEditandoId ? 'Actualizar datos' : 'Guardar cliente' }}"
-                        spinner="guardarCliente"
-                        class="rounded-xl border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4] focus:ring-2 focus:ring-[#0E48A1]/30"
-                    />
-                </div>
-            </x-slot:actions>
-        </x-form>
-    </x-card>
-
-    {{-- Tabla --}}
-    <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-        <div class="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-                <h2 class="text-2xl font-bold text-[#1A2B42]">Listado de clientes</h2>
-                <p class="text-sm text-[#5F6B7A]">
-                    Consulte, cargue y actualice clientes registrados.
-                </p>
-            </div>
-
-            <div class="w-full lg:max-w-sm">
-                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    Buscar cliente
-                </label>
-                <x-input
-                    wire:model.live.debounce.350ms="buscar"
-                    placeholder="Buscar por nombre, teléfono, correo o municipio"
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                />
             </div>
         </div>
+    @endif
 
-        @if (count($clientes) > 0)
-            <div class="overflow-x-auto rounded-2xl">
-                <x-table
-                    :headers="$headers"
-                    :rows="$clientes"
-                    class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr:hover]:!bg-[#EAF2FB] [&_tbody_tr:hover_td]:!bg-[#EAF2FB] [&_tbody_tr:hover_td]:!text-[#1A2B42]"
-                >
-                    @scope('actions', $cliente)
-                        <div class="flex justify-end">
+    <div class="flex shrink-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-[#1A2B42]">Gestión de Créditos</h1>
+            <p class="text-sm text-[#5F6B7A]">
+                Busca, consulta y registra pagos sin brincar entre pantallas.
+            </p>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <span
+                class="{{ $idCreditoSeleccionado > 0
+                    ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#0B6FE4]'
+                    : 'border-[#D7E4F3] bg-white text-[#5F6B7A]' }} hidden rounded-full border px-3 py-1.5 text-xs font-semibold md:inline-flex"
+            >
+                {{ $idCreditoSeleccionado > 0 ? $codigoCredito : 'Sin crédito seleccionado' }}
+            </span>
+
+            <x-button
+                label="Limpiar"
+                icon="o-arrow-path"
+                wire:click="limpiarBusqueda"
+                class="{{ $secondaryButtonClass }}"
+            />
+        </div>
+    </div>
+
+    <div class="grid min-h-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div class="flex min-h-0 flex-col gap-4 overflow-hidden">
+            <x-card
+                title="Búsqueda automática"
+                subtitle="Filtra por cliente, institución o número de venta/factura."
+                shadow
+                separator
+                class="{{ $cardClass }}"
+            >
+                <x-form wire:submit="buscarCredito" no-separator>
+                    <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+                        <x-input
+                            label="Cliente o número de venta"
+                            wire:model.live.debounce.350ms="valorBusqueda"
+                            placeholder="Ej: Juan Pérez, Comercial Norte o FV-00025"
+                            icon="o-magnifying-glass"
+                            class="{{ $fieldClass }}"
+                        />
+
+                        <div class="flex items-end">
                             <x-button
-                                icon="o-pencil-square"
-                                wire:click="cargarCliente({{ $cliente['id'] }})"
-                                spinner="cargarCliente({{ $cliente['id'] }})"
-                                title="Cargar cliente"
-                                aria-label="Cargar cliente"
-                                class="btn-sm rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB] hover:text-[#0B6FE4]"
+                                type="button"
+                                icon="o-x-mark"
+                                wire:click="limpiarBusqueda"
+                                class="{{ $secondaryButtonClass }} h-10 w-full lg:w-11"
                             />
                         </div>
-                    @endscope
-                </x-table>
-            </div>
-        @else
-            <div class="rounded-2xl border border-dashed border-[#D7E4F3] bg-[#F0F3F7] px-4 py-8 text-center">
-                <p class="text-base font-semibold text-[#1A2B42]">
-                    No hay clientes registrados.
-                </p>
-                <p class="mt-1 text-sm text-[#5F6B7A]">
-                    Cuando registres un cliente, aparecerá en este listado.
-                </p>
-            </div>
-        @endif
-    </x-card>
+                    </div>
+
+                    <div class="mt-2 flex items-center justify-between gap-3 text-xs">
+                        <span class="text-[#5F6B7A]" wire:loading.remove wire:target="valorBusqueda">
+                            {{ $textoBusqueda }}
+                        </span>
+
+                        <span class="inline-flex items-center gap-2 font-semibold text-[#0B6FE4]" wire:loading wire:target="valorBusqueda">
+                            <span class="loading loading-spinner loading-xs"></span>
+                            Buscando...
+                        </span>
+
+                        @if ($idCreditoSeleccionado > 0)
+                            <span class="hidden rounded-full bg-[#F0F3F7] px-2.5 py-1 font-semibold text-[#1A2B42] sm:inline-flex">
+                                Venta cargada
+                            </span>
+                        @endif
+                    </div>
+                </x-form>
+
+                <div class="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
+                    <div class="min-w-0 rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Cliente</p>
+                        <p class="mt-1 truncate text-sm font-bold text-[#1A2B42]">{{ $cliente ?: '—' }}</p>
+                        <p class="mt-1 truncate text-xs text-[#5F6B7A]">{{ $cedula ?: 'Sin documento cargado' }}</p>
+                    </div>
+
+                    <div class="min-w-0 rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Crédito</p>
+                        <p class="mt-1 truncate text-sm font-bold text-[#1A2B42]">{{ $codigoCredito ?: '—' }}</p>
+                        <p class="mt-1 text-xs text-[#5F6B7A]">Fecha crédito: {{ $fechaCredito ?: '—' }}</p>
+                    </div>
+
+                    <div class="min-w-0 rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Saldo original</p>
+                        <p class="mt-1 truncate text-base font-black text-[#1A2B42]">C$ {{ $saldoOriginal }}</p>
+                        <p class="mt-1 text-xs text-[#5F6B7A]">Total del crédito</p>
+                    </div>
+
+                    <div class="min-w-0 overflow-hidden rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
+                        <div class="flex min-w-0 items-start justify-between gap-2">
+                            <div class="min-w-0">
+                                <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Pendiente</p>
+                                <p class="mt-1 truncate text-base font-black text-[#1A2B42]">
+                                    C$ {{ $saldoPendiente }}
+                                </p>
+                            </div>
+
+                            <span
+                                class="{{ $estadoClass }} block max-w-[86px] shrink-0 truncate rounded-full px-2.5 py-1 text-center text-xs font-bold"
+                                title="{{ $estadoCredito }}"
+                            >
+                                {{ ucfirst(strtolower($estadoCredito)) }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </x-card>
+
+            <x-card
+                title="Detalle del crédito"
+                subtitle="Abono inicial, pagos aplicados e historial."
+                shadow
+                separator
+                class="flex min-h-0 flex-1 flex-col {{ $cardClass }}"
+            >
+                <div class="min-h-[230px] max-h-[360px] overflow-hidden rounded-2xl border border-[#D7E4F3]">
+                    <div class="h-full max-h-[360px] overflow-auto overscroll-contain">
+                        <x-table
+                            :headers="$headersDetalle"
+                            :rows="$detalleCredito"
+                            no-hover
+                            class="min-w-[960px] [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_td]:border-[#D7E4F3] [&_tbody_td]:text-[#1A2B42] [&_tbody_tr:hover]:!bg-[#EAF4FD]"
+                        >
+                            @scope('cell_estado', $fila)
+                                <span
+                                    class="{{ $fila['estado'] === 'Inicial'
+                                        ? 'bg-blue-100 text-blue-700'
+                                        : 'bg-green-100 text-green-700' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold"
+                                >
+                                    {{ $fila['estado'] }}
+                                </span>
+                            @endscope
+
+                            @scope('cell_observacion', $fila)
+                                <span class="block max-w-[260px] truncate" title="{{ $fila['observacion'] }}">
+                                    {{ $fila['observacion'] }}
+                                </span>
+                            @endscope
+
+                            @scope('cell_referencia', $fila)
+                                <span class="block max-w-[160px] truncate" title="{{ $fila['referencia'] }}">
+                                    {{ $fila['referencia'] }}
+                                </span>
+                            @endscope
+                        </x-table>
+                    </div>
+                </div>
+
+                @if (! count($detalleCredito))
+                    <div class="mt-3 rounded-2xl border border-dashed border-[#D7E4F3] bg-[#F8FAFC] px-4 py-6 text-center text-sm font-medium text-[#5F6B7A]">
+                        Busca un cliente o número de venta para cargar el historial del crédito.
+                    </div>
+                @endif
+            </x-card>
+        </div>
+
+        <aside class="flex min-h-0 flex-col gap-4 overflow-hidden xl:sticky xl:top-4 xl:max-h-[calc(100vh-5rem)]">
+            <x-card
+                title="Registrar pago"
+                subtitle="La fecha se asigna automáticamente al guardar el pago."
+                shadow
+                separator
+                class="{{ $cardClass }}"
+            >
+                @if ($idCreditoSeleccionado === 0)
+                    <div class="mb-3 rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] px-3 py-3 text-sm font-medium text-[#5F6B7A]">
+                        Primero busca un cliente o número de venta. Luego se habilita el pago.
+                    </div>
+                @elseif ($pagoBloqueado)
+                    <div class="mb-3 rounded-2xl border border-green-200 bg-green-50 px-3 py-3 text-sm font-medium text-green-700">
+                        Este crédito no tiene saldo pendiente para pagar.
+                    </div>
+                @endif
+
+                <x-form wire:submit="registrarPago" no-separator>
+                    <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
+                        <x-input
+                            label="Saldo pendiente"
+                            wire:model="saldoPendiente"
+                            prefix="C$"
+                            readonly
+                            class="{{ $readonlyFieldClass }}"
+                        />
+
+                        <x-input
+                            label="Cambio"
+                            wire:model="cambioCordobas"
+                            prefix="C$"
+                            readonly
+                            class="rounded-xl border-[#D7E4F3] bg-[#EEF3F8] font-black text-[#1C7C45] [&_.fieldset-legend]:text-[#1A2B42] [&_.label]:text-[#1A2B42] [&_label]:text-[#1A2B42]"
+                        />
+
+                        <x-input
+                            label="Abonar en C$"
+                            wire:model.live.debounce.250ms="abonarCordobas"
+                            prefix="C$"
+                            :disabled="$pagoBloqueado"
+                            x-on:focus="$event.target.select()"
+                            x-on:mouseup.prevent
+                            class="{{ $fieldClass }}"
+                        />
+
+                        <x-input
+                            label="Abonar en US$"
+                            wire:model.live.debounce.250ms="abonarDolares"
+                            prefix="US$"
+                            :disabled="$pagoBloqueado"
+                            x-on:focus="$event.target.select()"
+                            x-on:mouseup.prevent
+                            class="{{ $fieldClass }}"
+                        />
+
+                        <x-select
+                            label="Método"
+                            wire:model="metodoPago"
+                            :options="$metodosPagoOptions"
+                            option-value="id"
+                            option-label="name"
+                            :disabled="$pagoBloqueado"
+                            class="{{ $fieldClass }}"
+                        />
+
+                        <x-input
+                            label="Tasa fija"
+                            wire:model="tasaCambio"
+                            prefix="C$"
+                            readonly
+                            class="{{ $readonlyFieldClass }}"
+                        />
+
+                        <x-input
+                            label="Referencia"
+                            wire:model="referenciaPago"
+                            placeholder="Voucher, recibo o transferencia"
+                            :disabled="$pagoBloqueado"
+                            class="{{ $fieldClass }} md:col-span-2"
+                        />
+                    </div>
+
+                    <div class="mt-3">
+                        <x-textarea
+                            label="Observación"
+                            wire:model="observacion"
+                            rows="3"
+                            placeholder="Detalle breve del pago realizado..."
+                            :disabled="$pagoBloqueado"
+                            class="{{ $fieldClass }}"
+                        />
+                    </div>
+
+                    <div class="sticky bottom-0 -mx-1 mt-4 border-t border-[#D7E4F3] bg-white/95 pt-3 backdrop-blur">
+                        <div class="grid w-full grid-cols-2 gap-2">
+                            <x-button
+                                label="Limpiar pago"
+                                type="button"
+                                icon="o-arrow-path"
+                                wire:click="limpiarPago"
+                                class="{{ $secondaryButtonClass }}"
+                                :disabled="$idCreditoSeleccionado === 0"
+                            />
+
+                            <x-button
+                                label="Guardar pago"
+                                type="submit"
+                                spinner="registrarPago"
+                                icon="o-check-circle"
+                                class="{{ $primaryButtonClass }}"
+                                :disabled="$pagoBloqueado"
+                            />
+                        </div>
+                    </div>
+                </x-form>
+            </x-card>
+
+            <x-card
+                title="Saldo a favor"
+                subtitle="Consulta rápida de clientes con saldo negativo."
+                shadow
+                separator
+                class="flex min-h-0 flex-1 flex-col {{ $cardClass }}"
+            >
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Clientes</p>
+                        <p class="mt-1 text-xl font-black text-[#1A2B42]">{{ count($clientesSaldoFavor) }}</p>
+                    </div>
+
+                    <div class="rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Saldo total</p>
+                        <p class="mt-1 text-xl font-black text-[#1A2B42]">
+                            C$
+                            {{
+                                number_format(
+                                    collect($clientesSaldoFavor)
+                                        ->sum(fn ($item) => (float) str_replace([',', 'C$'], '', $item['saldo'])),
+                                    2,
+                                    '.',
+                                    ','
+                                )
+                            }}
+                        </p>
+                    </div>
+                </div>
+
+                <div class="mt-3">
+                    <x-input
+                        label="Filtrar saldo a favor"
+                        wire:model.live.debounce.250ms="filtroSaldoFavor"
+                        placeholder="Buscar cliente..."
+                        icon="o-magnifying-glass"
+                        class="{{ $fieldClass }}"
+                    />
+                </div>
+
+                <div class="mt-3 min-h-0 flex-1 overflow-hidden rounded-2xl border border-[#D7E4F3]">
+                    <div class="h-full overflow-auto overscroll-contain">
+                        <x-table
+                            :headers="$headersSaldoFavor"
+                            :rows="$clientesSaldoFavor"
+                            no-hover
+                            class="[&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_td]:border-[#D7E4F3] [&_tbody_td]:text-[#1A2B42] [&_tbody_tr:hover]:!bg-[#EAF4FD]"
+                        />
+                    </div>
+                </div>
+
+                @if (! count($clientesSaldoFavor))
+                    <div class="mt-3 rounded-2xl border border-dashed border-[#D7E4F3] bg-[#F8FAFC] px-4 py-5 text-center text-sm font-medium text-[#5F6B7A]">
+                        No hay clientes con saldo a favor.
+                    </div>
+                @endif
+            </x-card>
+        </aside>
+    </div>
 </div>
