@@ -49,5 +49,5 @@ el elemento activo según la ruta actual
 
     <x-menu-separator />
 
-    <x-menu-item title="Salir" icon="o-arrow-left-on-rectangle" link="/login" no-wire-navigate />
+    <x-menu-item title="Salir" icon="o-arrow-left-on-rectangle" link="{{ route('logout') }}" no-wire-navigate />
 </x-menu>

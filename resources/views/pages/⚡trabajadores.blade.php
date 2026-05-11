@@ -604,7 +604,7 @@ new class extends Component
                             icon="o-plus"
                             type="button"
                             wire:click="$set('modalCargo', true)"
-                            class="mt-[1px] h-12 min-h-12 rounded-xl border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]"
+                            class="mt-px h-12 min-h-12 rounded-xl border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]"
                         />
                     </div>
 
