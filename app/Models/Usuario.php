@@ -15,10 +15,9 @@ class Usuario extends Model
     public $timestamps = false;
 
     protected $fillable = [
-        'Id_Persona',
+        'Id_Trabajador',
         'Nombre_Usuario',
         'Contraseña_Usuario',
-        'Rol',
         'Estado',
         'Token_Recuperacion',
         'Fecha_Recuperacion',
@@ -28,15 +27,26 @@ class Usuario extends Model
 
     protected $casts = [
         'Id_Usuario' => 'integer',
-        'Id_Persona' => 'integer',
+        'Id_Trabajador' => 'integer',
         'Estado' => 'integer',
         'Fecha_Recuperacion' => 'datetime',
         'Intentos_Fallidos' => 'integer',
     ];
 
-    public function persona(): BelongsTo
+    protected $hidden = [
+        'Contraseña_Usuario',
+        'Token_Recuperacion',
+    ];
+
+    /*
+    |--------------------------------------------------------------------------
+    | Relaciones
+    |--------------------------------------------------------------------------
+    */
+
+    public function trabajador(): BelongsTo
     {
-        return $this->belongsTo(Persona::class, 'Id_Persona', 'Id_Persona');
+        return $this->belongsTo(Trabajador::class, 'Id_Trabajador', 'Id_Trabajador');
     }
 
     public function compras(): HasMany
