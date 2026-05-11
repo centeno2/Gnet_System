@@ -2,6 +2,7 @@
 
 use Livewire\Component;
 use Illuminate\Support\Facades\DB;
+
 new class extends Component
 {
     public array $clientes = [];
@@ -14,7 +15,6 @@ new class extends Component
     public ?int $servicioTecnicoIdSeleccionado = null;
     public ?array $mensaje = null;
 
-    public bool $modalProducto = false;
     public bool $modalPendientes = false;
 
     public string $filtroPendientes = '';
@@ -47,6 +47,37 @@ new class extends Component
         'lleva_cartucho_toner' => false,
         'lleva_mouse_accesorios' => false,
         'observacion_checklist' => '',
+    ];
+
+    public array $checklistItems = [
+        'enciende' => 'Enciende',
+        'lleva_cargador' => 'Lleva cargador',
+        'lleva_bateria' => 'Lleva batería',
+        'pantalla_sana' => 'Pantalla sana',
+        'teclado_completo' => 'Teclado completo',
+        'touchpad_funcional' => 'Touchpad funcional',
+        'tiene_golpes_visibles' => 'Golpes visibles',
+        'tiene_humedad' => 'Humedad',
+        'tiene_sello_roto' => 'Sello roto',
+        'lleva_cable_poder' => 'Cable de poder',
+        'lleva_cartucho_toner' => 'Cartucho / tóner',
+        'lleva_mouse_accesorios' => 'Mouse / accesorios',
+    ];
+
+    public array $tiposEquipo = [
+        ['id' => 'Computadora', 'name' => 'Computadora'],
+        ['id' => 'Laptop', 'name' => 'Laptop'],
+        ['id' => 'Impresora', 'name' => 'Impresora'],
+        ['id' => 'Otro', 'name' => 'Otro'],
+    ];
+
+    public array $estadosServicio = [
+        ['id' => 'RECIBIDO', 'name' => 'Recibido'],
+        ['id' => 'EN_REVISION', 'name' => 'En revisión'],
+        ['id' => 'PENDIENTE_REPUESTO', 'name' => 'Pendiente repuesto'],
+        ['id' => 'REPARADO', 'name' => 'Reparado'],
+        ['id' => 'ENTREGADO', 'name' => 'Entregado'],
+        ['id' => 'CANCELADO', 'name' => 'Cancelado'],
     ];
 
     public ?int $productoId = null;
@@ -171,7 +202,6 @@ new class extends Component
 
     public function abrirPendientes(): void
     {
-        $this->filtroPendientes = '';
         $this->cargarPendientes();
         $this->modalPendientes = true;
     }
@@ -216,7 +246,7 @@ new class extends Component
             $this->modalPendientes = false;
         }
 
-        $this->mostrarMensaje('success', 'Pendiente cargado', 'Ya podés revisar, actualizar estado o agregar más repuestos.');
+        $this->mostrarMensaje('success', 'Pendiente cargado', 'Ya podés revisar, actualizar estado o agregar repuestos.');
     }
 
     public function nuevoIngreso(): void
@@ -239,12 +269,6 @@ new class extends Component
             ->value('p.Telefono');
 
         $this->telefonoCliente = (string) ($telefono ?? '');
-    }
-
-    public function abrirProducto(): void
-    {
-        $this->resetProductoForm();
-        $this->modalProducto = true;
     }
 
     public function updatedProductoId($value): void
@@ -381,9 +405,9 @@ new class extends Component
             'acciones' => '',
         ];
 
-        $this->modalProducto = false;
         $this->resetProductoForm();
         $this->cargarCombos();
+        $this->mostrarMensaje('success', 'Producto agregado', 'El repuesto quedó listo para guardarse con el servicio.');
     }
 
     public function quitarProducto(string $tmpId): void
@@ -391,7 +415,7 @@ new class extends Component
         $producto = collect($this->productos)->firstWhere('tmp_id', $tmpId);
 
         if ($producto && !empty($producto['ya_guardado'])) {
-            $this->mostrarMensaje('error', 'No permitido', 'Este producto ya fue descontado del inventario. Para revertirlo hay que hacer una devolución/ajuste de inventario.');
+            $this->mostrarMensaje('error', 'No permitido', 'Este producto ya fue descontado del inventario. Para revertirlo hay que hacer una devolución o ajuste de inventario.');
             return;
         }
 
@@ -437,10 +461,23 @@ new class extends Component
             $this->cargarCombos();
             $this->cargarPendientes();
             $this->mostrarMensaje('success', 'Ingreso guardado', 'El servicio técnico se registró correctamente. Orden #' . $id . '.');
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             report($e);
             $this->mostrarMensaje('error', 'No se pudo guardar', $e->getMessage());
         }
+    }
+
+    public function estadoNombre(?string $estado): string
+    {
+        return match ($estado) {
+            'RECIBIDO' => 'Recibido',
+            'EN_REVISION' => 'En revisión',
+            'PENDIENTE_REPUESTO' => 'Pendiente repuesto',
+            'REPARADO' => 'Reparado',
+            'ENTREGADO' => 'Entregado',
+            'CANCELADO' => 'Cancelado',
+            default => str_replace('_', ' ', (string) $estado),
+        };
     }
 
     private function crearServicioTecnico(): int
@@ -494,7 +531,7 @@ new class extends Component
                 ->first();
 
             if (!$servicio) {
-                throw new RuntimeException('El servicio técnico seleccionado ya no existe.');
+                throw new \RuntimeException('El servicio técnico seleccionado ya no existe.');
             }
 
             $totalRepuestos = round((float) collect($this->productos)->sum('subtotal'), 2);
@@ -648,21 +685,12 @@ new class extends Component
         $this->observacionTecnica = '';
         $this->productos = [];
         $this->resetProductoForm();
-        $this->checklist = [
-            'enciende' => false,
-            'lleva_cargador' => false,
-            'lleva_bateria' => false,
-            'pantalla_sana' => false,
-            'teclado_completo' => false,
-            'touchpad_funcional' => false,
-            'tiene_golpes_visibles' => false,
-            'tiene_humedad' => false,
-            'tiene_sello_roto' => false,
-            'lleva_cable_poder' => false,
-            'lleva_cartucho_toner' => false,
-            'lleva_mouse_accesorios' => false,
-            'observacion_checklist' => '',
-        ];
+
+        foreach (array_keys($this->checklistItems) as $key) {
+            $this->checklist[$key] = false;
+        }
+
+        $this->checklist['observacion_checklist'] = '';
         $this->resetErrorBag();
     }
 
@@ -679,7 +707,7 @@ new class extends Component
         }
 
         if (!$id) {
-            throw new RuntimeException('No hay usuario activo para registrar el movimiento.');
+            throw new \RuntimeException('No hay usuario activo para registrar el movimiento.');
         }
 
         return (int) $id;
@@ -739,17 +767,17 @@ new class extends Component
             ->first();
 
         if (!$producto || (int) $producto->Estado !== 1) {
-            throw new RuntimeException('Producto no disponible: ' . $item['descripcion']);
+            throw new \RuntimeException('Producto no disponible: ' . $item['descripcion']);
         }
 
         $cantidad = (int) ceil((float) $item['cantidad']);
 
         if ($cantidad <= 0) {
-            throw new RuntimeException('Cantidad inválida para: ' . $item['descripcion']);
+            throw new \RuntimeException('Cantidad inválida para: ' . $item['descripcion']);
         }
 
         if ((int) $producto->Stock_Actual < $cantidad) {
-            throw new RuntimeException('Stock insuficiente para: ' . $item['descripcion']);
+            throw new \RuntimeException('Stock insuficiente para: ' . $item['descripcion']);
         }
 
         if ($item['producto_serie_id']) {
@@ -759,7 +787,7 @@ new class extends Component
                 ->first();
 
             if (!$serie || $serie->Estado !== 'DISPONIBLE') {
-                throw new RuntimeException('La serie ya no está disponible: ' . $item['serie']);
+                throw new \RuntimeException('La serie ya no está disponible: ' . $item['serie']);
             }
 
             DB::table('producto_serie')
@@ -795,348 +823,433 @@ new class extends Component
 };
 ?>
 
-<div
-    class="flex h-[calc(100vh-3rem)] min-h-0 w-full flex-col gap-4 overflow-y-auto bg-[#F0F3F7] px-4 py-4 md:px-6 md:py-5">
-    <div class="flex shrink-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-            <h1 class="text-2xl font-bold text-[#1A2B42]">Servicio técnico</h1>
-            <p class="mt-1 text-sm text-[#5F6B7A]">
-                Registro de ingreso, revisión y control del equipo.
-            </p>
-            @if($servicioTecnicoIdSeleccionado)
-            <p class="mt-1 inline-flex rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-semibold text-[#0B6FE4]">
-                Editando servicio técnico #{{ $servicioTecnicoIdSeleccionado }}
-            </p>
-            @endif
+<div class="h-[calc(100vh-3rem)] min-h-0 overflow-hidden bg-[#F0F3F7]">
+    <div class="flex h-full min-h-0 flex-col gap-4 px-4 py-4 md:px-6">
+
+        <div
+            class="sticky top-0 z-20 -mx-4 -mt-4 border-b border-[#D7E4F3] bg-[#F0F3F7]/95 px-4 py-4 backdrop-blur md:-mx-6 md:px-6">
+            <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <h1 class="text-2xl font-black tracking-tight text-[#1A2B42]">Servicio técnico</h1>
+
+                        @if($servicioTecnicoIdSeleccionado)
+                        <span class="rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-bold text-[#0B6FE4]">
+                            Editando #{{ $servicioTecnicoIdSeleccionado }}
+                        </span>
+                        @else
+                        <span
+                            class="rounded-full bg-white px-3 py-1 text-xs font-bold text-[#5F6B7A] ring-1 ring-[#D7E4F3]">
+                            Nuevo ingreso
+                        </span>
+                        @endif
+                    </div>
+
+                    <p class="mt-1 text-sm text-[#5F6B7A]">
+                        Registro, diagnóstico, checklist y repuestos en una sola pantalla.
+                    </p>
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                    <x-button icon="o-document-plus" label="Nuevo" wire:click="nuevoIngreso"
+                        class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-bold text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]" />
+
+                    <x-button icon="o-folder-open" label="Ver pendientes" wire:click="abrirPendientes"
+                        class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-bold text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]" />
+
+                    <x-button icon="o-check" label="{{ $servicioTecnicoIdSeleccionado ? 'Actualizar' : 'Guardar' }}"
+                        wire:click="guardar" spinner="guardar"
+                        class="h-10 min-h-10 rounded-xl border-0 bg-[#2E8BC0] px-5 text-sm font-bold text-white shadow-sm hover:bg-[#0B6FE4]" />
+                </div>
+            </div>
         </div>
 
-        <div class="flex flex-wrap gap-2">
-            <x-button label="Nuevo ingreso" wire:click="nuevoIngreso"
-                class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]" />
+        @if($mensaje)
+        <div
+            class="fixed right-5 top-5 z-50 w-[min(420px,calc(100vw-2rem))] rounded-2xl border px-4 py-3 shadow-xl {{ $mensaje['tipo'] === 'success' ? 'border-[#B7E4C7] bg-[#ECFDF3] text-[#166534]' : 'border-[#F5C2C7] bg-[#FEF2F2] text-[#991B1B]' }}">
+            <div class="flex items-start justify-between gap-3">
+                <div>
+                    <p class="font-black">{{ $mensaje['titulo'] }}</p>
+                    <p class="text-sm">{{ $mensaje['descripcion'] }}</p>
+                </div>
 
-            <x-button label="Buscar pendientes" wire:click="abrirPendientes"
-                class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]" />
+                <button type="button" wire:click="$set('mensaje', null)"
+                    class="rounded-lg px-2 text-sm font-black opacity-70 hover:bg-white/60 hover:opacity-100">
+                    X
+                </button>
+            </div>
+        </div>
+        @endif
 
-            <x-button label="{{ $servicioTecnicoIdSeleccionado ? 'Actualizar ingreso' : 'Guardar ingreso' }}"
-                wire:click="guardar" spinner="guardar"
-                class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]" />
+        <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-12">
+            <div class="min-h-0 overflow-y-auto pr-0 xl:col-span-8 xl:pr-1">
+                <div class="space-y-4">
+
+                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                        <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <h2 class="text-lg font-black text-[#1A2B42]">Datos del equipo</h2>
+                                <p class="text-sm text-[#5F6B7A]">Información principal para recibir el equipo.</p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#EAF2FB] px-4 py-2 text-right">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#0B6FE4]">Total estimado</p>
+                                <p class="text-xl font-black text-[#1A2B42]">
+                                    C$ {{ number_format((float) $costoEstimado + collect($productos)->sum('subtotal'),
+                                    2) }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                            <div class="xl:col-span-2">
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Cliente</label>
+                                <x-select wire:model.live="clienteId" :options="$clientes" option-value="id"
+                                    option-label="name" placeholder="Seleccione cliente"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                @error('clienteId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Teléfono</label>
+                                <x-input wire:model="telefonoCliente" readonly
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Técnico</label>
+                                <x-select wire:model="tecnicoId" :options="$tecnicos" option-value="id"
+                                    option-label="name" placeholder="Seleccione técnico"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                @error('tecnicoId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Tipo</label>
+                                <x-select wire:model="tipoEquipo" :options="$tiposEquipo" option-value="id"
+                                    option-label="name" placeholder="Seleccione"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                @error('tipoEquipo') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Marca</label>
+                                <x-input wire:model="marca"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Modelo</label>
+                                <x-input wire:model="modelo"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div class="xl:col-span-2">
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Serie del equipo
+                                    recibido</label>
+                                <x-input wire:model="numeroSerie"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Estado</label>
+                                <x-select wire:model="estadoServicio" :options="$estadosServicio" option-value="id"
+                                    option-label="name"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Costo estimado</label>
+                                <x-input wire:model.live="costoEstimado" type="number" step="0.01" prefix="C$"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Fecha estimada</label>
+                                <x-input wire:model="fechaEstimadaEntrega" type="date"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div class="md:col-span-2 xl:col-span-4">
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Problema reportado</label>
+                                <x-textarea wire:model="problemaReportado" rows="2"
+                                    class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                @error('problemaReportado') <span class="text-xs text-red-600">{{ $message }}</span>
+                                @enderror
+                            </div>
+                        </div>
+                    </x-card>
+
+                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                        <div class="mb-4">
+                            <h2 class="text-lg font-black text-[#1A2B42]">Estado físico del equipo</h2>
+                            <p class="text-sm text-[#5F6B7A]">Checklist rápido de recepción.</p>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+                            @foreach($checklistItems as $key => $label)
+                            <label
+                                class="flex cursor-pointer items-center gap-2 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] px-3 py-2 text-sm font-bold text-[#1A2B42] transition hover:bg-[#EAF2FB]">
+                                <x-checkbox wire:model="checklist.{{ $key }}" />
+                                <span class="leading-tight">{{ $label }}</span>
+                            </label>
+                            @endforeach
+                        </div>
+
+                        <div class="mt-3">
+                            <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Observación del checklist</label>
+                            <x-textarea wire:model="checklist.observacion_checklist" rows="2"
+                                class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                        </div>
+                    </x-card>
+
+                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                        <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <h2 class="text-lg font-black text-[#1A2B42]">Repuestos / insumos</h2>
+                                <p class="text-sm text-[#5F6B7A]">
+                                    Agregá repuestos directo aquí. Sin modal. Menos clics, menos sufrimiento
+                                    administrativo.
+                                </p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#EAF2FB] px-4 py-2 text-right">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#0B6FE4]">Repuestos</p>
+                                <p class="text-xl font-black text-[#1A2B42]">
+                                    C$ {{ number_format(collect($productos)->sum('subtotal'), 2) }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="mb-4 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3"
+                            wire:keydown.enter.prevent="agregarProducto">
+                            <div class="grid grid-cols-1 gap-3 md:grid-cols-12">
+                                <div class="md:col-span-5">
+                                    <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Producto</label>
+                                    <x-select wire:model.live="productoId" :options="$productosDisponibles"
+                                        option-value="id" option-label="name" placeholder="Seleccione producto"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    @error('productoId') <span class="text-xs text-red-600">{{ $message }}</span>
+                                    @enderror
+                                </div>
+
+                                @if($productoTieneSeries)
+                                <div class="md:col-span-3">
+                                    <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Serie</label>
+                                    <x-select wire:model="productoSerieId" :options="$seriesDisponibles"
+                                        option-value="id" option-label="name" placeholder="Seleccione serie"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    @error('productoSerieId') <span class="text-xs text-red-600">{{ $message }}</span>
+                                    @enderror
+                                </div>
+                                @else
+                                <div class="md:col-span-2">
+                                    <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Cantidad</label>
+                                    <x-input wire:model="productoCantidad" type="number" step="0.01"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    @error('productoCantidad') <span class="text-xs text-red-600">{{ $message }}</span>
+                                    @enderror
+                                </div>
+                                @endif
+
+                                <div class="{{ $productoTieneSeries ? 'md:col-span-2' : 'md:col-span-2' }}">
+                                    <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Precio</label>
+                                    <x-input wire:model="productoPrecio" type="number" step="0.01" prefix="C$"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    @error('productoPrecio') <span class="text-xs text-red-600">{{ $message }}</span>
+                                    @enderror
+                                </div>
+
+                                <div
+                                    class="{{ $productoTieneSeries ? 'md:col-span-2' : 'md:col-span-3' }} flex items-end">
+                                    <x-button icon="o-plus" label="Agregar" wire:click="agregarProducto"
+                                        class="h-10 min-h-10 w-full rounded-xl border-0 bg-[#2E8BC0] text-sm font-bold text-white hover:bg-[#0B6FE4]" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="overflow-hidden rounded-2xl border border-[#D7E4F3]">
+                            <x-table :headers="$headers" :rows="$productos"
+                                class="[&_thead_th]:bg-[#2E8BC0] [&_thead_th]:font-bold [&_thead_th]:text-white [&_tbody_tr:hover]:bg-[#F7F9FC]">
+                                @scope('cell_cantidad', $row)
+                                {{ number_format((float) $row['cantidad'], 2) }}
+                                @endscope
+
+                                @scope('cell_precio', $row)
+                                C$ {{ number_format((float) $row['precio'], 2) }}
+                                @endscope
+
+                                @scope('cell_subtotal', $row)
+                                C$ {{ number_format((float) $row['subtotal'], 2) }}
+                                @endscope
+
+                                @scope('cell_acciones', $row)
+                                @if(!empty($row['ya_guardado']))
+                                <span class="rounded-full bg-[#EAF2FB] px-2 py-1 text-xs font-bold text-[#0B6FE4]">
+                                    Guardado
+                                </span>
+                                @else
+                                <x-button icon="o-trash" wire:click="quitarProducto('{{ $row['tmp_id'] }}')"
+                                    class="btn-ghost btn-sm text-red-600 hover:bg-red-50" />
+                                @endif
+                                @endscope
+                            </x-table>
+                        </div>
+                    </x-card>
+                </div>
+            </div>
+
+            <div class="min-h-0 overflow-y-auto xl:col-span-4">
+                <div class="space-y-4">
+
+                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                        <div class="mb-3 flex items-start justify-between gap-3">
+                            <div>
+                                <h2 class="text-lg font-black text-[#1A2B42]">Pendientes rápidos</h2>
+                                <p class="text-sm text-[#5F6B7A]">Buscá y cargá sin abrir otra ventana.</p>
+                            </div>
+
+                            <span class="rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-black text-[#0B6FE4]">
+                                {{ count($serviciosPendientes) }}
+                            </span>
+                        </div>
+
+                        <x-input wire:model.live.debounce.350ms="filtroPendientes" icon="o-magnifying-glass"
+                            placeholder="Orden, cliente, equipo..."
+                            class="mb-3 h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+
+                        <div class="space-y-2">
+                            @forelse(array_slice($serviciosPendientes, 0, 7) as $item)
+                            <button type="button" wire:click="cargarPendiente({{ $item['id'] }}, false)"
+                                class="w-full rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3 text-left transition hover:border-[#2E8BC0] hover:bg-[#EAF2FB]">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0">
+                                        <p class="truncate text-sm font-black text-[#1A2B42]">
+                                            {{ $item['numero'] }}
+                                        </p>
+
+                                        <p class="truncate text-xs font-semibold text-[#5F6B7A]">
+                                            {{ $item['cliente'] }}
+                                        </p>
+                                    </div>
+
+                                    <span
+                                        class="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] font-black text-[#0B6FE4] ring-1 ring-[#D7E4F3]">
+                                        {{ $this->estadoNombre($item['estado']) }}
+                                    </span>
+                                </div>
+
+                                <div class="mt-2 flex items-center justify-between gap-3">
+                                    <p class="truncate text-xs text-[#5F6B7A]">{{ $item['equipo'] }}</p>
+                                    <p class="shrink-0 text-xs font-black text-[#1A2B42]">
+                                        C$ {{ number_format((float) $item['total'], 2) }}
+                                    </p>
+                                </div>
+                            </button>
+                            @empty
+                            <div
+                                class="rounded-2xl border border-dashed border-[#D7E4F3] bg-[#F7F9FC] px-4 py-8 text-center">
+                                <p class="text-sm font-bold text-[#1A2B42]">Sin pendientes</p>
+                                <p class="text-xs text-[#5F6B7A]">No hay resultados con ese filtro.</p>
+                            </div>
+                            @endforelse
+                        </div>
+
+                        <x-button icon="o-folder-open" label="Abrir listado completo" wire:click="abrirPendientes"
+                            class="mt-3 h-10 min-h-10 w-full rounded-xl border border-[#D7E4F3] bg-white text-sm font-bold text-[#1A2B42] hover:bg-[#F7F9FC]" />
+                    </x-card>
+
+                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                        <h2 class="text-lg font-black text-[#1A2B42]">Resumen</h2>
+                        <p class="mb-3 text-sm text-[#5F6B7A]">Vista rápida antes de guardar.</p>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="rounded-2xl bg-[#F7F9FC] p-3">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">Estado</p>
+                                <p class="mt-1 text-sm font-black text-[#1A2B42]">
+                                    {{ $this->estadoNombre($estadoServicio) }}
+                                </p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#F7F9FC] p-3">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">Repuestos</p>
+                                <p class="mt-1 text-sm font-black text-[#1A2B42]">
+                                    {{ count($productos) }}
+                                </p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#F7F9FC] p-3">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">Mano de obra</p>
+                                <p class="mt-1 text-sm font-black text-[#1A2B42]">
+                                    C$ {{ number_format((float) $costoEstimado, 2) }}
+                                </p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#F7F9FC] p-3">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">Insumos</p>
+                                <p class="mt-1 text-sm font-black text-[#1A2B42]">
+                                    C$ {{ number_format(collect($productos)->sum('subtotal'), 2) }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="mt-3 rounded-2xl bg-[#2E8BC0] p-4 text-white">
+                            <p class="text-xs font-bold uppercase tracking-wide text-white/80">Total general</p>
+                            <p class="text-2xl font-black">
+                                C$ {{ number_format((float) $costoEstimado + collect($productos)->sum('subtotal'), 2) }}
+                            </p>
+                        </div>
+
+                        <x-button icon="o-check"
+                            label="{{ $servicioTecnicoIdSeleccionado ? 'Actualizar servicio' : 'Guardar ingreso' }}"
+                            wire:click="guardar" spinner="guardar"
+                            class="mt-3 h-11 min-h-11 w-full rounded-xl border-0 bg-[#2E8BC0] text-sm font-black text-white hover:bg-[#0B6FE4]" />
+                    </x-card>
+                </div>
+            </div>
         </div>
     </div>
 
-    @if($mensaje)
-    <div
-        class="rounded-2xl border px-4 py-3 shadow-sm {{ $mensaje['tipo'] === 'success' ? 'border-[#B7E4C7] bg-[#ECFDF3] text-[#166534]' : 'border-[#F5C2C7] bg-[#FEF2F2] text-[#991B1B]' }}">
-        <div class="flex items-start justify-between gap-3">
-            <div>
-                <p class="font-bold">{{ $mensaje['titulo'] }}</p>
-                <p class="text-sm">{{ $mensaje['descripcion'] }}</p>
-            </div>
-            <button type="button" wire:click="$set('mensaje', null)"
-                class="text-sm font-bold opacity-70 hover:opacity-100">X</button>
-        </div>
-    </div>
-    @endif
-
-    <div class="grid grid-cols-1 gap-4 xl:grid-cols-4">
-        <x-card class="xl:col-span-3 rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-            <div class="mb-4">
-                <h2 class="text-xl font-bold text-[#1A2B42]">Ingreso del equipo</h2>
-                <p class="text-sm text-[#5F6B7A]">Seleccione datos reales del cliente y del técnico receptor.</p>
-            </div>
-
-            <div class="grid grid-cols-1 gap-x-4 gap-y-3 md:grid-cols-2 xl:grid-cols-4">
-                <div class="xl:col-span-2">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Cliente</label>
-                    <x-select wire:model.live="clienteId" :options="$clientes" option-value="id" option-label="name"
-                        placeholder="Seleccione cliente"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                    @error('clienteId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Teléfono</label>
-                    <x-input wire:model="telefonoCliente" readonly
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo de equipo</label>
-                    <x-select wire:model="tipoEquipo" :options="[
-                            ['id' => 'Computadora', 'name' => 'Computadora'],
-                            ['id' => 'Laptop', 'name' => 'Laptop'],
-                            ['id' => 'Impresora', 'name' => 'Impresora'],
-                            ['id' => 'Otro', 'name' => 'Otro']
-                        ]" option-value="id" option-label="name" placeholder="Seleccione"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                    @error('tipoEquipo') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Técnico receptor</label>
-                    <x-select wire:model="tecnicoId" :options="$tecnicos" option-value="id" option-label="name"
-                        placeholder="Seleccione técnico"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                    @error('tecnicoId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Marca</label>
-                    <x-input wire:model="marca"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Modelo</label>
-                    <x-input wire:model="modelo"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div class="xl:col-span-2">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Número de serie del equipo
-                        recibido</label>
-                    <x-input wire:model="numeroSerie"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div class="xl:col-span-4">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Problema reportado</label>
-                    <x-textarea wire:model="problemaReportado" rows="3"
-                        class="w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                    @error('problemaReportado') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-                </div>
-
-                <div class="xl:col-span-4">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Detalle descriptivo / diagnóstico
-                        inicial</label>
-                    <x-textarea wire:model="detalleDescriptivo" rows="2"
-                        class="w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-            </div>
-        </x-card>
-
-        <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-            <div class="mb-4">
-                <h2 class="text-xl font-bold text-[#1A2B42]">Seguimiento</h2>
-                <p class="text-sm text-[#5F6B7A]">Control del servicio.</p>
-            </div>
-
-            <div class="space-y-3">
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Estado</label>
-                    <x-select wire:model="estadoServicio" :options="[
-                            ['id' => 'RECIBIDO', 'name' => 'Recibido'],
-                            ['id' => 'EN_REVISION', 'name' => 'En revisión'],
-                            ['id' => 'PENDIENTE_REPUESTO', 'name' => 'Pendiente repuesto'],
-                            ['id' => 'REPARADO', 'name' => 'Reparado'],
-                            ['id' => 'ENTREGADO', 'name' => 'Entregado'],
-                            ['id' => 'CANCELADO', 'name' => 'Cancelado']
-                        ]" option-value="id" option-label="name"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Costo estimado</label>
-                    <x-input wire:model.live="costoEstimado" type="number" step="0.01" prefix="C$"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Fecha estimada</label>
-                    <x-input wire:model="fechaEstimadaEntrega" type="date"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Observación técnica</label>
-                    <x-textarea wire:model="observacionTecnica" rows="2"
-                        class="w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div class="rounded-xl bg-[#EAF2FB] px-4 py-3 text-[#0B6FE4]">
-                    <span class="block text-xs font-semibold">Total estimado</span>
-                    <span class="text-lg font-bold">C$ {{ number_format((float) $costoEstimado +
-                        collect($productos)->sum('subtotal'), 2) }}</span>
-                </div>
-            </div>
-        </x-card>
-    </div>
-
-    <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-        <div class="mb-4">
-            <h2 class="text-xl font-bold text-[#1A2B42]">Estado del equipo al ingresar</h2>
-            <p class="text-sm text-[#5F6B7A]">Marque las condiciones visibles del equipo.</p>
-        </div>
-
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.enciende" /> Enciende
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.lleva_cargador" /> Lleva cargador
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.lleva_bateria" /> Lleva batería
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.pantalla_sana" /> Pantalla en buen estado
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.teclado_completo" /> Teclado completo
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.touchpad_funcional" /> Touchpad funcional
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.tiene_golpes_visibles" /> Tiene golpes visibles
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.tiene_humedad" /> Tiene humedad
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.tiene_sello_roto" /> Tiene sello roto
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.lleva_cable_poder" /> Lleva cable de poder
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.lleva_cartucho_toner" /> Lleva cartucho / tóner
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.lleva_mouse_accesorios" /> Lleva mouse / accesorios
-            </label>
-        </div>
-
-        <div class="mt-3">
-            <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Observación del checklist</label>
-            <x-textarea wire:model="checklist.observacion_checklist" rows="2"
-                class="w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-        </div>
-    </x-card>
-
-    <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-        <div class="mb-3 flex shrink-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-                <h2 class="text-xl font-bold text-[#1A2B42]">Repuestos / insumos</h2>
-                <p class="text-sm text-[#5F6B7A]">
-                    Solo se permiten productos con stock disponible. Las series vendidas o ya usadas no aparecen.
-                </p>
-            </div>
-            <x-button label="Agregar producto" wire:click="abrirProducto"
-                class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]" />
-        </div>
-
-        <div class="overflow-hidden rounded-xl border border-[#D7E4F3]">
-            <x-table :headers="$headers" :rows="$productos"
-                class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0]">
-                @scope('cell_cantidad', $row)
-                {{ number_format((float) $row['cantidad'], 2) }}
-                @endscope
-
-                @scope('cell_precio', $row)
-                C$ {{ number_format((float) $row['precio'], 2) }}
-                @endscope
-
-                @scope('cell_subtotal', $row)
-                C$ {{ number_format((float) $row['subtotal'], 2) }}
-                @endscope
-
-                @scope('cell_acciones', $row)
-                @if(!empty($row['ya_guardado']))
-                <span class="rounded-full bg-[#EAF2FB] px-2 py-1 text-xs font-semibold text-[#0B6FE4]">Guardado</span>
-                @else
-                <x-button icon="o-trash" wire:click="quitarProducto('{{ $row['tmp_id'] }}')"
-                    class="btn-ghost btn-sm text-red-600" />
-                @endif
-                @endscope
-            </x-table>
-        </div>
-    </x-card>
-
-    <x-modal wire:model="modalProducto" title="Agregar repuesto / insumo" separator>
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div class="md:col-span-2">
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Producto</label>
-                <x-select wire:model.live="productoId" :options="$productosDisponibles" option-value="id"
-                    option-label="name" placeholder="Seleccione producto"
-                    class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                @error('productoId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-            </div>
-
-            @if($productoTieneSeries)
-            <div class="md:col-span-2">
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Serie disponible</label>
-                <x-select wire:model="productoSerieId" :options="$seriesDisponibles" option-value="id"
-                    option-label="name" placeholder="Seleccione serie"
-                    class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                @error('productoSerieId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-            </div>
-            @else
-            <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Cantidad</label>
-                <x-input wire:model="productoCantidad" type="number" step="0.01"
-                    class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                @error('productoCantidad') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-            </div>
-            @endif
-
-            <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Precio</label>
-                <x-input wire:model="productoPrecio" type="number" step="0.01" prefix="C$"
-                    class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                @error('productoPrecio') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-            </div>
-        </div>
-
-        <x-slot:actions>
-            <x-button label="Cancelar" wire:click="$set('modalProducto', false)"
-                class="border border-[#D7E4F3] bg-white text-[#1A2B42]" />
-            <x-button label="Agregar" wire:click="agregarProducto"
-                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" />
-        </x-slot:actions>
-    </x-modal>
-
-    <x-modal wire:model="modalPendientes" title="Buscar servicios pendientes" separator class="backdrop-blur">
+    <x-modal wire:model="modalPendientes" title="Servicios técnicos pendientes" separator class="backdrop-blur">
         <div class="space-y-3">
-            <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Buscar por orden, cliente, equipo, marca
-                    o modelo</label>
-                <x-input wire:model.live.debounce.400ms="filtroPendientes"
-                    placeholder="Ej: ST-20260506, Heyner, Laptop, Asus..."
-                    class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
-            </div>
+            <x-input wire:model.live.debounce.350ms="filtroPendientes" icon="o-magnifying-glass"
+                placeholder="Buscar por orden, cliente, equipo, marca o modelo..."
+                class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
 
-            <div class="max-h-[60vh] overflow-auto rounded-xl border border-[#D7E4F3]">
-                <table class="w-full min-w-[780px] text-left text-sm">
-                    <thead class="bg-[#2E8BC0] text-white">
+            <div class="max-h-[60vh] overflow-auto rounded-2xl border border-[#D7E4F3]">
+                <table class="w-full min-w-[760px] text-left text-sm">
+                    <thead class="sticky top-0 z-10 bg-[#2E8BC0] text-white">
                         <tr>
-                            <th class="px-3 py-2 font-semibold">Orden</th>
-                            <th class="px-3 py-2 font-semibold">Cliente</th>
-                            <th class="px-3 py-2 font-semibold">Equipo</th>
-                            <th class="px-3 py-2 font-semibold">Estado</th>
-                            <th class="px-3 py-2 font-semibold">Total</th>
-                            <th class="px-3 py-2 font-semibold text-center">Acción</th>
+                            <th class="px-3 py-2 font-bold">Orden</th>
+                            <th class="px-3 py-2 font-bold">Cliente</th>
+                            <th class="px-3 py-2 font-bold">Equipo</th>
+                            <th class="px-3 py-2 font-bold">Estado</th>
+                            <th class="px-3 py-2 font-bold">Total</th>
+                            <th class="px-3 py-2 text-center font-bold">Acción</th>
                         </tr>
                     </thead>
+
                     <tbody class="divide-y divide-[#D7E4F3] bg-white text-[#1A2B42]">
                         @forelse($serviciosPendientes as $item)
-                        <tr class="hover:bg-[#F0F3F7]">
-                            <td class="px-3 py-2 font-semibold">{{ $item['numero'] }}</td>
+                        <tr class="hover:bg-[#F7F9FC]">
+                            <td class="px-3 py-2 font-black">{{ $item['numero'] }}</td>
                             <td class="px-3 py-2">{{ $item['cliente'] }}</td>
                             <td class="px-3 py-2">{{ $item['equipo'] }}</td>
                             <td class="px-3 py-2">
-                                <span class="rounded-full bg-[#EAF2FB] px-2 py-1 text-xs font-semibold text-[#0B6FE4]">
-                                    {{ str_replace('_', ' ', $item['estado']) }}
+                                <span class="rounded-full bg-[#EAF2FB] px-2 py-1 text-xs font-black text-[#0B6FE4]">
+                                    {{ $this->estadoNombre($item['estado']) }}
                                 </span>
                             </td>
-                            <td class="px-3 py-2">C$ {{ number_format((float) $item['total'], 2) }}</td>
+                            <td class="px-3 py-2 font-bold">C$ {{ number_format((float) $item['total'], 2) }}</td>
                             <td class="px-3 py-2 text-center">
-                                <x-button label="Cargar" wire:click="cargarPendiente({{ $item['id'] }})"
-                                    class="h-8 min-h-8 border-0 bg-[#2E8BC0] px-3 text-xs text-white hover:bg-[#0B6FE4]" />
+                                <x-button icon="o-arrow-down-tray" label="Cargar"
+                                    wire:click="cargarPendiente({{ $item['id'] }})"
+                                    class="h-8 min-h-8 rounded-xl border-0 bg-[#2E8BC0] px-3 text-xs font-bold text-white hover:bg-[#0B6FE4]" />
                             </td>
                         </tr>
                         @empty
                         <tr>
-                            <td colspan="6" class="px-3 py-6 text-center text-[#5F6B7A]">
+                            <td colspan="6" class="px-3 py-8 text-center text-[#5F6B7A]">
                                 No hay servicios pendientes con ese filtro.
                             </td>
                         </tr>
@@ -1148,7 +1261,7 @@ new class extends Component
 
         <x-slot:actions>
             <x-button label="Cerrar" wire:click="$set('modalPendientes', false)"
-                class="border border-[#D7E4F3] bg-white text-[#1A2B42]" />
+                class="rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42]" />
         </x-slot:actions>
     </x-modal>
 </div>
