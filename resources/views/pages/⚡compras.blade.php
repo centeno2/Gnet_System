@@ -95,7 +95,7 @@ new class extends Component
     public bool $mostrarModalCuentaBancaria = false;
     public string $nuevoBancoNombre = '';
     public string $nuevoNombreTitular = '';
-    public string $nuevoNumeroCuenta = '';
+    public string $nuevoUltimosDigitos = '';
     public string $nuevoTipoCuenta = 'CUENTA_AHORRO';
     public string $nuevoMonedaCuenta = 'CORDOBAS';
 
@@ -192,38 +192,27 @@ new class extends Component
             ->get()
             ->map(fn (CuentaBancaria $cuenta) => [
                 'id' => $cuenta->Id_Cuenta_Bancaria,
-                'numero_mostrado' => $this->enmascararNumeroCuenta($cuenta->Numero_Cuenta),
+                'ultimos_digitos' => $this->formatearUltimosDigitos($cuenta->Ultimos_Digitos),
                 'banco' => $cuenta->banco?->Nombre_Banco ?: 'Sin banco',
+                'titular' => $cuenta->Nombre_Titular ?: 'Sin titular',
                 'tipo' => $this->nombreTipoCuenta($cuenta->Tipo_Cuenta),
                 'moneda' => $this->nombreMonedaCuenta($cuenta->Moneda),
             ])
             ->toArray();
     }
 
-    protected function enmascararNumeroCuenta(?string $numeroCuenta): string
+    protected function formatearUltimosDigitos(?string $ultimosDigitos): string
     {
-        $limpio = preg_replace('/\D+/', '', (string) $numeroCuenta);
+        $limpio = preg_replace('/\D+/', '', (string) $ultimosDigitos);
 
-        if ($limpio === '') {
-            return '*** **** ****';
-        }
-
-        $primeros = substr($limpio, 0, 3);
-        $ultimos = strlen($limpio) >= 4 ? substr($limpio, -4) : substr($limpio, -2);
-
-        return $primeros . ' **** ' . $ultimos;
+        return $limpio !== '' ? str_pad(substr($limpio, -4), 4, '0', STR_PAD_LEFT) : '----';
     }
 
-    protected function ultimosDigitosCuenta(string $numeroCuenta): string
+    protected function normalizarUltimosDigitos(string $numeroCuenta): string
     {
         $limpio = preg_replace('/\D+/', '', $numeroCuenta);
 
         return substr($limpio, -4) ?: '';
-    }
-
-    protected function normalizarNumeroCuenta(string $numeroCuenta): string
-    {
-        return preg_replace('/\D+/', '', $numeroCuenta) ?: trim($numeroCuenta);
     }
 
     protected function nombreTipoCuenta(?string $tipo): string
@@ -288,7 +277,7 @@ new class extends Component
     {
         $this->nuevoBancoNombre = '';
         $this->nuevoNombreTitular = '';
-        $this->nuevoNumeroCuenta = '';
+        $this->nuevoUltimosDigitos = '';
         $this->nuevoTipoCuenta = 'CUENTA_AHORRO';
         $this->nuevoMonedaCuenta = 'CORDOBAS';
     }
@@ -300,31 +289,29 @@ new class extends Component
         $this->validate([
             'nuevoBancoNombre' => 'required|string|max:100',
             'nuevoNombreTitular' => 'required|string|max:150',
-            'nuevoNumeroCuenta' => 'required|string|min:6|max:50|regex:/^[0-9\s-]+$/',
+            'nuevoUltimosDigitos' => [
+                'required',
+                function (string $attribute, mixed $value, Closure $fail) {
+                    $limpio = preg_replace('/\D+/', '', (string) $value);
+
+                    if (strlen($limpio) < 4) {
+                        $fail('Ingrese al menos 4 dígitos de la cuenta bancaria.');
+                    }
+                },
+            ],
             'nuevoTipoCuenta' => 'required|in:CUENTA_AHORRO,CUENTA_CORRIENTE,TARJETA_DEBITO,TARJETA_CREDITO',
             'nuevoMonedaCuenta' => 'required|in:CORDOBAS,DOLARES',
         ], [
             'nuevoBancoNombre.required' => 'Ingrese el nombre del banco.',
             'nuevoNombreTitular.required' => 'Ingrese el nombre del titular de la cuenta.',
-            'nuevoNumeroCuenta.required' => 'Ingrese el número de cuenta.',
-            'nuevoNumeroCuenta.min' => 'El número de cuenta debe tener al menos 6 caracteres.',
-            'nuevoNumeroCuenta.regex' => 'El número de cuenta solo debe contener números, espacios o guiones.',
+            'nuevoUltimosDigitos.required' => 'Ingrese el número de cuenta o al menos los últimos 4 dígitos.',
         ]);
 
-        $numeroNormalizado = $this->normalizarNumeroCuenta($this->nuevoNumeroCuenta);
+        $ultimosDigitos = $this->normalizarUltimosDigitos($this->nuevoUltimosDigitos);
 
-        $cuentaDuplicada = CuentaBancaria::query()
-            ->where('Estado', 1)
-            ->get(['Id_Cuenta_Bancaria', 'Numero_Cuenta'])
-            ->contains(fn (CuentaBancaria $cuenta) => $this->normalizarNumeroCuenta($cuenta->Numero_Cuenta) === $numeroNormalizado);
-
-        if ($cuentaDuplicada) {
-            $this->addError('nuevoNumeroCuenta', 'Ya existe una cuenta bancaria activa con ese número.');
-            return;
-        }
-
-        $cuenta = CuentaBancaria::query()->getConnection()->transaction(function () {
+        $cuenta = CuentaBancaria::query()->getConnection()->transaction(function () use ($ultimosDigitos) {
             $nombreBanco = trim($this->nuevoBancoNombre);
+            $nombreTitular = trim($this->nuevoNombreTitular);
 
             $banco = Banco::query()
                 ->whereRaw('LOWER(Nombre_Banco) = ?', [mb_strtolower($nombreBanco)])
@@ -340,16 +327,33 @@ new class extends Component
                 $banco->save();
             }
 
+            $cuentaDuplicada = CuentaBancaria::query()
+                ->where('Estado', 1)
+                ->where('Id_Banco', $banco->Id_Banco)
+                ->where('Nombre_Titular', $nombreTitular)
+                ->where('Ultimos_Digitos', $ultimosDigitos)
+                ->where('Tipo_Cuenta', $this->nuevoTipoCuenta)
+                ->where('Moneda', $this->nuevoMonedaCuenta)
+                ->exists();
+
+            if ($cuentaDuplicada) {
+                return null;
+            }
+
             return CuentaBancaria::query()->create([
                 'Id_Banco' => $banco->Id_Banco,
-                'Nombre_Titular' => trim($this->nuevoNombreTitular),
-                'Numero_Cuenta' => trim($this->nuevoNumeroCuenta),
-                'Ultimos_Digitos' => $this->ultimosDigitosCuenta($this->nuevoNumeroCuenta),
+                'Nombre_Titular' => $nombreTitular,
+                'Ultimos_Digitos' => $ultimosDigitos,
                 'Tipo_Cuenta' => $this->nuevoTipoCuenta,
                 'Moneda' => $this->nuevoMonedaCuenta,
                 'Estado' => 1,
             ]);
         });
+
+        if (! $cuenta) {
+            $this->addError('nuevoUltimosDigitos', 'Ya existe una cuenta bancaria activa con esos últimos dígitos para ese banco, titular, tipo y moneda.');
+            return;
+        }
 
         $this->cargarCuentasBancarias();
         $this->idCuentaBancaria = (string) $cuenta->Id_Cuenta_Bancaria;
@@ -1423,16 +1427,19 @@ new class extends Component
 
                         <div>
                             <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                                Número de cuenta <span class="text-red-600">*</span>
+                                Número de cuenta o últimos 4 dígitos <span class="text-red-600">*</span>
                             </label>
                             <x-input
-                                wire:model.defer="nuevoNumeroCuenta"
+                                wire:model.defer="nuevoUltimosDigitos"
                                 type="text"
                                 maxlength="50"
-                                placeholder="Solo números, espacios o guiones"
+                                placeholder="Ej: 1234567890123456 o 3456"
                                 class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
                             />
-                            @error('nuevoNumeroCuenta')
+                            <p class="mt-1 text-xs text-[#5F6B7A]">
+                                Por seguridad, el sistema solo guardará los últimos 4 dígitos.
+                            </p>
+                            @error('nuevoUltimosDigitos')
                                 <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                             @enderror
                         </div>
@@ -1473,7 +1480,7 @@ new class extends Component
 
                         <div class="rounded-xl border border-[#D7E4F3] bg-[#F7F9FC] px-4 py-3 text-sm text-[#5F6B7A]">
                             <p class="font-semibold text-[#1A2B42]">Importante</p>
-                            <p>No se guarda CVV, PIN, contraseña bancaria ni tokens. Solo datos necesarios para identificar la cuenta usada por la tienda.</p>
+                            <p>No se guarda el número completo de la cuenta, CVV, PIN, contraseña bancaria ni tokens. Solo los últimos 4 dígitos y los datos necesarios para identificar la cuenta usada por la tienda.</p>
                         </div>
                     </div>
 
@@ -1645,7 +1652,7 @@ new class extends Component
                                 <option value="">{{ count($cuentasBancarias) > 0 ? 'Seleccione una cuenta' : 'No hay cuentas registradas' }}</option>
                                 @foreach ($cuentasBancarias as $cuenta)
                                     <option value="{{ $cuenta['id'] }}">
-                                        {{ $cuenta['numero_mostrado'] }} · {{ $cuenta['banco'] }}
+                                        Últimos {{ $cuenta['ultimos_digitos'] }} · {{ $cuenta['banco'] }} · {{ $cuenta['titular'] }}
                                     </option>
                                 @endforeach
                             </select>

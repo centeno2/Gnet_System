@@ -1,13 +1,8 @@
 <?php
 
-use App\Models\AbonoCredito;
 use App\Models\Cliente;
-use App\Models\Credito;
-use App\Models\DetalleVenta;
-use App\Models\PagoVenta;
 use App\Models\Producto;
 use App\Models\ProductoSerie;
-use App\Models\Servicio;
 use App\Models\TarifaCopia;
 use App\Models\Usuario;
 use App\Models\Venta;
@@ -31,20 +26,22 @@ new class extends Component
     private const MONEDA_CORDOBA = 0;
     private const MONEDA_DOLAR = 1;
 
-    private const MONEDA_ABONO_CORDOBA = 'NIO';
-    private const MONEDA_ABONO_DOLAR = 'USD';
+    private const PAGO_EFECTIVO = 'EFECTIVO';
+    private const PAGO_TRANSFERENCIA = 'TRANSFERENCIA';
+    private const PAGO_TARJETA = 'TARJETA';
 
     private const ESTADO_CREDITO_PENDIENTE = 'PENDIENTE';
-    private const ESTADO_CREDITO_PARCIAL = 'PARCIAL';
-    private const ESTADO_CREDITO_CANCELADO = 'CANCELADO';
 
     public bool $modalCobro = false;
 
     public string $tipoVenta = self::TIPO_CONTADO;
 
-    public string $tipoPagoCordobas = 'EFECTIVO';
-    public string $tipoPagoDolares = 'EFECTIVO';
+    public string $tipoPagoCordobas = self::PAGO_EFECTIVO;
+    public string $tipoPagoDolares = self::PAGO_EFECTIVO;
     public string $tipoCambio = '36.50';
+
+    public string $referenciaCordobas = '';
+    public string $referenciaDolares = '';
 
     public ?int $clienteId = null;
     public string $buscarCliente = '';
@@ -78,11 +75,6 @@ new class extends Component
     public string $pagoCordobas = '0';
     public string $pagoDolares = '0';
 
-    public string $abonoCordobas = '0';
-    public string $abonoDolares = '0';
-    public string $abonoInicial = '0';
-    public string $firmaRecibido = '';
-
     public ?int $ultimaVentaId = null;
     public string $ultimaFacturaNumero = '';
     public string $ultimoTipoVenta = '';
@@ -94,6 +86,16 @@ new class extends Component
     public function mount(): void
     {
         $this->cargarCopiasRapidas();
+    }
+
+    public function cambiarTipoVenta(string $tipo): void
+    {
+        if (! in_array($tipo, [self::TIPO_CONTADO, self::TIPO_CREDITO], true)) {
+            return;
+        }
+
+        $this->tipoVenta = $tipo;
+        $this->updatedTipoVenta();
     }
 
     public function updatedBuscarCliente(): void
@@ -126,34 +128,39 @@ new class extends Component
         $this->pagoDolares = $this->formatearDecimal((string) $value);
     }
 
-    public function updatedAbonoCordobas($value): void
-    {
-        $this->abonoCordobas = $this->formatearMonto((string) $value);
-    }
-
-    public function updatedAbonoDolares($value): void
-    {
-        $this->abonoDolares = $this->formatearDecimal((string) $value);
-    }
-
     public function updatedTipoCambio($value): void
     {
         $this->tipoCambio = $this->formatearDecimal((string) $value);
     }
 
+    public function updatedTipoPagoCordobas(): void
+    {
+        if (! $this->pagoRequiereReferencia($this->tipoPagoCordobas)) {
+            $this->referenciaCordobas = '';
+        }
+    }
+
+    public function updatedTipoPagoDolares(): void
+    {
+        if (! $this->pagoRequiereReferencia($this->tipoPagoDolares)) {
+            $this->referenciaDolares = '';
+        }
+    }
+
     public function updatedTipoVenta(): void
     {
+        $this->pagoCordobas = '0';
+        $this->pagoDolares = '0';
+        $this->referenciaCordobas = '';
+        $this->referenciaDolares = '';
+
         if ($this->tipoVenta === self::TIPO_CONTADO) {
-            $this->abonoCordobas = '0';
-            $this->abonoDolares = '0';
-            $this->abonoInicial = '0';
-            $this->firmaRecibido = '';
             $this->departamentoMunicipio = '';
         }
 
         if ($this->tipoVenta === self::TIPO_CREDITO) {
-            $this->pagoCordobas = '0';
-            $this->pagoDolares = '0';
+            $this->tipoPagoCordobas = self::PAGO_EFECTIVO;
+            $this->tipoPagoDolares = self::PAGO_EFECTIVO;
         }
     }
 
@@ -562,16 +569,10 @@ new class extends Component
             return;
         }
 
-        if ($this->tipoVenta === self::TIPO_CONTADO) {
-            $this->pagoCordobas = '0';
-            $this->pagoDolares = '0';
-        }
-
-        if ($this->tipoVenta === self::TIPO_CREDITO) {
-            $this->abonoCordobas = '0';
-            $this->abonoDolares = '0';
-            $this->abonoInicial = '0';
-        }
+        $this->pagoCordobas = '0';
+        $this->pagoDolares = '0';
+        $this->referenciaCordobas = '';
+        $this->referenciaDolares = '';
 
         $this->modalCobro = true;
     }
@@ -593,32 +594,45 @@ new class extends Component
         $equivalenteDolares = $pagoDolares * $this->tasaCambio();
         $totalPagado = $pagoCordobas + $equivalenteDolares;
 
-        $abonoCordobas = $this->limpiarMonto($this->abonoCordobas);
-        $abonoDolares = $this->limpiarDecimal($this->abonoDolares);
-        $equivalenteAbonoDolares = $abonoDolares * $this->tasaCambio();
-        $abonoInicial = $abonoCordobas + $equivalenteAbonoDolares;
-
         if ($this->tipoVenta === self::TIPO_CONTADO && $totalPagado < $total) {
             $this->mostrarToast('El monto recibido no puede ser menor que el total.', 'error');
             return;
         }
 
-        if ($this->tipoVenta === self::TIPO_CREDITO && $abonoInicial > $total) {
-            $this->mostrarToast('El abono inicial no puede ser mayor al total.', 'error');
+        if (
+            $this->tipoVenta === self::TIPO_CONTADO &&
+            $pagoCordobas > 0 &&
+            $this->pagoRequiereReferencia($this->tipoPagoCordobas) &&
+            trim($this->referenciaCordobas) === ''
+        ) {
+            $this->mostrarToast('Ingrese el número de referencia del pago en córdobas.', 'error');
+            return;
+        }
+
+        if (
+            $this->tipoVenta === self::TIPO_CONTADO &&
+            $pagoDolares > 0 &&
+            $this->pagoRequiereReferencia($this->tipoPagoDolares) &&
+            trim($this->referenciaDolares) === ''
+        ) {
+            $this->mostrarToast('Ingrese el número de referencia del pago en dólares.', 'error');
+            return;
+        }
+
+        if ($this->tipoVenta === self::TIPO_CREDITO && ! $this->clienteId) {
+            $this->mostrarToast('Para crédito debe seleccionar un cliente registrado.', 'error');
             return;
         }
 
         try {
+            $tipoVentaActual = $this->tipoVenta;
+
             $resultado = DB::transaction(function () use (
                 $total,
                 $descuento,
                 $pagoCordobas,
                 $pagoDolares,
-                $equivalenteDolares,
-                $abonoCordobas,
-                $abonoDolares,
-                $equivalenteAbonoDolares,
-                $abonoInicial
+                $equivalenteDolares
             ) {
                 $idUsuario = $this->obtenerUsuarioId();
                 $numeroFactura = $this->generarNumeroFactura();
@@ -629,9 +643,10 @@ new class extends Component
                     'Id_Cliente' => $this->clienteId,
                     'Id_Usuario' => $idUsuario,
                     'Tipo_Venta' => $this->tipoVenta,
-                    'Estado' => 1,
+                    'Estado' => Venta::ESTADO_ACTIVA ?? 1,
                     'Descuento' => $descuento,
                     'Total' => $total,
+                    'Tipo_Cambio' => $this->tasaCambio(),
                 ]);
 
                 foreach ($this->detalleVenta as $item) {
@@ -699,6 +714,9 @@ new class extends Component
                             'Fecha_Pago' => now(),
                             'Moneda' => self::MONEDA_CORDOBA,
                             'Tipo_Pago' => $this->tipoPagoCordobas,
+                            'Numero_Referencia' => $this->pagoRequiereReferencia($this->tipoPagoCordobas)
+                                ? trim($this->referenciaCordobas)
+                                : null,
                             'Monto' => $pagoCordobas,
                             'Tipo_Cambio' => 1,
                             'Monto_Equivalente_Cordobas' => $pagoCordobas,
@@ -710,6 +728,9 @@ new class extends Component
                             'Fecha_Pago' => now(),
                             'Moneda' => self::MONEDA_DOLAR,
                             'Tipo_Pago' => $this->tipoPagoDolares,
+                            'Numero_Referencia' => $this->pagoRequiereReferencia($this->tipoPagoDolares)
+                                ? trim($this->referenciaDolares)
+                                : null,
                             'Monto' => $pagoDolares,
                             'Tipo_Cambio' => $this->tasaCambio(),
                             'Monto_Equivalente_Cordobas' => $equivalenteDolares,
@@ -718,63 +739,13 @@ new class extends Component
                 }
 
                 if ($this->tipoVenta === self::TIPO_CREDITO) {
-                    $saldo = max($total - $abonoInicial, 0);
-
-                    $estadoCredito = $saldo <= 0
-                        ? self::ESTADO_CREDITO_CANCELADO
-                        : ($abonoInicial > 0 ? self::ESTADO_CREDITO_PARCIAL : self::ESTADO_CREDITO_PENDIENTE);
-
-                    $credito = $venta->credito()->create([
+                    $venta->credito()->create([
                         'Fecha_Credito' => now()->toDateString(),
-                        'Abono_Inicial' => $abonoInicial,
-                        'Saldo_Actual' => $saldo,
-                        'Firma_Recibido' => $this->firmaRecibido !== '' ? trim($this->firmaRecibido) : null,
-                        'Estado' => $estadoCredito,
+                        'Abono_Inicial' => 0,
+                        'Saldo_Actual' => $total,
+                        'Firma_Recibido' => null,
+                        'Estado' => self::ESTADO_CREDITO_PENDIENTE,
                     ]);
-
-                    if ($abonoInicial > 0) {
-                        if ($abonoCordobas > 0) {
-                            $credito->abonos()->create([
-                                'Fecha_Abono' => now(),
-                                'Moneda' => self::MONEDA_ABONO_CORDOBA,
-                                'Monto' => $abonoCordobas,
-                                'Tipo_Cambio' => 1,
-                                'Monto_Equivalente_Cordobas' => $abonoCordobas,
-                                'Numero_Transferencia' => null,
-                                'Observacion' => 'Abono inicial en córdobas desde facturación.',
-                            ]);
-
-                            $venta->pagos()->create([
-                                'Fecha_Pago' => now(),
-                                'Moneda' => self::MONEDA_CORDOBA,
-                                'Tipo_Pago' => $this->tipoPagoCordobas,
-                                'Monto' => $abonoCordobas,
-                                'Tipo_Cambio' => 1,
-                                'Monto_Equivalente_Cordobas' => $abonoCordobas,
-                            ]);
-                        }
-
-                        if ($abonoDolares > 0) {
-                            $credito->abonos()->create([
-                                'Fecha_Abono' => now(),
-                                'Moneda' => self::MONEDA_ABONO_DOLAR,
-                                'Monto' => $abonoDolares,
-                                'Tipo_Cambio' => $this->tasaCambio(),
-                                'Monto_Equivalente_Cordobas' => $equivalenteAbonoDolares,
-                                'Numero_Transferencia' => null,
-                                'Observacion' => 'Abono inicial en dólares desde facturación.',
-                            ]);
-
-                            $venta->pagos()->create([
-                                'Fecha_Pago' => now(),
-                                'Moneda' => self::MONEDA_DOLAR,
-                                'Tipo_Pago' => $this->tipoPagoDolares,
-                                'Monto' => $abonoDolares,
-                                'Tipo_Cambio' => $this->tasaCambio(),
-                                'Monto_Equivalente_Cordobas' => $equivalenteAbonoDolares,
-                            ]);
-                        }
-                    }
                 }
 
                 return [
@@ -783,13 +754,13 @@ new class extends Component
                 ];
             });
 
-            if ($this->tipoVenta === self::TIPO_CREDITO) {
+            if ($tipoVentaActual === self::TIPO_CREDITO) {
                 session(['venta_municipio_' . $resultado['id_venta'] => $this->departamentoMunicipio]);
             }
 
             $this->ultimaVentaId = $resultado['id_venta'];
             $this->ultimaFacturaNumero = $resultado['numero_factura'];
-            $this->ultimoTipoVenta = $this->tipoVenta;
+            $this->ultimoTipoVenta = $tipoVentaActual;
 
             $this->limpiarVentaActual();
             $this->cerrarModalCobro();
@@ -806,18 +777,17 @@ new class extends Component
     protected function limpiarVentaActual(): void
     {
         $this->tipoVenta = self::TIPO_CONTADO;
-        $this->tipoPagoCordobas = 'EFECTIVO';
-        $this->tipoPagoDolares = 'EFECTIVO';
+        $this->tipoPagoCordobas = self::PAGO_EFECTIVO;
+        $this->tipoPagoDolares = self::PAGO_EFECTIVO;
+        $this->tipoCambio = '36.50';
 
         $this->usarConsumidorFinal();
 
         $this->detalleVenta = [];
         $this->pagoCordobas = '0';
         $this->pagoDolares = '0';
-        $this->abonoCordobas = '0';
-        $this->abonoDolares = '0';
-        $this->abonoInicial = '0';
-        $this->firmaRecibido = '';
+        $this->referenciaCordobas = '';
+        $this->referenciaDolares = '';
 
         $this->limpiarItemSeleccionado();
 
@@ -874,12 +844,6 @@ new class extends Component
             + ($this->limpiarDecimal($this->pagoDolares) * $this->tasaCambio());
     }
 
-    public function abonoInicialEquivalente(): float
-    {
-        return $this->limpiarMonto($this->abonoCordobas)
-            + ($this->limpiarDecimal($this->abonoDolares) * $this->tasaCambio());
-    }
-
     public function cambioVenta(): float
     {
         if ($this->tipoVenta !== self::TIPO_CONTADO) {
@@ -891,7 +855,7 @@ new class extends Component
 
     public function saldoCredito(): float
     {
-        return max($this->totalVenta() - $this->abonoInicialEquivalente(), 0);
+        return $this->tipoVenta === self::TIPO_CREDITO ? $this->totalVenta() : 0;
     }
 
     protected function limpiarMonto(?string $valor): float
@@ -946,6 +910,14 @@ new class extends Component
         $tasa = $this->limpiarDecimal($this->tipoCambio);
 
         return $tasa > 0 ? $tasa : 1;
+    }
+
+    protected function pagoRequiereReferencia(string $tipoPago): bool
+    {
+        return in_array($tipoPago, [
+            self::PAGO_TRANSFERENCIA,
+            self::PAGO_TARJETA,
+        ], true);
     }
 
     protected function seriesUsadasEnDetalle(?int $idProducto = null): array
@@ -1085,6 +1057,10 @@ new class extends Component
         <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div class="min-w-0">
                 <h1 class="text-2xl font-bold leading-tight text-[#1A2B42] md:text-3xl">Facturación</h1>
+                <p class="mt-1 text-sm text-[#5F6B7A]">
+                    {{ $tipoVenta === 'CONTADO' ? 'Venta al contado con tasa única y referencias de pago.' : 'Venta al
+                    crédito sin cobro inicial.' }}
+                </p>
             </div>
 
             <div class="flex flex-wrap gap-2">
@@ -1096,12 +1072,12 @@ new class extends Component
                 </a>
                 @endif
 
-                <button type="button" wire:click="$set('tipoVenta', 'CONTADO')"
+                <button type="button" wire:click="cambiarTipoVenta('CONTADO')"
                     class="{{ $tipoVenta === 'CONTADO' ? 'bg-[#0B6FE4] text-white shadow-sm' : 'bg-white text-[#1A2B42]' }} inline-flex h-10 items-center justify-center rounded-xl border border-[#D7E4F3] px-5 text-sm font-semibold transition">
                     Contado
                 </button>
 
-                <button type="button" wire:click="$set('tipoVenta', 'CREDITO')"
+                <button type="button" wire:click="cambiarTipoVenta('CREDITO')"
                     class="{{ $tipoVenta === 'CREDITO' ? 'bg-[#0B6FE4] text-white shadow-sm' : 'bg-white text-[#1A2B42]' }} inline-flex h-10 items-center justify-center rounded-xl border border-[#D7E4F3] px-5 text-sm font-semibold transition">
                     Crédito
                 </button>
@@ -1341,14 +1317,18 @@ new class extends Component
                                                 {{ $item['tipo'] }}
                                             </span>
                                         </td>
-                                        <td class="whitespace-nowrap px-3 py-3 text-center">{{
-                                            number_format($item['cantidad'], 0, '.', ',') }}</td>
-                                        <td class="whitespace-nowrap px-3 py-3 text-right">C$ {{
-                                            number_format($item['precio_unitario'], 0, '.', ',') }}</td>
-                                        <td class="whitespace-nowrap px-3 py-3 text-right text-red-600">C$ {{
-                                            number_format($item['descuento_valor'] ?? 0, 0, '.', ',') }}</td>
-                                        <td class="whitespace-nowrap px-3 py-3 text-right font-semibold">C$ {{
-                                            number_format($item['subtotal_valor'], 0, '.', ',') }}</td>
+                                        <td class="whitespace-nowrap px-3 py-3 text-center">
+                                            {{ number_format($item['cantidad'], 0, '.', ',') }}
+                                        </td>
+                                        <td class="whitespace-nowrap px-3 py-3 text-right">
+                                            C$ {{ number_format($item['precio_unitario'], 0, '.', ',') }}
+                                        </td>
+                                        <td class="whitespace-nowrap px-3 py-3 text-right text-red-600">
+                                            C$ {{ number_format($item['descuento_valor'] ?? 0, 0, '.', ',') }}
+                                        </td>
+                                        <td class="whitespace-nowrap px-3 py-3 text-right font-semibold">
+                                            C$ {{ number_format($item['subtotal_valor'], 0, '.', ',') }}
+                                        </td>
                                         <td class="px-3 py-3 text-center">
                                             <button type="button" wire:click="eliminarDetalle('{{ $item['uid'] }}')"
                                                 class="rounded-lg bg-red-50 px-3 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-100">
@@ -1397,7 +1377,8 @@ new class extends Component
                         </div>
 
                         <div class="grid grid-cols-1 gap-2 pt-1">
-                            <x-button label="Cobrar" wire:click="abrirModalCobro"
+                            <x-button :label="$tipoVenta === 'CONTADO' ? 'Cobrar' : 'Guardar crédito'"
+                                wire:click="abrirModalCobro"
                                 class="h-10 min-h-10 rounded-xl border-0 bg-[#2E8BC0] px-3 text-sm font-semibold text-white shadow-sm hover:bg-[#0B6FE4]" />
 
                             <x-button label="Cancelar" wire:click="cancelarVenta"
@@ -1413,23 +1394,35 @@ new class extends Component
         box-class="w-full max-w-2xl rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
 
         <div class="mb-5">
-            <h3 class="text-2xl font-bold text-[#1A2B42]">Finalizar venta</h3>
+            <h3 class="text-2xl font-bold text-[#1A2B42]">
+                {{ $tipoVenta === 'CONTADO' ? 'Finalizar venta' : 'Guardar venta al crédito' }}
+            </h3>
             <p class="mt-1 text-sm text-[#5F6B7A]">
-                Confirme el cobro antes de guardar.
+                {{ $tipoVenta === 'CONTADO'
+                ? 'Confirme el cobro antes de guardar.'
+                : 'Esta venta se guardará como crédito completo. El cobro se realizará desde abonos.' }}
             </p>
         </div>
 
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+            @if ($tipoVenta === 'CONTADO')
             <div>
                 <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo cambio</label>
                 <x-input wire:model.live.debounce.250ms="tipoCambio" type="text" inputmode="decimal"
                     class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
             </div>
 
-            @if ($tipoVenta === 'CONTADO')
+            <div>
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Cambio</label>
+                <div
+                    class="{{ $this->cambioVenta() < 0 ? 'bg-red-50 text-red-700' : 'bg-[#EAF2FB] text-[#1A2B42]' }} flex h-11 items-center rounded-xl px-3 text-sm font-bold">
+                    C$ {{ number_format($this->cambioVenta(), 0, '.', ',') }}
+                </div>
+            </div>
+
             <div>
                 <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo pago C$</label>
-                <select wire:model="tipoPagoCordobas"
+                <select wire:model.live="tipoPagoCordobas"
                     class="h-11 w-full rounded-xl border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
                     <option value="EFECTIVO">Efectivo</option>
                     <option value="TRANSFERENCIA">Transferencia</option>
@@ -1443,9 +1436,20 @@ new class extends Component
                     class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
             </div>
 
+            @if (in_array($tipoPagoCordobas, ['TRANSFERENCIA', 'TARJETA'], true))
+            <div class="md:col-span-2">
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                    Referencia C$
+                </label>
+                <x-input wire:model.live.debounce.250ms="referenciaCordobas" type="text"
+                    placeholder="{{ $tipoPagoCordobas === 'TRANSFERENCIA' ? 'Número de transferencia' : 'Número de autorización / voucher' }}"
+                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+            </div>
+            @endif
+
             <div>
                 <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo pago US$</label>
-                <select wire:model="tipoPagoDolares"
+                <select wire:model.live="tipoPagoDolares"
                     class="h-11 w-full rounded-xl border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
                     <option value="EFECTIVO">Efectivo</option>
                     <option value="TRANSFERENCIA">Transferencia</option>
@@ -1459,13 +1463,16 @@ new class extends Component
                     class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
             </div>
 
-            <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Cambio</label>
-                <div
-                    class="{{ $this->cambioVenta() < 0 ? 'bg-red-50 text-red-700' : 'bg-[#EAF2FB] text-[#1A2B42]' }} flex h-11 items-center rounded-xl px-3 text-sm font-bold">
-                    C$ {{ number_format($this->cambioVenta(), 0, '.', ',') }}
-                </div>
+            @if (in_array($tipoPagoDolares, ['TRANSFERENCIA', 'TARJETA'], true))
+            <div class="md:col-span-2">
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                    Referencia US$
+                </label>
+                <x-input wire:model.live.debounce.250ms="referenciaDolares" type="text"
+                    placeholder="{{ $tipoPagoDolares === 'TRANSFERENCIA' ? 'Número de transferencia' : 'Número de autorización / voucher' }}"
+                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
             </div>
+            @endif
 
             <div class="md:col-span-2 rounded-xl bg-[#F8FBFF] px-4 py-3 text-sm text-[#1A2B42]">
                 Recibido equivalente:
@@ -1474,36 +1481,9 @@ new class extends Component
             @endif
 
             @if ($tipoVenta === 'CREDITO')
-            <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo pago C$</label>
-                <select wire:model="tipoPagoCordobas"
-                    class="h-11 w-full rounded-xl border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
-                    <option value="EFECTIVO">Efectivo</option>
-                    <option value="TRANSFERENCIA">Transferencia</option>
-                    <option value="TARJETA">Tarjeta</option>
-                </select>
-            </div>
-
-            <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Abono C$</label>
-                <x-input wire:model.live.debounce.250ms="abonoCordobas" type="text" inputmode="numeric"
-                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-            </div>
-
-            <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo pago US$</label>
-                <select wire:model="tipoPagoDolares"
-                    class="h-11 w-full rounded-xl border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
-                    <option value="EFECTIVO">Efectivo</option>
-                    <option value="TRANSFERENCIA">Transferencia</option>
-                    <option value="TARJETA">Tarjeta</option>
-                </select>
-            </div>
-
-            <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Abono US$</label>
-                <x-input wire:model.live.debounce.250ms="abonoDolares" type="text" inputmode="decimal"
-                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+            <div class="md:col-span-2 rounded-xl border border-[#B7D6F2] bg-[#EAF4FD] px-4 py-4 text-sm text-[#1A2B42]">
+                No se registrará pago, abono ni firma desde facturación. La deuda queda pendiente para gestionarse desde
+                el módulo de crédito.
             </div>
 
             <div>
@@ -1511,12 +1491,6 @@ new class extends Component
                 <div class="flex h-11 items-center rounded-xl bg-[#EAF2FB] px-3 text-sm font-semibold text-[#1A2B42]">
                     C$ {{ number_format($this->saldoCredito(), 0, '.', ',') }}
                 </div>
-            </div>
-
-            <div class="md:col-span-2">
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Firma / recibido por</label>
-                <x-input wire:model="firmaRecibido" type="text" placeholder="Opcional"
-                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
             </div>
             @endif
 
@@ -1531,6 +1505,11 @@ new class extends Component
                     Subtotal: <strong>C$ {{ number_format($this->subtotalVenta(), 0, '.', ',') }}</strong><br>
                     Descuentos: <strong>C$ {{ number_format($this->descuentoVenta(), 0, '.', ',') }}</strong><br>
                     Total a guardar: <strong>C$ {{ number_format($this->totalVenta(), 0, '.', ',') }}</strong>
+
+                    @if ($tipoVenta === 'CONTADO')
+                    <br>
+                    Tipo cambio: <strong>C$ {{ number_format($this->tasaCambio(), 2, '.', ',') }}</strong>
+                    @endif
                 </div>
             </div>
         </div>
@@ -1539,8 +1518,8 @@ new class extends Component
             <x-button label="Volver" type="button" wire:click="cerrarModalCobro"
                 class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]" />
 
-            <x-button label="Guardar venta" type="button" wire:click="guardarVenta"
-                class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]" />
+            <x-button :label="$tipoVenta === 'CONTADO' ? 'Guardar venta' : 'Guardar crédito'" type="button"
+                wire:click="guardarVenta" class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]" />
         </x-slot:actions>
     </x-modal>
 </div>

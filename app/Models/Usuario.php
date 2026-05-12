@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
+
 class Usuario extends Authenticatable
 {
     public function getAuthIdentifierName()
@@ -20,10 +21,9 @@ class Usuario extends Authenticatable
     public $timestamps = false;
 
     protected $fillable = [
-        'Id_Persona',
+        'Id_Trabajador',
         'Nombre_Usuario',
         'Contraseña_Usuario',
-        'Rol',
         'Estado',
         'Token_Recuperacion',
         'Fecha_Recuperacion',
@@ -33,18 +33,23 @@ class Usuario extends Authenticatable
 
     protected $casts = [
         'Id_Usuario' => 'integer',
-        'Id_Persona' => 'integer',
+        'Id_Trabajador' => 'integer',
         'Estado' => 'integer',
         'Fecha_Recuperacion' => 'datetime',
         'Intentos_Fallidos' => 'integer',
     ];
 
-    // RELACIONES 
+    protected $hidden = [
+        'Contraseña_Usuario',
+        'Token_Recuperacion',
+    ];
 
-    public function persona(): BelongsTo
+    // RELACIONES
+    public function trabajador(): BelongsTo
     {
-        return $this->belongsTo(Persona::class, 'Id_Persona', 'Id_Persona');
+        return $this->belongsTo(Trabajador::class, 'Id_Trabajador', 'Id_Trabajador');
     }
+}
 
     public function compras(): HasMany
     {
@@ -70,6 +75,7 @@ class Usuario extends Authenticatable
     {
         return $this->hasMany(Venta::class, 'Id_Usuario', 'Id_Usuario');
     }
+
 
     //MÉTODOS DE SEGURIDAD 
 

@@ -16,8 +16,14 @@ new class extends Component
     public string $direccion = '';
     public string $fechaIngreso = '';
     public string $salario = '';
+    public string $estado = '1';
 
     public ?int $cargoId = null;
+    public ?int $trabajadorEditandoId = null;
+    public ?int $personaEditandoId = null;
+
+    public string $cedulaOriginal = '';
+    public string $telefonoOriginal = '';
 
     public bool $modalCargo = false;
     public string $nuevoCargo = '';
@@ -33,6 +39,11 @@ new class extends Component
 
     public array $cargos = [];
     public array $trabajadores = [];
+
+    public array $estados = [
+        ['id' => '1', 'name' => 'Activo'],
+        ['id' => '0', 'name' => 'Inactivo'],
+    ];
 
     public array $headers = [
         ['key' => 'nombre_completo', 'label' => 'Nombre completo'],
@@ -55,11 +66,54 @@ new class extends Component
 
     protected function rules(): array
     {
-        $personaNueva = ! $this->personaExiste;
+        $modoEdicion = $this->modoEdicion();
+        $personaNueva = ! $this->personaExiste && ! $modoEdicion;
+        $cedulaCambio = $this->cedulaCambio();
+        $telefonoCambio = $this->telefonoCambio();
+
+        $cedulaRules = [
+            'required',
+            'string',
+            'max:20',
+        ];
+
+        if (! $modoEdicion || $cedulaCambio) {
+            $cedulaRules[] = 'size:14';
+            $cedulaRules[] = 'regex:/^\d{13}[A-HJ-NPR-TVXY]$/';
+            $cedulaRules[] = Rule::unique('trabajador', 'Cedula')
+                ->ignore($this->trabajadorEditandoId, 'Id_Trabajador');
+
+            $cedulaRules[] = function ($attribute, $value, $fail) {
+                if (! $this->fechaCedulaValida($value)) {
+                    $fail('Los dígitos del 4 al 9 de la cédula deben representar una fecha válida.');
+                }
+            };
+        }
+
+        $telefonoRules = [
+            'required',
+            'string',
+            'max:30',
+        ];
+
+        if (! $modoEdicion || $telefonoCambio) {
+            $telefonoRules[] = 'regex:/^\d{8}$/';
+
+            if ($modoEdicion) {
+                if ($this->personaEditandoId) {
+                    $telefonoRules[] = Rule::unique('persona', 'Telefono')
+                        ->ignore($this->personaEditandoId, 'Id_Persona');
+                } else {
+                    $telefonoRules[] = Rule::unique('persona', 'Telefono');
+                }
+            } elseif (! $this->personaExiste) {
+                $telefonoRules[] = Rule::unique('persona', 'Telefono');
+            }
+        }
 
         return [
             'nombres' => [
-                Rule::requiredIf($personaNueva),
+                Rule::requiredIf($personaNueva || $modoEdicion),
                 'nullable',
                 'string',
                 'max:100',
@@ -67,30 +121,16 @@ new class extends Component
             ],
 
             'apellidos' => [
-                Rule::requiredIf($personaNueva),
+                Rule::requiredIf($personaNueva || $modoEdicion),
                 'nullable',
                 'string',
                 'max:100',
                 'regex:/^\pL+(?:\s+\pL+)?$/u',
             ],
 
-            'cedula' => [
-                'required',
-                'string',
-                'size:14',
-                'regex:/^\d{13}[A-HJ-NPR-TVXY]$/',
-                Rule::unique('trabajador', 'Cedula'),
-                function ($attribute, $value, $fail) {
-                    if (! $this->fechaCedulaValida($value)) {
-                        $fail('Los dígitos del 4 al 9 de la cédula deben representar una fecha válida.');
-                    }
-                },
-            ],
+            'cedula' => $cedulaRules,
 
-            'telefono' => [
-                'required',
-                'regex:/^\d{8}$/',
-            ],
+            'telefono' => $telefonoRules,
 
             'direccion' => [
                 'nullable',
@@ -101,6 +141,7 @@ new class extends Component
             'fechaIngreso' => [
                 'required',
                 'date',
+                'before_or_equal:today',
             ],
 
             'cargoId' => [
@@ -114,6 +155,11 @@ new class extends Component
                 'regex:/^\d+(\.\d{1,2})?$/',
                 'numeric',
                 'min:0',
+            ],
+
+            'estado' => [
+                'required',
+                Rule::in(['0', '1', 0, 1]),
             ],
         ];
     }
@@ -132,15 +178,17 @@ new class extends Component
             'cedula.required' => 'Debe ingresar la cédula.',
             'cedula.size' => 'La cédula debe tener exactamente 14 caracteres.',
             'cedula.regex' => 'La cédula debe tener 13 números y una letra mayúscula válida al final. No se permiten las letras I, O, Ñ, Q, U, W, Z.',
-            'cedula.unique' => 'Esta cédula ya está registrada.',
+            'cedula.unique' => 'Esta cédula ya está registrada en otro trabajador.',
 
             'telefono.required' => 'Debe ingresar el teléfono.',
             'telefono.regex' => 'El teléfono debe contener exactamente 8 dígitos.',
+            'telefono.unique' => 'Este teléfono ya pertenece a otra persona registrada.',
 
             'direccion.max' => 'La dirección no debe exceder los 200 caracteres.',
 
             'fechaIngreso.required' => 'Debe ingresar la fecha de ingreso.',
             'fechaIngreso.date' => 'Ingrese una fecha válida.',
+            'fechaIngreso.before_or_equal' => 'La fecha de ingreso no puede ser futura.',
 
             'cargoId.required' => 'Debe seleccionar un cargo.',
             'cargoId.exists' => 'El cargo seleccionado no existe.',
@@ -149,6 +197,9 @@ new class extends Component
             'salario.regex' => 'El salario solo puede contener números positivos y máximo 2 decimales.',
             'salario.numeric' => 'El salario debe ser un número válido.',
             'salario.min' => 'El salario no puede ser negativo.',
+
+            'estado.required' => 'Debe seleccionar el estado del trabajador.',
+            'estado.in' => 'El estado seleccionado no es válido.',
 
             'nuevoCargo.required' => 'Debe ingresar el nombre del cargo.',
             'nuevoCargo.unique' => 'Este cargo ya está registrado.',
@@ -166,13 +217,38 @@ new class extends Component
             'fechaIngreso' => 'fecha de ingreso',
             'cargoId' => 'cargo',
             'salario' => 'salario',
+            'estado' => 'estado',
             'nuevoCargo' => 'cargo',
         ];
+    }
+
+    protected function modoEdicion(): bool
+    {
+        return $this->trabajadorEditandoId !== null;
+    }
+
+    protected function cedulaCambio(): bool
+    {
+        return strtoupper(trim($this->cedula)) !== strtoupper(trim($this->cedulaOriginal));
+    }
+
+    protected function telefonoCambio(): bool
+    {
+        $telefonoActual = preg_replace('/\D+/', '', trim($this->telefono));
+        $telefonoOriginal = preg_replace('/\D+/', '', trim($this->telefonoOriginal));
+
+        return $telefonoActual !== $telefonoOriginal;
     }
 
     public function updatedCedula(): void
     {
         $this->cedula = strtoupper(trim($this->cedula));
+
+        if ($this->modoEdicion() && ! $this->cedulaCambio()) {
+            $this->cedulaExiste = false;
+            $this->resetErrorBag('cedula');
+            return;
+        }
 
         $this->verificarCedulaExistente();
     }
@@ -180,6 +256,16 @@ new class extends Component
     public function updatedTelefono(): void
     {
         $this->telefono = preg_replace('/\D+/', '', trim($this->telefono));
+
+        if ($this->modoEdicion()) {
+            $this->limpiarPersonaEncontrada();
+
+            if (! $this->telefonoCambio()) {
+                $this->resetErrorBag('telefono');
+            }
+
+            return;
+        }
 
         $this->buscarPersonaPorTelefono();
     }
@@ -192,11 +278,16 @@ new class extends Component
         $this->telefono = preg_replace('/\D+/', '', trim($this->telefono));
         $this->direccion = preg_replace('/\s+/', ' ', trim($this->direccion));
         $this->salario = str_replace(',', '.', trim($this->salario));
+        $this->estado = (string) ((int) $this->estado);
     }
 
     protected function verificarCedulaExistente(): void
     {
         $this->cedulaExiste = false;
+
+        if ($this->modoEdicion() && ! $this->cedulaCambio()) {
+            return;
+        }
 
         if (strlen($this->cedula) !== 14) {
             return;
@@ -204,6 +295,9 @@ new class extends Component
 
         $this->cedulaExiste = Trabajador::query()
             ->where('Cedula', $this->cedula)
+            ->when($this->trabajadorEditandoId, function ($query) {
+                $query->where('Id_Trabajador', '!=', $this->trabajadorEditandoId);
+            })
             ->exists();
     }
 
@@ -268,6 +362,11 @@ new class extends Component
         ];
     }
 
+    protected function unirDosColumnas(?string $primero, ?string $segundo): string
+    {
+        return preg_replace('/\s+/', ' ', trim(($primero ?? '') . ' ' . ($segundo ?? '')));
+    }
+
     public function cargarCargos(): void
     {
         $this->cargos = Cargo::query()
@@ -312,6 +411,11 @@ new class extends Component
 
     public function guardarTrabajador(): void
     {
+        if ($this->modoEdicion()) {
+            $this->actualizarTrabajador();
+            return;
+        }
+
         $this->normalizarFormulario();
 
         $this->verificarCedulaExistente();
@@ -404,6 +508,111 @@ new class extends Component
         session()->flash('success', 'Trabajador registrado correctamente.');
     }
 
+    public function editarTrabajador(int $trabajadorId): void
+    {
+        $trabajador = Trabajador::query()
+            ->with(['persona', 'cargo'])
+            ->findOrFail($trabajadorId);
+
+        $persona = $trabajador->persona;
+
+        $this->resetValidation();
+        $this->limpiarPersonaEncontrada();
+
+        $this->trabajadorEditandoId = (int) $trabajador->Id_Trabajador;
+        $this->personaEditandoId = $persona?->Id_Persona ? (int) $persona->Id_Persona : null;
+
+        $this->nombres = $persona
+            ? $this->unirDosColumnas($persona->Primer_Nombre, $persona->Segundo_Nombre)
+            : '';
+
+        $this->apellidos = $persona
+            ? $this->unirDosColumnas($persona->Primer_Apellido, $persona->Segundo_Apellido)
+            : '';
+
+        $this->cedulaOriginal = strtoupper(trim($trabajador->Cedula ?? ''));
+        $this->telefonoOriginal = preg_replace('/\D+/', '', trim($persona?->Telefono ?? ''));
+
+        $this->cedula = $this->cedulaOriginal;
+        $this->telefono = $this->telefonoOriginal;
+        $this->direccion = $persona?->Direccion ?? '';
+
+        $this->fechaIngreso = $trabajador->Fecha_Ingreso
+            ? $trabajador->Fecha_Ingreso->format('Y-m-d')
+            : now()->format('Y-m-d');
+
+        $this->cargoId = $trabajador->Id_Cargo ? (int) $trabajador->Id_Cargo : null;
+        $this->salario = $trabajador->Salario !== null ? (string) ((float) $trabajador->Salario) : '0';
+        $this->estado = (string) ((int) $trabajador->Estado);
+
+        $this->cedulaExiste = false;
+
+        session()->flash('success', 'Datos cargados para edición.');
+    }
+
+    public function actualizarTrabajador(): void
+    {
+        $this->normalizarFormulario();
+        $this->verificarCedulaExistente();
+
+        $this->validate();
+
+        if ($this->cedulaCambio() && $this->cedulaExiste) {
+            $this->addError('cedula', 'Esta cédula ya está registrada en otro trabajador.');
+            return;
+        }
+
+        DB::transaction(function () {
+            $trabajador = Trabajador::query()
+                ->with('persona')
+                ->findOrFail($this->trabajadorEditandoId);
+
+            $persona = $trabajador->persona;
+
+            [$primerNombre, $segundoNombre] = $this->separarEnDosColumnas($this->nombres);
+            [$primerApellido, $segundoApellido] = $this->separarEnDosColumnas($this->apellidos);
+
+            if (! $persona) {
+                $persona = Persona::query()->create([
+                    'Primer_Nombre' => $primerNombre,
+                    'Segundo_Nombre' => $segundoNombre,
+                    'Primer_Apellido' => $primerApellido,
+                    'Segundo_Apellido' => $segundoApellido,
+                    'Direccion' => $this->direccion !== '' ? $this->direccion : null,
+                    'Telefono' => $this->telefono,
+                ]);
+
+                $trabajador->Id_Persona = $persona->Id_Persona;
+            } else {
+                $persona->update([
+                    'Primer_Nombre' => $primerNombre,
+                    'Segundo_Nombre' => $segundoNombre,
+                    'Primer_Apellido' => $primerApellido,
+                    'Segundo_Apellido' => $segundoApellido,
+                    'Direccion' => $this->direccion !== '' ? $this->direccion : null,
+                    'Telefono' => $this->telefono,
+                ]);
+            }
+
+            $trabajador->Fecha_Ingreso = $this->fechaIngreso;
+            $trabajador->Estado = (int) $this->estado;
+            $trabajador->Id_Cargo = $this->cargoId;
+            $trabajador->Cedula = $this->cedula;
+            $trabajador->Salario = $this->salario;
+            $trabajador->save();
+        });
+
+        $this->limpiarFormulario();
+        $this->cargarTrabajadores();
+
+        session()->flash('success', 'Trabajador actualizado correctamente.');
+    }
+
+    public function cancelarEdicion(): void
+    {
+        $this->limpiarFormulario();
+    }
+
     public function guardarCargo(): void
     {
         $this->nuevoCargo = preg_replace('/\s+/', ' ', trim($this->nuevoCargo));
@@ -445,6 +654,10 @@ new class extends Component
             'direccion',
             'salario',
             'cargoId',
+            'trabajadorEditandoId',
+            'personaEditandoId',
+            'cedulaOriginal',
+            'telefonoOriginal',
             'cedulaExiste',
             'personaExiste',
             'personaYaEsTrabajador',
@@ -454,6 +667,7 @@ new class extends Component
         ]);
 
         $this->fechaIngreso = now()->format('Y-m-d');
+        $this->estado = '1';
 
         $this->resetValidation();
     }
@@ -477,7 +691,16 @@ new class extends Component
         </x-alert>
     @endif
 
-    @if ($personaExiste && ! $personaYaEsTrabajador)
+    @if ($trabajadorEditandoId)
+        <x-alert
+            icon="o-pencil-square"
+            class="border border-blue-200 bg-blue-50 text-blue-800"
+        >
+            Está editando un trabajador existente. Valide los datos antes de guardar los cambios.
+        </x-alert>
+    @endif
+
+    @if ($personaExiste && ! $personaYaEsTrabajador && ! $trabajadorEditandoId)
         <x-alert
             icon="o-information-circle"
             class="border border-blue-200 bg-blue-50 text-blue-800"
@@ -490,7 +713,7 @@ new class extends Component
         </x-alert>
     @endif
 
-    @if ($personaYaEsTrabajador)
+    @if ($personaYaEsTrabajador && ! $trabajadorEditandoId)
         <x-alert
             icon="o-exclamation-triangle"
             class="border border-red-200 bg-red-50 text-red-800"
@@ -500,11 +723,25 @@ new class extends Component
     @endif
 
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-        <div class="mb-6">
-            <h2 class="text-2xl font-bold text-[#1A2B42]">Registrar trabajador</h2>
-            <p class="text-base text-[#5F6B7A]">
-                Ingrese los datos del trabajador.
-            </p>
+        <div class="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+                <h2 class="text-2xl font-bold text-[#1A2B42]">
+                    {{ $trabajadorEditandoId ? 'Editar trabajador' : 'Registrar trabajador' }}
+                </h2>
+                <p class="text-base text-[#5F6B7A]">
+                    {{ $trabajadorEditandoId ? 'Modifique los datos del trabajador seleccionado.' : 'Ingrese los datos del trabajador.' }}
+                </p>
+            </div>
+
+            @if ($trabajadorEditandoId)
+                <x-button
+                    label="Cancelar edición"
+                    icon="o-x-mark"
+                    type="button"
+                    wire:click="cancelarEdicion"
+                    class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB]"
+                />
+            @endif
         </div>
 
         <x-form wire:submit="guardarTrabajador" no-separator>
@@ -552,7 +789,7 @@ new class extends Component
 
                     @if ($cedulaExiste)
                         <span class="mt-1 block text-sm font-semibold text-red-600">
-                            Esta cédula ya está registrada.
+                            Esta cédula ya está registrada en otro trabajador.
                         </span>
                     @endif
 
@@ -573,13 +810,13 @@ new class extends Component
                         class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
                     />
 
-                    @if ($personaExiste && ! $personaYaEsTrabajador)
+                    @if ($personaExiste && ! $personaYaEsTrabajador && ! $trabajadorEditandoId)
                         <span class="mt-1 block text-sm font-semibold text-blue-700">
                             Esta persona ya existe en el sistema.
                         </span>
                     @endif
 
-                    @if ($personaYaEsTrabajador)
+                    @if ($personaYaEsTrabajador && ! $trabajadorEditandoId)
                         <span class="mt-1 block text-sm font-semibold text-red-600">
                             Esta persona ya está registrada como trabajador.
                         </span>
@@ -666,22 +903,41 @@ new class extends Component
                         <span class="mt-1 block text-sm text-red-600">{{ $message }}</span>
                     @enderror
                 </div>
+
+                @if ($trabajadorEditandoId)
+                    <div>
+                        <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
+                            Estado
+                        </label>
+                        <x-select
+                            wire:model="estado"
+                            placeholder="Seleccione estado"
+                            :options="$estados"
+                            option-value="id"
+                            option-label="name"
+                            class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
+                        />
+                        @error('estado')
+                            <span class="mt-1 block text-sm text-red-600">{{ $message }}</span>
+                        @enderror
+                    </div>
+                @endif
             </div>
 
             <x-slot:actions>
                 <div class="flex w-full justify-end gap-3 pt-2">
                     <x-button
-                        label="Limpiar"
+                        label="{{ $trabajadorEditandoId ? 'Cancelar' : 'Limpiar' }}"
                         type="button"
-                        wire:click="limpiarFormulario"
+                        wire:click="{{ $trabajadorEditandoId ? 'cancelarEdicion' : 'limpiarFormulario' }}"
                         class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB]"
                     />
 
                     <x-button
-                        label="Guardar trabajador"
+                        label="{{ $trabajadorEditandoId ? 'Actualizar trabajador' : 'Guardar trabajador' }}"
                         type="submit"
                         spinner="guardarTrabajador"
-                        :disabled="$cedulaExiste || $personaYaEsTrabajador"
+                        :disabled="$cedulaExiste || ($personaYaEsTrabajador && ! $trabajadorEditandoId)"
                         class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4] disabled:cursor-not-allowed disabled:opacity-50"
                     />
                 </div>
@@ -701,7 +957,17 @@ new class extends Component
             :headers="$headers"
             :rows="$trabajadores"
             class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl"
-        />
+        >
+            @scope('actions', $trabajador)
+                <x-button
+                    icon="o-pencil-square"
+                    tooltip="Editar trabajador"
+                    type="button"
+                    wire:click="editarTrabajador({{ data_get($trabajador, 'id') }})"
+                    class="h-9 min-h-9 rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB]"
+                />
+            @endscope
+        </x-table>
     </x-card>
 
     <x-modal
