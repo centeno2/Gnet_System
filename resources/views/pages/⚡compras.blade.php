@@ -1436,9 +1436,6 @@ new class extends Component
                                 placeholder="Ej: 1234567890123456 o 3456"
                                 class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
                             />
-                            <p class="mt-1 text-xs text-[#5F6B7A]">
-                                Por seguridad, el sistema solo guardará los últimos 4 dígitos.
-                            </p>
                             @error('nuevoUltimosDigitos')
                                 <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                             @enderror
@@ -1477,11 +1474,6 @@ new class extends Component
                                 <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                             @enderror
                         </div>
-
-                        <div class="rounded-xl border border-[#D7E4F3] bg-[#F7F9FC] px-4 py-3 text-sm text-[#5F6B7A]">
-                            <p class="font-semibold text-[#1A2B42]">Importante</p>
-                            <p>No se guarda el número completo de la cuenta, CVV, PIN, contraseña bancaria ni tokens. Solo los últimos 4 dígitos y los datos necesarios para identificar la cuenta usada por la tienda.</p>
-                        </div>
                     </div>
 
                     <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -1515,7 +1507,7 @@ new class extends Component
             <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
                 <div class="relative lg:col-span-4">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Proveedor <span class="text-red-600">*</span>
+                        Proveedor 
                     </label>
 
                     <x-input
@@ -1559,7 +1551,7 @@ new class extends Component
 
                 <div class="lg:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Número de factura <span class="text-red-600">*</span>
+                        Número de factura 
                     </label>
                     <x-input
                         wire:model.defer="numeroCompra"
@@ -1575,7 +1567,7 @@ new class extends Component
 
                 <div class="lg:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Fecha <span class="text-red-600">*</span>
+                        Fecha 
                     </label>
                     <x-input
                         wire:model.defer="fechaCompra"
@@ -1590,7 +1582,7 @@ new class extends Component
 
                 <div class="lg:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Tipo de pago <span class="text-red-600">*</span>
+                        Tipo de pago
                     </label>
                     <select
                         wire:model.live="tipoCompra"
@@ -1608,7 +1600,7 @@ new class extends Component
                 @if ($tipoCompra === 'CREDITO')
                     <div class="lg:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Fecha límite de pago <span class="text-red-600">*</span>
+                            Fecha límite de pago
                         </label>
                         <x-input
                             wire:model.defer="fechaLimiteCredito"
@@ -1624,7 +1616,7 @@ new class extends Component
 
                 <div class="lg:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Medio de pago <span class="text-red-600">*</span>
+                        Medio de pago 
                     </label>
                     <select
                         wire:model.live="medioPago"
@@ -1642,7 +1634,7 @@ new class extends Component
                 @if ($medioPago === 'TRANSFERENCIA')
                     <div class="lg:col-span-3">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Cuenta destino <span class="text-red-600">*</span>
+                            Cuenta destino
                         </label>
                         <div class="flex gap-2">
                             <select
@@ -1652,7 +1644,7 @@ new class extends Component
                                 <option value="">{{ count($cuentasBancarias) > 0 ? 'Seleccione una cuenta' : 'No hay cuentas registradas' }}</option>
                                 @foreach ($cuentasBancarias as $cuenta)
                                     <option value="{{ $cuenta['id'] }}">
-                                        Últimos {{ $cuenta['ultimos_digitos'] }} · {{ $cuenta['banco'] }} · {{ $cuenta['titular'] }}
+                                         {{ $cuenta['ultimos_digitos'] }} · {{ $cuenta['titular'] }}
                                     </option>
                                 @endforeach
                             </select>
@@ -1703,7 +1695,7 @@ new class extends Component
 
                     <div class="lg:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Referencia <span class="text-red-600">*</span>
+                            Referencia 
                         </label>
                         <x-input
                             wire:model.defer="numeroReferenciaTransferencia"
@@ -1803,7 +1795,7 @@ new class extends Component
                 <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
                     <div class="relative xl:col-span-4">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Buscar producto <span class="text-red-600">*</span>
+                            Buscar producto 
                         </label>
 
                         <x-input
@@ -1883,7 +1875,8 @@ new class extends Component
                 <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
                     <div class="xl:col-span-3">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Nombre del producto <span class="text-red-600">*</span>
+                            Nombre del producto
+                    </label>
                         </label>
                         <x-input
                             wire:model.defer="nuevoNombreProducto"
@@ -1899,7 +1892,7 @@ new class extends Component
 
                     <div class="xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Modelo <span class="text-red-600">*</span>
+                            Modelo 
                         </label>
                         <x-input
                             wire:model.defer="nuevoModelo"
@@ -1916,7 +1909,7 @@ new class extends Component
                     <div class="xl:col-span-3">
                         <div class="flex items-center justify-between gap-2">
                             <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                                Categoría <span class="text-red-600">*</span>
+                                Categoría 
                             </label>
                             <button type="button" wire:click="$toggle('mostrarNuevaCategoria')" class="text-xs font-semibold text-[#0B6FE4]">
                                 + Nueva
@@ -1961,7 +1954,7 @@ new class extends Component
                     <div class="xl:col-span-3">
                         <div class="flex items-center justify-between gap-2">
                             <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                                Marca <span class="text-red-600">*</span>
+                                Marca 
                             </label>
                             <button type="button" wire:click="$toggle('mostrarNuevaMarca')" class="text-xs font-semibold text-[#0B6FE4]">
                                 + Nueva
@@ -2005,7 +1998,7 @@ new class extends Component
 
                     <div class="xl:col-span-1">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Stock mín. <span class="text-red-600">*</span>
+                            Stock mín. 
                         </label>
                         <x-input
                             wire:model.defer="nuevoStockMinimo"
@@ -2030,6 +2023,7 @@ new class extends Component
                         @error('nuevoGarantiaNuevo')
                             <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                         @enderror
+                    </label>
                     </div>
 
                     <div class="xl:col-span-2">
@@ -2048,7 +2042,7 @@ new class extends Component
 
                     <div class="xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Estado <span class="text-red-600">*</span>
+                            Estado
                         </label>
                         <select
                             wire:model.defer="nuevoEstado"
@@ -2061,13 +2055,14 @@ new class extends Component
                             <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                         @enderror
                     </div>
+                    </label>
                 </div>
             @endif
 
             <div class="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-12">
                 <div class="xl:col-span-1">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Cantidad <span class="text-red-600">*</span>
+                        Cantidad 
                     </label>
                     <x-input
                         wire:model.defer="cantidad"
@@ -2082,7 +2077,7 @@ new class extends Component
 
                 <div class="xl:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Precio compra <span class="text-red-600">*</span>
+                        Precio compra 
                     </label>
                     <x-input
                         wire:model.live.debounce.250ms="precioCompra"
@@ -2098,7 +2093,7 @@ new class extends Component
 
                 <div class="xl:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Precio venta <span class="text-red-600">*</span>
+                        Precio venta 
                         @if ($modoProducto === 'existente' && ! $precioVentaEditable)
                             <span class="text-xs font-normal text-[#5F6B7A]">👁️</span>
                         @endif
