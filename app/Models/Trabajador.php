@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Trabajador extends Model
 {
@@ -29,8 +30,10 @@ class Trabajador extends Model
         'Fecha_Ingreso' => 'date',
         'Estado' => 'integer',
         'Id_Cargo' => 'integer',
-        'Salario' => 'decimal:6',
+        'Salario' => 'decimal:2',
     ];
+
+ 
 
     public function persona(): BelongsTo
     {
@@ -40,6 +43,11 @@ class Trabajador extends Model
     public function cargo(): BelongsTo
     {
         return $this->belongsTo(Cargo::class, 'Id_Cargo', 'Id_Cargo');
+    }
+
+    public function usuario(): HasOne
+    {
+        return $this->hasOne(Usuario::class, 'Id_Trabajador', 'Id_Trabajador');
     }
 
     public function contratosInstalacionCamara(): HasMany
