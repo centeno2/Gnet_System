@@ -737,16 +737,16 @@ new class extends Component
                 @else
                 <div class="h-full w-full overflow-auto">
                     <table
-                        class="min-w-[880px] w-full table-fixed border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
+                        class="min-w-220 w-full table-fixed border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
                         <colgroup>
-                            <col class="w-[220px]">
-                            <col class="w-[100px]">
-                            <col class="w-[125px]">
-                            <col class="w-[165px]">
-                            <col class="w-[140px]">
-                            <col class="w-[105px]">
-                            <col class="w-[170px]">
-                            <col class="w-[65px]">
+                            <col class="w-55">
+                            <col class="w-25">
+                            <col class="w-31.25">
+                            <col class="w-41.25">
+                            <col class="w-35">
+                            <col class="w-26.25">
+                            <col class="w-42.5">
+                            <col class="w-16.25">
                         </colgroup>
 
                         <thead class="sticky top-0 z-10">
@@ -942,7 +942,7 @@ new class extends Component
         </div>
 
         <div class="overflow-x-auto rounded-xl border border-[#D7E4F3] bg-white">
-            <table class="min-w-[760px] w-full border-separate border-spacing-0 text-sm text-[#1A2B42]">
+            <table class="min-w-190 w-full border-separate border-spacing-0 text-sm text-[#1A2B42]">
                 <thead>
                     <tr>
                         <th

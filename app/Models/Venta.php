@@ -30,6 +30,7 @@ class Venta extends Model
         'Estado',
         'Descuento',
         'Total',
+        'Tipo_Cambio',
     ];
 
     protected $casts = [
@@ -40,6 +41,7 @@ class Venta extends Model
         'Estado' => 'integer',
         'Descuento' => 'decimal:2',
         'Total' => 'decimal:2',
+        'Tipo_Cambio' => 'decimal:4',
     ];
 
     public function cliente(): BelongsTo
