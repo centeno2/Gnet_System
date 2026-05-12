@@ -32,14 +32,14 @@ class Trabajador extends Model
         'Salario' => 'decimal:6',
     ];
 
-    public function cargo(): BelongsTo
-    {
-        return $this->belongsTo(Cargo::class, 'Id_Cargo', 'Id_Cargo');
-    }
-
     public function persona(): BelongsTo
     {
         return $this->belongsTo(Persona::class, 'Id_Persona', 'Id_Persona');
+    }
+
+    public function cargo(): BelongsTo
+    {
+        return $this->belongsTo(Cargo::class, 'Id_Cargo', 'Id_Cargo');
     }
 
     public function contratosInstalacionCamara(): HasMany

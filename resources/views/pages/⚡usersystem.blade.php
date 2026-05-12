@@ -407,23 +407,21 @@ new class extends Component
     </div>
 
     @if ($mostrarToast)
-        <div class="fixed right-5 top-5 z-999 w-full max-w-sm">
-            <div
-                class="{{ $toastTipo === 'success' ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#1A2B42]' : 'border-red-200 bg-red-50 text-red-700' }} rounded-2xl border px-4 py-4 shadow-lg"
-            >
-                <div class="flex items-start justify-between gap-3">
-                    <p class="text-sm font-medium">{{ $toastMensaje }}</p>
+    <div class="fixed right-5 top-5 z-999 w-full max-w-sm">
+        <div
+            class="{{ $toastTipo === 'success' ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#1A2B42]' : 'border-red-200 bg-red-50 text-red-700' }} rounded-2xl border px-4 py-4 shadow-lg">
+            <div class="flex items-start justify-between gap-3">
+                <p class="text-sm font-medium">{{ $toastMensaje }}</p>
 
-                    <button
-                        type="button"
-                        wire:click="cerrarToast"
-                        class="text-lg leading-none text-[#5F6B7A] hover:text-[#1A2B42]"
-                    >
-                        ×
-                    </button>
-                </div>
+
+                <button type="button" wire:click="cerrarToast"
+                    class="text-lg leading-none text-[#5F6B7A] hover:text-[#1A2B42]">
+                    ×
+                </button>
+
             </div>
         </div>
+    </div>
     @endif
 
     <form wire:submit.prevent="guardarUsuario">
@@ -441,17 +439,12 @@ new class extends Component
                         Trabajador
                     </label>
 
-                    <x-select
-                        wire:model.live="idPersona"
-                        placeholder="Seleccione un trabajador"
-                        :options="$trabajadores"
-                        option-value="id"
-                        option-label="name"
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
+                    <x-select wire:model.live="idPersona" placeholder="Seleccione un trabajador"
+                        :options="$trabajadores" option-value="id" option-label="name"
+                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
 
                     @error('idPersona')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                     @enderror
                 </div>
 
@@ -460,12 +453,8 @@ new class extends Component
                         Cargo del trabajador
                     </label>
 
-                    <x-input
-                        wire:model="cargoTrabajador"
-                        placeholder="Se carga al seleccionar trabajador"
-                        readonly
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
+                    <x-input wire:model="cargoTrabajador" placeholder="Se carga al seleccionar trabajador" readonly
+                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
                 </div>
 
                 <div>
@@ -473,14 +462,11 @@ new class extends Component
                         Nombre de usuario
                     </label>
 
-                    <x-input
-                        wire:model.defer="nombreUsuario"
-                        placeholder="Ingrese el nombre de usuario"
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
+                    <x-input wire:model.defer="nombreUsuario" placeholder="Ingrese el nombre de usuario"
+                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
 
                     @error('nombreUsuario')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                     @enderror
                 </div>
 
@@ -489,25 +475,18 @@ new class extends Component
                         Contraseña
                     </label>
 
-                    <x-password
-                        wire:model.defer="password"
-                        placeholder="Ingrese la contraseña"
-                        clearable
-                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
+                    <x-password wire:model.defer="password" placeholder="Ingrese la contraseña" clearable
+                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
 
                     @error('password')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                     @enderror
                 </div>
             </div>
 
             <x-slot:actions>
-                <x-button
-                    label="Guardar usuario"
-                    type="submit"
-                    class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4] focus:ring-2 focus:ring-[#0E48A1]/30"
-                />
+                <x-button label="Guardar usuario" type="submit"
+                    class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4] focus:ring-2 focus:ring-[#0E48A1]/30" />
             </x-slot:actions>
         </x-card>
     </form>
@@ -516,54 +495,39 @@ new class extends Component
         <div class="mb-4">
             <h2 class="text-2xl font-bold text-[#1A2B42]">Listado de usuarios</h2>
 
-            <x-input
-                wire:model.live.debounce.250ms="buscar"
-                placeholder="Buscar usuario"
-                class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-            />
+            <x-input wire:model.live.debounce.250ms="buscar" placeholder="Buscar usuario"
+                class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
         </div>
 
-        <x-table
-            :headers="$headers"
-            :rows="$usuarios"
-            no-hover
-            show-empty-text
+        <x-table :headers="$headers" :rows="$usuarios" no-hover show-empty-text
             empty-text="No hay usuarios registrados."
-            class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr]:!bg-white! [&_tbody_tr:nth-child(even)]:!bg-[#F8FBFF] [&_tbody_tr:hover]:!bg-[#EAF4FD] [&_tbody_tr]:!text-[#1A2B42]"
-        >
+
+            class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr]:bg-white! [&_tbody_tr:nth-child(even)]:bg-[#F8FBFF]! [&_tbody_tr:hover]:bg-[#EAF4FD]! [&_tbody_tr]:text-[#1A2B42]!">
+
             @scope('cell_status', $usuario)
-                <span
-                    class="{{ $usuario['status'] === 'Activo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold"
-                >
-                    {{ $usuario['status'] }}
-                </span>
+            <span
+                class="{{ $usuario['status'] === 'Activo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">
+                {{ $usuario['status'] }}
+            </span>
             @endscope
 
             @scope('actions', $usuario)
-                <div class="flex items-center justify-end gap-2">
-                    <x-button
-                        label="Editar"
-                        icon="o-pencil-square"
-                        wire:click="abrirModalEditarUsuario({{ $usuario['id_usuario'] }})"
-                        class="h-8 min-h-8 border-0 bg-[#2E8BC0] px-3 text-xs text-white hover:bg-[#0B6FE4]"
-                    />
+            <div class="flex items-center justify-end gap-2">
+                <x-button label="Editar" icon="o-pencil-square"
+                    wire:click="abrirModalEditarUsuario({{ $usuario['id_usuario'] }})"
+                    class="h-8 min-h-8 border-0 bg-[#2E8BC0] px-3 text-xs text-white hover:bg-[#0B6FE4]" />
 
-                    <x-button
-                        :label="$usuario['status'] === 'Activo' ? 'Inactivar' : 'Activar'"
-                        :icon="$usuario['status'] === 'Activo' ? 'o-no-symbol' : 'o-check-circle'"
-                        wire:click="cambiarEstadoUsuario({{ $usuario['id_usuario'] }})"
-                        class="{{ $usuario['status'] === 'Activo' ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700' }} h-8 min-h-8 border-0 px-3 text-xs text-white"
-                    />
-                </div>
+                <x-button :label="$usuario['status'] === 'Activo' ? 'Inactivar' : 'Activar'"
+                    :icon="$usuario['status'] === 'Activo' ? 'o-no-symbol' : 'o-check-circle'"
+                    wire:click="cambiarEstadoUsuario({{ $usuario['id_usuario'] }})"
+                    class="{{ $usuario['status'] === 'Activo' ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700' }} h-8 min-h-8 border-0 px-3 text-xs text-white" />
+            </div>
             @endscope
         </x-table>
     </x-card>
 
-    <x-modal
-        wire:model="modalEditarUsuario"
-        class="backdrop-blur-sm"
-        box-class="w-full max-w-xl rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl"
-    >
+    <x-modal wire:model="modalEditarUsuario" class="backdrop-blur-sm"
+        box-class="w-full max-w-xl rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
         <div class="mb-5">
             <h3 class="text-2xl font-bold text-[#1A2B42]">Editar usuario</h3>
             <p class="mt-1 text-sm text-[#5F6B7A]">
@@ -577,11 +541,8 @@ new class extends Component
                     Trabajador
                 </label>
 
-                <x-input
-                    wire:model="trabajadorEditarNombre"
-                    readonly
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                />
+                <x-input wire:model="trabajadorEditarNombre" readonly
+                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]" />
             </div>
 
             <div>
@@ -589,11 +550,8 @@ new class extends Component
                     Cargo
                 </label>
 
-                <x-input
-                    wire:model="cargoEditarNombre"
-                    readonly
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                />
+                <x-input wire:model="cargoEditarNombre" readonly
+                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]" />
             </div>
 
             <div>
@@ -601,14 +559,11 @@ new class extends Component
                     Nombre de usuario
                 </label>
 
-                <x-input
-                    wire:model.defer="nombreUsuarioEditar"
-                    placeholder="Ingrese el nombre de usuario"
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                />
+                <x-input wire:model.defer="nombreUsuarioEditar" placeholder="Ingrese el nombre de usuario"
+                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
 
                 @error('nombreUsuarioEditar')
-                    <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                 @enderror
             </div>
 
@@ -617,36 +572,23 @@ new class extends Component
                     Estado
                 </label>
 
-                <x-select
-                    wire:model.defer="estadoEditar"
-                    :options="[
+                <x-select wire:model.defer="estadoEditar" :options="[
                         ['id' => '1', 'name' => 'Activo'],
                         ['id' => '0', 'name' => 'Inactivo'],
-                    ]"
-                    option-value="id"
-                    option-label="name"
-                    class="w-full rounded-xl border border-[#B8CBE3] bg-white text-[#1A2B42] shadow-sm focus:border-[#0E48A1] focus:ring-2 focus:ring-[#0E48A1]/20"
-                />
+                    ]" option-value="id" option-label="name"
+                    class="w-full rounded-xl border border-[#B8CBE3] bg-white text-[#1A2B42] shadow-sm focus:border-[#0E48A1] focus:ring-2 focus:ring-[#0E48A1]/20" />
 
                 @error('estadoEditar')
-                    <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                 @enderror
             </div>
 
             <x-slot:actions>
-                <x-button
-                    label="Cancelar"
-                    type="button"
-                    wire:click="cerrarModalEditarUsuario"
-                    class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]"
-                />
+                <x-button label="Cancelar" type="button" wire:click="cerrarModalEditarUsuario"
+                    class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]" />
 
-                <x-button
-                    label="Guardar cambios"
-                    type="button"
-                    wire:click="actualizarUsuario"
-                    class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]"
-                />
+                <x-button label="Guardar cambios" type="button" wire:click="actualizarUsuario"
+                    class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]" />
             </x-slot:actions>
         </div>
     </x-modal>

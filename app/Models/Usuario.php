@@ -28,6 +28,7 @@ class Usuario extends Authenticatable
         'Token_Recuperacion',
         'Fecha_Recuperacion',
         'Intentos_Fallidos',
+        'Correo',
     ];
 
     protected $casts = [

@@ -87,6 +87,7 @@ new #[Layout('layouts.blank')] class extends Component
 ?>
 <div class="flex min-h-screen items-center justify-center bg-[#F0F3F7] px-4 py-6">
     <div class="w-full max-w-md">
+
         <form wire:submit="login">
             <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
                 <div class="mb-8 flex flex-col items-center text-center">
