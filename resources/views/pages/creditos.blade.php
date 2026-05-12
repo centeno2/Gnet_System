@@ -3,12 +3,15 @@
 use App\Models\AbonoCredito;
 use App\Models\ClienteCredito;
 use App\Models\Credito;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 
 new class extends Component
 {
+    protected const TASA_CAMBIO_FIJA = '36.5000';
+
     public string $valorBusqueda = '';
 
     public int $idCreditoSeleccionado = 0;
@@ -47,7 +50,7 @@ new class extends Component
     public function mount(): void
     {
         $this->fechaPago = now()->toDateString();
-        $this->tasaCambio = '36.5000';
+        $this->tasaCambio = self::TASA_CAMBIO_FIJA;
 
         $this->metodosPagoOptions = [
             ['id' => 'efectivo', 'name' => 'Efectivo'],
@@ -59,9 +62,10 @@ new class extends Component
         $this->headersDetalle = [
             ['key' => 'numero', 'label' => 'No.', 'class' => 'w-14'],
             ['key' => 'fecha_pago', 'label' => 'Fecha', 'class' => 'min-w-[120px]'],
-            ['key' => 'monto', 'label' => 'Monto aplicado', 'class' => 'min-w-[140px]'],
-            ['key' => 'moneda', 'label' => 'Moneda', 'class' => 'hidden md:table-cell min-w-[100px]'],
-            ['key' => 'referencia', 'label' => 'Referencia', 'class' => 'hidden lg:table-cell min-w-[160px]'],
+            ['key' => 'monto', 'label' => 'Monto aplicado', 'class' => 'min-w-[150px]'],
+            ['key' => 'moneda', 'label' => 'Moneda', 'class' => 'min-w-[100px]'],
+            ['key' => 'referencia', 'label' => 'Referencia', 'class' => 'min-w-[160px]'],
+            ['key' => 'observacion', 'label' => 'Observación', 'class' => 'min-w-[260px]'],
             ['key' => 'estado', 'label' => 'Tipo', 'class' => 'min-w-[110px]'],
         ];
 
@@ -81,7 +85,7 @@ new class extends Component
         $busqueda = trim($this->valorBusqueda);
 
         if ($busqueda === '') {
-            $this->limpiarBusqueda();
+            $this->limpiarCreditoCargado();
             return;
         }
 
@@ -95,17 +99,25 @@ new class extends Component
 
     public function updatedAbonarCordobas(): void
     {
+        if (trim($this->abonarCordobas) === '') {
+            $this->abonarCordobas = '0.00';
+        }
+
         $this->calcularCambio();
     }
 
     public function updatedAbonarDolares(): void
     {
+        if (trim($this->abonarDolares) === '') {
+            $this->abonarDolares = '0.00';
+        }
+
         $this->calcularCambio();
     }
 
     public function updatedTasaCambio(): void
     {
-        $this->tasaCambio = '36.5000';
+        $this->tasaCambio = self::TASA_CAMBIO_FIJA;
         $this->calcularCambio();
     }
 
@@ -144,7 +156,6 @@ new class extends Component
             ->with([
                 'venta.cliente.persona',
                 'clienteCredito.cliente.persona',
-                'abonos',
             ])
             ->where(function ($query) use ($busqueda) {
                 $query
@@ -199,20 +210,26 @@ new class extends Component
     {
         $like = "%{$busqueda}%";
 
-        $clienteQuery->where(function ($query) use ($like) {
+        $terminos = collect(preg_split('/\s+/', trim($busqueda)))
+            ->filter(fn ($valor) => filled($valor))
+            ->values();
+
+        $clienteQuery->where(function ($query) use ($like, $terminos) {
             $query
                 ->where('Institucion', 'like', $like)
-                ->orWhereHas('persona', function ($personaQuery) use ($like) {
-                    $personaQuery->where(function ($nombreQuery) use ($like) {
-                        $nombreQuery
-                            ->where('Primer_Nombre', 'like', $like)
-                            ->orWhere('Segundo_Nombre', 'like', $like)
-                            ->orWhere('Primer_Apellido', 'like', $like)
-                            ->orWhere('Segundo_Apellido', 'like', $like)
-                            ->orWhereRaw(
-                                "CONCAT_WS(' ', Primer_Nombre, Segundo_Nombre, Primer_Apellido, Segundo_Apellido) LIKE ?",
-                                [$like]
-                            );
+                ->orWhereHas('persona', function ($personaQuery) use ($terminos) {
+                    $personaQuery->where(function ($nombreQuery) use ($terminos) {
+                        foreach ($terminos as $termino) {
+                            $token = "%{$termino}%";
+
+                            $nombreQuery->where(function ($tokenQuery) use ($token) {
+                                $tokenQuery
+                                    ->where('Primer_Nombre', 'like', $token)
+                                    ->orWhere('Segundo_Nombre', 'like', $token)
+                                    ->orWhere('Primer_Apellido', 'like', $token)
+                                    ->orWhere('Segundo_Apellido', 'like', $token);
+                            });
+                        }
                     });
                 });
         });
@@ -223,7 +240,7 @@ new class extends Component
         $this->resetErrorBag();
 
         $this->fechaPago = now()->toDateString();
-        $this->tasaCambio = '36.5000';
+        $this->tasaCambio = self::TASA_CAMBIO_FIJA;
 
         $datos = $this->validate(
             [
@@ -264,7 +281,7 @@ new class extends Component
 
         $montoCordobas = $this->normalizarDecimal($datos['abonarCordobas'] ?? 0);
         $montoDolares = $this->normalizarDecimal($datos['abonarDolares'] ?? 0);
-        $tasaCambio = $this->normalizarDecimal($datos['tasaCambio'] ?? 36.5);
+        $tasaCambio = $this->normalizarDecimal(self::TASA_CAMBIO_FIJA);
 
         if ($montoCordobas <= 0 && $montoDolares <= 0) {
             throw ValidationException::withMessages([
@@ -292,7 +309,12 @@ new class extends Component
             &$cambio
         ) {
             $credito = Credito::query()
-                ->with(['clienteCredito'])
+                ->with([
+                    'venta',
+                    'venta.cliente.persona',
+                    'clienteCredito',
+                    'clienteCredito.cliente.persona',
+                ])
                 ->whereKey((int) $datos['idCreditoSeleccionado'])
                 ->lockForUpdate()
                 ->first();
@@ -303,17 +325,35 @@ new class extends Component
                 ]);
             }
 
-            if ((string) $credito->Estado === Credito::ESTADO_CANCELADO || (float) $credito->Saldo_Actual <= 0) {
+            $abonosPrevios = $this->obtenerAbonosCredito($credito, true);
+            $saldoPendienteReal = $this->calcularSaldoPendienteReal($credito, $abonosPrevios);
+
+            if ((string) $credito->Estado === Credito::ESTADO_CANCELADO || $saldoPendienteReal <= 0) {
+                $credito->Saldo_Actual = 0;
+                $credito->Estado = Credito::ESTADO_CANCELADO;
+                $credito->save();
+
+                if ($credito->clienteCredito) {
+                    $this->sincronizarSaldoClienteCredito($credito->clienteCredito);
+                }
+
                 throw ValidationException::withMessages([
                     'idCreditoSeleccionado' => 'Este crédito ya está cancelado.',
                 ]);
             }
 
-            $saldoPendiente = round((float) $credito->Saldo_Actual, 2);
+            $credito->Saldo_Actual = $saldoPendienteReal;
+            $credito->Estado = $saldoPendienteReal <= 0
+                ? Credito::ESTADO_CANCELADO
+                : ((float) $credito->Abono_Inicial > 0 || $abonosPrevios->isNotEmpty()
+                    ? Credito::ESTADO_PARCIAL
+                    : Credito::ESTADO_PENDIENTE);
+            $credito->save();
+
             $totalRecibidoCordobas = round($montoCordobas + ($montoDolares * $tasaCambio), 2);
 
-            $montoAplicadoTotal = min($totalRecibidoCordobas, $saldoPendiente);
-            $cambio = max($totalRecibidoCordobas - $saldoPendiente, 0);
+            $montoAplicadoTotal = min($totalRecibidoCordobas, $saldoPendienteReal);
+            $cambio = max($totalRecibidoCordobas - $saldoPendienteReal, 0);
 
             $saldoRestanteParaAplicar = $montoAplicadoTotal;
 
@@ -355,27 +395,27 @@ new class extends Component
                 $saldoRestanteParaAplicar = round($saldoRestanteParaAplicar - $aplicadoDolaresCordobas, 2);
             }
 
-            $nuevoSaldoCredito = round($saldoPendiente - $montoAplicadoTotal, 2);
+            $nuevoSaldoCredito = max(round($saldoPendienteReal - $montoAplicadoTotal, 2), 0);
 
-            $credito->Saldo_Actual = max($nuevoSaldoCredito, 0);
-            $credito->Estado = $credito->Saldo_Actual <= 0
+            $credito->Saldo_Actual = $nuevoSaldoCredito;
+            $credito->Estado = $nuevoSaldoCredito <= 0
                 ? Credito::ESTADO_CANCELADO
                 : Credito::ESTADO_PARCIAL;
             $credito->save();
 
             if ($credito->clienteCredito) {
-                $nuevoSaldoCliente = round((float) $credito->clienteCredito->Saldo_Actual - $montoAplicadoTotal, 2);
-
-                $credito->clienteCredito->Saldo_Actual = max($nuevoSaldoCliente, 0);
-                $credito->clienteCredito->Estado = ClienteCredito::ESTADO_ACTIVO;
-                $credito->clienteCredito->save();
+                $this->sincronizarSaldoClienteCredito($credito->clienteCredito);
             }
 
-            $creditoActualizado = $credito->fresh([
-                'venta.cliente.persona',
-                'clienteCredito.cliente.persona',
-                'abonos',
-            ]);
+            $creditoActualizado = Credito::query()
+                ->with([
+                    'venta',
+                    'venta.cliente.persona',
+                    'clienteCredito',
+                    'clienteCredito.cliente.persona',
+                ])
+                ->whereKey($credito->Id_Credito)
+                ->first();
         });
 
         if ($creditoActualizado) {
@@ -411,69 +451,159 @@ new class extends Component
         );
 
         AbonoCredito::query()->create([
-            'Id_Credito' => $credito->Id_Credito,
+            'Id_Credito' => (int) $credito->Id_Credito,
             'Fecha_Abono' => $fechaPago,
             'Moneda' => $moneda,
             'Monto' => round($monto, 2),
             'Tipo_Cambio' => round($tipoCambio, 4),
             'Monto_Equivalente_Cordobas' => round($montoEquivalenteCordobas, 2),
-            'Numero_Transferencia' => $referencia ? trim($referencia) : null,
+            'Numero_Transferencia' => filled($referencia) ? trim((string) $referencia) : null,
             'Observacion' => $textoObservacion,
         ]);
+    }
+
+    protected function obtenerAbonosCredito(Credito $credito, bool $bloquear = false)
+    {
+        $query = AbonoCredito::query()
+            ->where('Id_Credito', (int) $credito->Id_Credito)
+            ->orderBy('Fecha_Abono')
+            ->orderBy('Id_Abono_Credito');
+
+        if ($bloquear) {
+            $query->lockForUpdate();
+        }
+
+        return $query->get();
+    }
+
+    protected function calcularTotalCreditoBase(Credito $credito, $abonos = null): float
+    {
+        $totalVenta = $this->normalizarDecimal($credito->venta?->Total ?? 0);
+
+        if ($totalVenta > 0) {
+            return round($totalVenta, 2);
+        }
+
+        $abonos = $abonos ?? $this->obtenerAbonosCredito($credito);
+
+        return round(
+            (float) $credito->Abono_Inicial
+            + (float) $credito->Saldo_Actual
+            + (float) $abonos->sum('Monto_Equivalente_Cordobas'),
+            2
+        );
+    }
+
+    protected function calcularSaldoPendienteReal(Credito $credito, $abonos = null): float
+    {
+        $abonos = $abonos ?? $this->obtenerAbonosCredito($credito);
+
+        $totalVenta = $this->normalizarDecimal($credito->venta?->Total ?? 0);
+
+        if ($totalVenta > 0) {
+            return max(
+                round(
+                    $totalVenta
+                    - (float) $credito->Abono_Inicial
+                    - (float) $abonos->sum('Monto_Equivalente_Cordobas'),
+                    2
+                ),
+                0
+            );
+        }
+
+        return max(round((float) $credito->Saldo_Actual, 2), 0);
+    }
+
+    protected function sincronizarSaldoClienteCredito(ClienteCredito $clienteCredito): void
+    {
+        $saldoCreditosActivos = Credito::query()
+            ->where('Id_Cliente_Credito', (int) $clienteCredito->Id_Cliente_Credito)
+            ->whereIn('Estado', [
+                Credito::ESTADO_PENDIENTE,
+                Credito::ESTADO_PARCIAL,
+                Credito::ESTADO_VENCIDO,
+            ])
+            ->sum('Saldo_Actual');
+
+        $clienteCredito->Saldo_Actual = max(round((float) $saldoCreditosActivos, 2), 0);
+        $clienteCredito->Estado = ClienteCredito::ESTADO_ACTIVO;
+        $clienteCredito->save();
+    }
+
+    protected function formatearFecha($fecha): string
+    {
+        if ($fecha === null || $fecha === '') {
+            return '—';
+        }
+
+        try {
+            return Carbon::parse($fecha)->format('d/m/Y');
+        } catch (\Throwable) {
+            return '—';
+        }
     }
 
     protected function cargarCreditoSeleccionado(Credito $credito): void
     {
         $credito->loadMissing([
+            'venta',
             'venta.cliente.persona',
             'clienteCredito.cliente.persona',
-            'abonos',
         ]);
 
+        $abonos = $this->obtenerAbonosCredito($credito);
+
         $cliente = $credito->clienteCredito?->cliente ?? $credito->venta?->cliente;
+
+        $saldoOriginal = $this->calcularTotalCreditoBase($credito, $abonos);
+        $saldoPendienteReal = $this->calcularSaldoPendienteReal($credito, $abonos);
 
         $this->idCreditoSeleccionado = (int) $credito->Id_Credito;
         $this->cliente = $this->nombreCliente($cliente);
         $this->cedula = $this->documentoCliente($cliente);
         $this->codigoCredito = 'CR-' . str_pad((string) $credito->Id_Credito, 5, '0', STR_PAD_LEFT);
-        $this->estadoCredito = $credito->Estado ?: Credito::ESTADO_PENDIENTE;
-        $this->fechaCredito = optional($credito->Fecha_Credito)->format('d/m/Y') ?? '—';
+        $this->estadoCredito = $saldoPendienteReal <= 0
+            ? Credito::ESTADO_CANCELADO
+            : ($credito->Estado ?: Credito::ESTADO_PENDIENTE);
+        $this->fechaCredito = $this->formatearFecha($credito->Fecha_Credito);
         $this->proximoPago = '—';
 
-        $saldoOriginal = $credito->venta?->Total
-            ?? ((float) $credito->Abono_Inicial + (float) $credito->Saldo_Actual + (float) $credito->abonos->sum('Monto_Equivalente_Cordobas'));
+        $this->saldoOriginal = $this->formatoMoneda($saldoOriginal);
+        $this->saldoPendiente = $this->formatoMoneda($saldoPendienteReal);
 
-        $this->saldoOriginal = $this->formatoMoneda((float) $saldoOriginal);
-        $this->saldoPendiente = $this->formatoMoneda((float) $credito->Saldo_Actual);
-
-        $this->detalleCredito = $this->mapearDetalleCredito($credito);
+        $this->detalleCredito = $this->mapearDetalleCredito($credito, $abonos);
         $this->calcularCambio();
     }
 
-    protected function mapearDetalleCredito(Credito $credito): array
+    protected function mapearDetalleCredito(Credito $credito, $abonos = null): array
     {
         $filas = [];
 
         if ((float) $credito->Abono_Inicial > 0) {
             $filas[] = [
                 'numero' => 1,
-                'fecha_pago' => optional($credito->Fecha_Credito)->format('d/m/Y') ?? '—',
+                'fecha_pago' => $this->formatearFecha($credito->Fecha_Credito),
                 'monto' => 'C$ ' . $this->formatoMoneda((float) $credito->Abono_Inicial),
                 'moneda' => 'NIO',
                 'referencia' => 'Abono inicial',
+                'observacion' => 'Pago inicial registrado al crear el crédito',
                 'estado' => 'Inicial',
             ];
         }
 
+        $abonos = $abonos ?? $this->obtenerAbonosCredito($credito);
+
         $numero = count($filas) + 1;
 
-        foreach ($credito->abonos->sortBy('Fecha_Abono') as $abono) {
+        foreach ($abonos as $abono) {
             $filas[] = [
                 'numero' => $numero++,
-                'fecha_pago' => optional($abono->Fecha_Abono)->format('d/m/Y') ?? '—',
+                'fecha_pago' => $this->formatearFecha($abono->Fecha_Abono),
                 'monto' => 'C$ ' . $this->formatoMoneda((float) $abono->Monto_Equivalente_Cordobas),
-                'moneda' => $abono->moneda_nombre,
+                'moneda' => $abono->moneda_nombre ?? (string) $abono->Moneda,
                 'referencia' => $abono->Numero_Transferencia ?: '—',
+                'observacion' => $abono->Observacion ?: '—',
                 'estado' => 'Abono',
             ];
         }
@@ -534,11 +664,11 @@ new class extends Component
             'detalleCredito',
         ]);
 
-        $this->estadoCredito = 'Pendiente';
+        $this->estadoCredito = Credito::ESTADO_PENDIENTE;
         $this->saldoOriginal = '0.00';
         $this->saldoPendiente = '0.00';
 
-        $this->limpiarPago(false);
+        $this->limpiarPago();
     }
 
     public function limpiarPago(bool $limpiarCambio = true): void
@@ -553,7 +683,7 @@ new class extends Component
 
         $this->abonarCordobas = '0.00';
         $this->abonarDolares = '0.00';
-        $this->tasaCambio = '36.5000';
+        $this->tasaCambio = self::TASA_CAMBIO_FIJA;
         $this->fechaPago = now()->toDateString();
 
         if ($limpiarCambio) {
@@ -831,13 +961,13 @@ new class extends Component
                 separator
                 class="flex min-h-0 flex-1 flex-col {{ $cardClass }}"
             >
-                <div class="min-h-0 flex-1 overflow-hidden rounded-2xl border border-[#D7E4F3]">
-                    <div class="h-full overflow-auto overscroll-contain">
+                <div class="min-h-[230px] max-h-[360px] overflow-hidden rounded-2xl border border-[#D7E4F3]">
+                    <div class="h-full max-h-[360px] overflow-auto overscroll-contain">
                         <x-table
                             :headers="$headersDetalle"
                             :rows="$detalleCredito"
                             no-hover
-                            class="[&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_td]:border-[#D7E4F3] [&_tbody_td]:text-[#1A2B42] [&_tbody_tr:hover]:!bg-[#EAF4FD]"
+                            class="min-w-[960px] [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_td]:border-[#D7E4F3] [&_tbody_td]:text-[#1A2B42] [&_tbody_tr:hover]:!bg-[#EAF4FD]"
                         >
                             @scope('cell_estado', $fila)
                                 <span
@@ -846,6 +976,18 @@ new class extends Component
                                         : 'bg-green-100 text-green-700' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold"
                                 >
                                     {{ $fila['estado'] }}
+                                </span>
+                            @endscope
+
+                            @scope('cell_observacion', $fila)
+                                <span class="block max-w-[260px] truncate" title="{{ $fila['observacion'] }}">
+                                    {{ $fila['observacion'] }}
+                                </span>
+                            @endscope
+
+                            @scope('cell_referencia', $fila)
+                                <span class="block max-w-[160px] truncate" title="{{ $fila['referencia'] }}">
+                                    {{ $fila['referencia'] }}
                                 </span>
                             @endscope
                         </x-table>
@@ -901,6 +1043,8 @@ new class extends Component
                             wire:model.live.debounce.250ms="abonarCordobas"
                             prefix="C$"
                             :disabled="$pagoBloqueado"
+                            x-on:focus="$event.target.select()"
+                            x-on:mouseup.prevent
                             class="{{ $fieldClass }}"
                         />
 
@@ -909,6 +1053,8 @@ new class extends Component
                             wire:model.live.debounce.250ms="abonarDolares"
                             prefix="US$"
                             :disabled="$pagoBloqueado"
+                            x-on:focus="$event.target.select()"
+                            x-on:mouseup.prevent
                             class="{{ $fieldClass }}"
                         />
 
