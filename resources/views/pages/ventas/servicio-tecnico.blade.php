@@ -1,7 +1,19 @@
 <?php
 
 use Livewire\Component;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+
+use App\Models\Cliente;
+use App\Models\Trabajador;
+use App\Models\Producto;
+use App\Models\ProductoSerie;
+use App\Models\Servicio;
+use App\Models\ServicioTecnico;
+use App\Models\ServicioTecnicoChecklist;
+use App\Models\ServicioTecnicoProducto;
+use App\Models\MovimientoInventario;
+use App\Models\Usuario;
 
 new class extends Component
 {
@@ -16,7 +28,6 @@ new class extends Component
     public ?array $mensaje = null;
 
     public bool $modalPendientes = false;
-
     public string $filtroPendientes = '';
 
     public ?int $clienteId = null;
@@ -104,81 +115,145 @@ new class extends Component
 
     public function cargarCombos(): void
     {
-        $this->clientes = DB::table('cliente as c')
-            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'c.Id_Persona')
-            ->where('c.Estado', 1)
-            ->selectRaw("c.Id_Cliente as id, TRIM(CONCAT(COALESCE(c.Institucion, ''), CASE WHEN c.Institucion IS NOT NULL AND c.Institucion <> '' THEN ' - ' ELSE '' END, COALESCE(p.Primer_Nombre, ''), ' ', COALESCE(p.Segundo_Nombre, ''), ' ', COALESCE(p.Primer_Apellido, ''), ' ', COALESCE(p.Segundo_Apellido, ''), ' | Tel: ', COALESCE(p.Telefono, ''))) as name")
-            ->orderBy('name')
+        $this->clientes = Cliente::query()
+            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'cliente.Id_Persona')
+            ->where('cliente.Estado', 1)
+            ->select([
+                'cliente.Id_Cliente as id',
+                'cliente.Institucion',
+                'p.Primer_Nombre',
+                'p.Segundo_Nombre',
+                'p.Primer_Apellido',
+                'p.Segundo_Apellido',
+                'p.Telefono',
+            ])
+            ->orderBy('cliente.Institucion')
+            ->orderBy('p.Primer_Nombre')
             ->get()
             ->map(fn ($item) => [
                 'id' => (int) $item->id,
-                'name' => trim(preg_replace('/\s+/', ' ', $item->name)),
+                'name' => $this->limpiarTexto(
+                    trim(
+                        ($item->Institucion ? $item->Institucion . ' - ' : '') .
+                        trim(
+                            ($item->Primer_Nombre ?? '') . ' ' .
+                            ($item->Segundo_Nombre ?? '') . ' ' .
+                            ($item->Primer_Apellido ?? '') . ' ' .
+                            ($item->Segundo_Apellido ?? '')
+                        ) .
+                        ' | Tel: ' . ($item->Telefono ?? '')
+                    )
+                ),
             ])
             ->toArray();
 
-        $this->tecnicos = DB::table('trabajador as t')
-            ->join('persona as p', 'p.Id_Persona', '=', 't.Id_Persona')
-            ->leftJoin('cargo as cg', 'cg.Id_Cargo', '=', 't.Id_Cargo')
-            ->where('t.Estado', 1)
-            ->selectRaw("t.Id_Trabajador as id, TRIM(CONCAT(p.Primer_Nombre, ' ', COALESCE(p.Segundo_Nombre, ''), ' ', p.Primer_Apellido, ' ', COALESCE(p.Segundo_Apellido, ''), ' - ', COALESCE(cg.Cargo_Asignado, 'Trabajador'))) as name")
-            ->orderBy('name')
+        $this->tecnicos = Trabajador::query()
+            ->join('persona as p', 'p.Id_Persona', '=', 'trabajador.Id_Persona')
+            ->leftJoin('cargo as cg', 'cg.Id_Cargo', '=', 'trabajador.Id_Cargo')
+            ->where('trabajador.Estado', 1)
+            ->select([
+                'trabajador.Id_Trabajador as id',
+                'p.Primer_Nombre',
+                'p.Segundo_Nombre',
+                'p.Primer_Apellido',
+                'p.Segundo_Apellido',
+                'cg.Cargo_Asignado',
+            ])
+            ->orderBy('p.Primer_Nombre')
+            ->orderBy('p.Primer_Apellido')
             ->get()
             ->map(fn ($item) => [
                 'id' => (int) $item->id,
-                'name' => trim(preg_replace('/\s+/', ' ', $item->name)),
+                'name' => $this->limpiarTexto(
+                    trim(
+                        ($item->Primer_Nombre ?? '') . ' ' .
+                        ($item->Segundo_Nombre ?? '') . ' ' .
+                        ($item->Primer_Apellido ?? '') . ' ' .
+                        ($item->Segundo_Apellido ?? '')
+                    ) . ' - ' . ($item->Cargo_Asignado ?: 'Trabajador')
+                ),
             ])
             ->toArray();
 
-        $this->productosDisponibles = DB::table('producto as p')
-            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'p.Id_Marca')
-            ->leftJoin('producto_serie as ps', function ($join) {
-                $join->on('ps.Id_Producto', '=', 'p.Id_Producto')
-                    ->where('ps.Estado', '=', 'DISPONIBLE');
+        $seriesDisponiblesPorProducto = ProductoSerie::query()
+            ->where('Estado', 'DISPONIBLE')
+            ->get(['Id_Producto'])
+            ->groupBy('Id_Producto')
+            ->map(fn ($items) => $items->count());
+
+        $this->productosDisponibles = Producto::query()
+            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
+            ->where('producto.Estado', 1)
+            ->where('producto.Stock_Actual', '>', 0)
+            ->select([
+                'producto.Id_Producto as id',
+                'producto.Nombre_Producto',
+                'producto.Modelo',
+                'producto.Precio_Venta as precio',
+                'producto.Stock_Actual',
+                'm.Nombre_Marca',
+            ])
+            ->orderBy('producto.Nombre_Producto')
+            ->get()
+            ->map(function ($item) use ($seriesDisponiblesPorProducto) {
+                $seriesDisponibles = (int) ($seriesDisponiblesPorProducto[$item->id] ?? 0);
+
+                $nombre = $this->limpiarTexto(
+                    trim(
+                        ($item->Nombre_Marca ? $item->Nombre_Marca . ' ' : '') .
+                        $item->Nombre_Producto . ' ' .
+                        ($item->Modelo ?? '')
+                    )
+                );
+
+                return [
+                    'id' => (int) $item->id,
+                    'name' => $nombre .
+                        ' - Stock: ' . (int) $item->Stock_Actual .
+                        ($seriesDisponibles > 0 ? ' | Series: ' . $seriesDisponibles : ''),
+                    'precio' => (float) $item->precio,
+                    'series_disponibles' => $seriesDisponibles,
+                ];
             })
-            ->where('p.Estado', 1)
-            ->where('p.Stock_Actual', '>', 0)
-            ->groupBy('p.Id_Producto', 'p.Nombre_Producto', 'p.Modelo', 'p.Precio_Venta', 'p.Stock_Actual', 'm.Nombre_Marca')
-            ->orderBy('p.Nombre_Producto')
-            ->selectRaw("p.Id_Producto as id, CONCAT(COALESCE(m.Nombre_Marca, ''), CASE WHEN m.Nombre_Marca IS NULL OR m.Nombre_Marca = '' THEN '' ELSE ' ' END, p.Nombre_Producto, ' ', COALESCE(p.Modelo, ''), ' - Stock: ', p.Stock_Actual, CASE WHEN COUNT(ps.id_producto_serie) > 0 THEN CONCAT(' | Series: ', COUNT(ps.id_producto_serie)) ELSE '' END) as name, p.Precio_Venta as precio, COUNT(ps.id_producto_serie) as series_disponibles")
-            ->get()
-            ->map(fn ($item) => [
-                'id' => (int) $item->id,
-                'name' => trim(preg_replace('/\s+/', ' ', $item->name)),
-                'precio' => (float) $item->precio,
-                'series_disponibles' => (int) $item->series_disponibles,
-            ])
             ->toArray();
     }
 
     public function cargarPendientes(): void
     {
-        $query = DB::table('servicio_tecnico as st')
-            ->leftJoin('cliente as c', 'c.Id_Cliente', '=', 'st.Id_Cliente')
+        $query = ServicioTecnico::query()
+            ->leftJoin('cliente as c', 'c.Id_Cliente', '=', 'servicio_tecnico.Id_Cliente')
             ->leftJoin('persona as pc', 'pc.Id_Persona', '=', 'c.Id_Persona')
-            ->leftJoin('trabajador as t', 't.Id_Trabajador', '=', 'st.Id_Trabajador')
+            ->leftJoin('trabajador as t', 't.Id_Trabajador', '=', 'servicio_tecnico.Id_Trabajador')
             ->leftJoin('persona as pt', 'pt.Id_Persona', '=', 't.Id_Persona')
-            ->whereNotIn('st.Estado_Servicio', ['ENTREGADO', 'CANCELADO'])
-            ->selectRaw("st.Id_Servicio_Tecnico as id,
-                st.Numero_Orden as numero,
-                st.Fecha_Ingreso as fecha,
-                st.Tipo_Equipo as equipo,
-                st.Marca as marca,
-                st.Modelo as modelo,
-                st.Estado_Servicio as estado,
-                st.Total_Servicio as total,
-                TRIM(CONCAT(COALESCE(c.Institucion, ''), CASE WHEN c.Institucion IS NOT NULL AND c.Institucion <> '' THEN ' - ' ELSE '' END, COALESCE(pc.Primer_Nombre, ''), ' ', COALESCE(pc.Segundo_Nombre, ''), ' ', COALESCE(pc.Primer_Apellido, ''), ' ', COALESCE(pc.Segundo_Apellido, ''))) as cliente,
-                TRIM(CONCAT(COALESCE(pt.Primer_Nombre, ''), ' ', COALESCE(pt.Primer_Apellido, ''))) as tecnico")
-            ->orderByDesc('st.Fecha_Ingreso')
+            ->whereNotIn('servicio_tecnico.Estado_Servicio', ['ENTREGADO', 'CANCELADO'])
+            ->select([
+                'servicio_tecnico.Id_Servicio_Tecnico as id',
+                'servicio_tecnico.Numero_Orden as numero',
+                'servicio_tecnico.Fecha_Ingreso as fecha',
+                'servicio_tecnico.Tipo_Equipo as equipo',
+                'servicio_tecnico.Marca as marca',
+                'servicio_tecnico.Modelo as modelo',
+                'servicio_tecnico.Estado_Servicio as estado',
+                'servicio_tecnico.Total_Servicio as total',
+                'c.Institucion as cliente_institucion',
+                'pc.Primer_Nombre as cliente_primer_nombre',
+                'pc.Segundo_Nombre as cliente_segundo_nombre',
+                'pc.Primer_Apellido as cliente_primer_apellido',
+                'pc.Segundo_Apellido as cliente_segundo_apellido',
+                'pt.Primer_Nombre as tecnico_primer_nombre',
+                'pt.Primer_Apellido as tecnico_primer_apellido',
+            ])
+            ->orderByDesc('servicio_tecnico.Fecha_Ingreso')
             ->limit(25);
 
         $filtro = trim($this->filtroPendientes);
 
         if ($filtro !== '') {
             $query->where(function ($q) use ($filtro) {
-                $q->where('st.Numero_Orden', 'like', '%' . $filtro . '%')
-                    ->orWhere('st.Tipo_Equipo', 'like', '%' . $filtro . '%')
-                    ->orWhere('st.Marca', 'like', '%' . $filtro . '%')
-                    ->orWhere('st.Modelo', 'like', '%' . $filtro . '%')
+                $q->where('servicio_tecnico.Numero_Orden', 'like', '%' . $filtro . '%')
+                    ->orWhere('servicio_tecnico.Tipo_Equipo', 'like', '%' . $filtro . '%')
+                    ->orWhere('servicio_tecnico.Marca', 'like', '%' . $filtro . '%')
+                    ->orWhere('servicio_tecnico.Modelo', 'like', '%' . $filtro . '%')
                     ->orWhere('pc.Primer_Nombre', 'like', '%' . $filtro . '%')
                     ->orWhere('pc.Primer_Apellido', 'like', '%' . $filtro . '%')
                     ->orWhere('c.Institucion', 'like', '%' . $filtro . '%');
@@ -187,16 +262,37 @@ new class extends Component
 
         $this->serviciosPendientes = $query
             ->get()
-            ->map(fn ($item) => [
-                'id' => (int) $item->id,
-                'numero' => $item->numero,
-                'fecha' => $item->fecha,
-                'cliente' => trim(preg_replace('/\s+/', ' ', $item->cliente ?: 'Cliente no especificado')),
-                'equipo' => trim(($item->equipo ?? '') . ' ' . ($item->marca ?? '') . ' ' . ($item->modelo ?? '')),
-                'tecnico' => trim($item->tecnico ?: 'Sin técnico'),
-                'estado' => $item->estado,
-                'total' => (float) $item->total,
-            ])
+            ->map(function ($item) {
+                $cliente = $this->limpiarTexto(
+                    trim(
+                        ($item->cliente_institucion ? $item->cliente_institucion . ' - ' : '') .
+                        ($item->cliente_primer_nombre ?? '') . ' ' .
+                        ($item->cliente_segundo_nombre ?? '') . ' ' .
+                        ($item->cliente_primer_apellido ?? '') . ' ' .
+                        ($item->cliente_segundo_apellido ?? '')
+                    )
+                );
+
+                $tecnico = $this->limpiarTexto(
+                    trim(
+                        ($item->tecnico_primer_nombre ?? '') . ' ' .
+                        ($item->tecnico_primer_apellido ?? '')
+                    )
+                );
+
+                return [
+                    'id' => (int) $item->id,
+                    'numero' => $item->numero,
+                    'fecha' => $item->fecha,
+                    'cliente' => $cliente ?: 'Cliente no especificado',
+                    'equipo' => $this->limpiarTexto(
+                        trim(($item->equipo ?? '') . ' ' . ($item->marca ?? '') . ' ' . ($item->modelo ?? ''))
+                    ),
+                    'tecnico' => $tecnico ?: 'Sin técnico',
+                    'estado' => $item->estado,
+                    'total' => (float) $item->total,
+                ];
+            })
             ->toArray();
     }
 
@@ -213,7 +309,7 @@ new class extends Component
 
     public function cargarPendiente(int $id, bool $cerrarModal = true): void
     {
-        $servicio = DB::table('servicio_tecnico')
+        $servicio = ServicioTecnico::query()
             ->where('Id_Servicio_Tecnico', $id)
             ->first();
 
@@ -263,9 +359,9 @@ new class extends Component
             return;
         }
 
-        $telefono = DB::table('cliente as c')
-            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'c.Id_Persona')
-            ->where('c.Id_Cliente', $value)
+        $telefono = Cliente::query()
+            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'cliente.Id_Persona')
+            ->where('cliente.Id_Cliente', $value)
             ->value('p.Telefono');
 
         $this->telefonoCliente = (string) ($telefono ?? '');
@@ -283,7 +379,7 @@ new class extends Component
             return;
         }
 
-        $producto = DB::table('producto')
+        $producto = Producto::query()
             ->where('Id_Producto', $value)
             ->first();
 
@@ -299,7 +395,7 @@ new class extends Component
             ->values()
             ->all();
 
-        $query = DB::table('producto_serie')
+        $query = ProductoSerie::query()
             ->where('Id_Producto', $value)
             ->where('Estado', 'DISPONIBLE');
 
@@ -309,18 +405,16 @@ new class extends Component
 
         $this->seriesDisponibles = $query
             ->orderBy('Numero_Serie')
-            ->get(['id_producto_serie as id', 'Numero_Serie as name'])
+            ->get(['id_producto_serie', 'Numero_Serie'])
             ->map(fn ($item) => [
-                'id' => (int) $item->id,
-                'name' => $item->name,
+                'id' => (int) $item->id_producto_serie,
+                'name' => $item->Numero_Serie,
             ])
             ->toArray();
 
-        $totalSeriesDelProducto = DB::table('producto_serie')
+        $this->productoTieneSeries = ProductoSerie::query()
             ->where('Id_Producto', $value)
-            ->count();
-
-        $this->productoTieneSeries = $totalSeriesDelProducto > 0;
+            ->exists();
 
         if ($this->productoTieneSeries) {
             $this->productoCantidad = 1;
@@ -338,10 +432,13 @@ new class extends Component
             'productoCantidad.min' => 'La cantidad debe ser mayor a cero.',
         ]);
 
-        $producto = DB::table('producto as p')
-            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'p.Id_Marca')
-            ->where('p.Id_Producto', $this->productoId)
-            ->select('p.*', 'm.Nombre_Marca')
+        $producto = Producto::query()
+            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
+            ->where('producto.Id_Producto', $this->productoId)
+            ->select([
+                'producto.*',
+                'm.Nombre_Marca',
+            ])
             ->first();
 
         if (!$producto || (int) $producto->Estado !== 1 || (int) $producto->Stock_Actual <= 0) {
@@ -358,7 +455,7 @@ new class extends Component
                 return;
             }
 
-            $serie = DB::table('producto_serie')
+            $serie = ProductoSerie::query()
                 ->where('id_producto_serie', $this->productoSerieId)
                 ->where('Id_Producto', $this->productoId)
                 ->where('Estado', 'DISPONIBLE')
@@ -397,7 +494,13 @@ new class extends Component
             'producto_id' => (int) $producto->Id_Producto,
             'producto_serie_id' => $serie?->id_producto_serie ? (int) $serie->id_producto_serie : null,
             'codigo' => (string) $producto->Id_Producto,
-            'descripcion' => trim(preg_replace('/\s+/', ' ', ($producto->Nombre_Marca ? $producto->Nombre_Marca . ' ' : '') . $producto->Nombre_Producto . ' ' . ($producto->Modelo ?? ''))),
+            'descripcion' => $this->limpiarTexto(
+                trim(
+                    ($producto->Nombre_Marca ? $producto->Nombre_Marca . ' ' : '') .
+                    $producto->Nombre_Producto . ' ' .
+                    ($producto->Modelo ?? '')
+                )
+            ),
             'serie' => $serie->Numero_Serie ?? 'N/A',
             'cantidad' => $cantidad,
             'precio' => $precio,
@@ -419,7 +522,11 @@ new class extends Component
             return;
         }
 
-        $this->productos = array_values(array_filter($this->productos, fn ($item) => $item['tmp_id'] !== $tmpId));
+        $this->productos = array_values(array_filter(
+            $this->productos,
+            fn ($item) => $item['tmp_id'] !== $tmpId
+        ));
+
         $this->cargarCombos();
     }
 
@@ -448,18 +555,23 @@ new class extends Component
         try {
             if ($this->servicioTecnicoIdSeleccionado) {
                 $this->actualizarServicioTecnico();
+
                 $id = $this->servicioTecnicoIdSeleccionado;
+
                 $this->cargarCombos();
                 $this->cargarPendientes();
                 $this->cargarPendiente($id, false);
+
                 $this->mostrarMensaje('success', 'Servicio actualizado', 'El servicio técnico se actualizó correctamente.');
                 return;
             }
 
             $id = $this->crearServicioTecnico();
+
             $this->limpiarFormulario();
             $this->cargarCombos();
             $this->cargarPendientes();
+
             $this->mostrarMensaje('success', 'Ingreso guardado', 'El servicio técnico se registró correctamente. Orden #' . $id . '.');
         } catch (\Throwable $e) {
             report($e);
@@ -484,12 +596,13 @@ new class extends Component
     {
         return DB::transaction(function () {
             $usuarioId = $this->usuarioActualId();
-            $numeroOrden = $this->generarNumeroUnico('ST', 'servicio_tecnico', 'Numero_Orden');
+            $numeroOrden = $this->generarNumeroUnico('ST', ServicioTecnico::class, 'Numero_Orden');
+
             $totalRepuestos = round((float) collect($this->productos)->sum('subtotal'), 2);
             $totalServicio = round($totalRepuestos + (float) $this->costoEstimado, 2);
             $servicioId = $this->servicioPorTipo('TECNICO');
 
-            $servicioTecnicoId = DB::table('servicio_tecnico')->insertGetId([
+            $servicioTecnico = $this->crearModelo(ServicioTecnico::class, [
                 'Numero_Orden' => $numeroOrden,
                 'Fecha_Ingreso' => now(),
                 'Id_Cliente' => $this->clienteId,
@@ -510,13 +623,18 @@ new class extends Component
                 'Total_Servicio' => $totalServicio,
             ]);
 
-            DB::table('servicio_tecnico_checklist')->insert($this->datosChecklist($servicioTecnicoId));
+            $servicioTecnicoId = (int) $servicioTecnico->Id_Servicio_Tecnico;
+
+            $this->crearModelo(
+                ServicioTecnicoChecklist::class,
+                $this->datosChecklist($servicioTecnicoId)
+            );
 
             foreach ($this->productos as $item) {
                 $this->registrarProductoServicio($servicioTecnicoId, $item);
             }
 
-            return (int) $servicioTecnicoId;
+            return $servicioTecnicoId;
         }, 3);
     }
 
@@ -525,41 +643,39 @@ new class extends Component
         DB::transaction(function () {
             $servicioTecnicoId = (int) $this->servicioTecnicoIdSeleccionado;
 
-            $servicio = DB::table('servicio_tecnico')
+            $servicio = ServicioTecnico::query()
                 ->where('Id_Servicio_Tecnico', $servicioTecnicoId)
                 ->lockForUpdate()
                 ->first();
 
             if (!$servicio) {
-                throw new \RuntimeException('El servicio técnico seleccionado ya no existe.');
+                throw new RuntimeException('El servicio técnico seleccionado ya no existe.');
             }
 
             $totalRepuestos = round((float) collect($this->productos)->sum('subtotal'), 2);
             $totalServicio = round($totalRepuestos + (float) $this->costoEstimado, 2);
 
-            DB::table('servicio_tecnico')
-                ->where('Id_Servicio_Tecnico', $servicioTecnicoId)
-                ->update([
-                    'Id_Cliente' => $this->clienteId,
-                    'Id_Trabajador' => $this->tecnicoId,
-                    'Tipo_Equipo' => $this->tipoEquipo,
-                    'Marca' => $this->marca ?: null,
-                    'Modelo' => $this->modelo ?: null,
-                    'Numero_Serie' => $this->numeroSerie ?: null,
-                    'Problema_Reportado' => $this->problemaReportado,
-                    'Detalle_Descriptivo' => $this->detalleDescriptivo ?: null,
-                    'Estado_Servicio' => $this->estadoServicio,
-                    'Costo_Estimado' => (float) $this->costoEstimado,
-                    'Fecha_Estimada_Entrega' => $this->fechaEstimadaEntrega ?: null,
-                    'Observacion_Tecnica' => $this->observacionTecnica ?: null,
-                    'Total_Repuestos' => $totalRepuestos,
-                    'Total_Servicio' => $totalServicio,
-                ]);
+            $servicio->forceFill([
+                'Id_Cliente' => $this->clienteId,
+                'Id_Trabajador' => $this->tecnicoId,
+                'Tipo_Equipo' => $this->tipoEquipo,
+                'Marca' => $this->marca ?: null,
+                'Modelo' => $this->modelo ?: null,
+                'Numero_Serie' => $this->numeroSerie ?: null,
+                'Problema_Reportado' => $this->problemaReportado,
+                'Detalle_Descriptivo' => $this->detalleDescriptivo ?: null,
+                'Estado_Servicio' => $this->estadoServicio,
+                'Costo_Estimado' => (float) $this->costoEstimado,
+                'Fecha_Estimada_Entrega' => $this->fechaEstimadaEntrega ?: null,
+                'Observacion_Tecnica' => $this->observacionTecnica ?: null,
+                'Total_Repuestos' => $totalRepuestos,
+                'Total_Servicio' => $totalServicio,
+            ])->save();
 
-            DB::table('servicio_tecnico_checklist')->updateOrInsert(
-                ['Id_Servicio_Tecnico' => $servicioTecnicoId],
-                $this->datosChecklist($servicioTecnicoId)
-            );
+            $checklist = ServicioTecnicoChecklist::query()
+                ->firstOrNew(['Id_Servicio_Tecnico' => $servicioTecnicoId]);
+
+            $checklist->forceFill($this->datosChecklist($servicioTecnicoId))->save();
 
             foreach ($this->productos as $item) {
                 if (!empty($item['ya_guardado'])) {
@@ -575,7 +691,7 @@ new class extends Component
     {
         $this->descontarInventario($item, 'USADO_SERVICIO', 'SALIDA_SERVICIO_TECNICO');
 
-        DB::table('servicio_tecnico_producto')->insert([
+        $this->crearModelo(ServicioTecnicoProducto::class, [
             'Id_Servicio_Tecnico' => $servicioTecnicoId,
             'Id_Producto' => $item['producto_id'],
             'Id_Producto_Serie' => $item['producto_serie_id'],
@@ -588,7 +704,7 @@ new class extends Component
 
     private function cargarChecklist(int $servicioTecnicoId): void
     {
-        $check = DB::table('servicio_tecnico_checklist')
+        $check = ServicioTecnicoChecklist::query()
             ->where('Id_Servicio_Tecnico', $servicioTecnicoId)
             ->first();
 
@@ -611,13 +727,24 @@ new class extends Component
 
     private function cargarProductosDelServicio(int $servicioTecnicoId): void
     {
-        $this->productos = DB::table('servicio_tecnico_producto as stp')
-            ->join('producto as p', 'p.Id_Producto', '=', 'stp.Id_Producto')
+        $this->productos = ServicioTecnicoProducto::query()
+            ->join('producto as p', 'p.Id_Producto', '=', 'servicio_tecnico_producto.Id_Producto')
             ->leftJoin('marca as m', 'm.Id_Marca', '=', 'p.Id_Marca')
-            ->leftJoin('producto_serie as ps', 'ps.id_producto_serie', '=', 'stp.Id_Producto_Serie')
-            ->where('stp.Id_Servicio_Tecnico', $servicioTecnicoId)
-            ->select('stp.*', 'p.Nombre_Producto', 'p.Modelo', 'm.Nombre_Marca', 'ps.Numero_Serie')
-            ->orderBy('stp.Id_Servicio_Tecnico_Producto')
+            ->leftJoin('producto_serie as ps', 'ps.id_producto_serie', '=', 'servicio_tecnico_producto.Id_Producto_Serie')
+            ->where('servicio_tecnico_producto.Id_Servicio_Tecnico', $servicioTecnicoId)
+            ->select([
+                'servicio_tecnico_producto.Id_Servicio_Tecnico_Producto',
+                'servicio_tecnico_producto.Id_Producto',
+                'servicio_tecnico_producto.Id_Producto_Serie',
+                'servicio_tecnico_producto.Cantidad',
+                'servicio_tecnico_producto.Precio_Unitario',
+                'servicio_tecnico_producto.Subtotal',
+                'p.Nombre_Producto',
+                'p.Modelo',
+                'm.Nombre_Marca',
+                'ps.Numero_Serie',
+            ])
+            ->orderBy('servicio_tecnico_producto.Id_Servicio_Tecnico_Producto')
             ->get()
             ->map(fn ($item) => [
                 'tmp_id' => 'guardado_' . $item->Id_Servicio_Tecnico_Producto,
@@ -626,7 +753,13 @@ new class extends Component
                 'producto_id' => (int) $item->Id_Producto,
                 'producto_serie_id' => $item->Id_Producto_Serie ? (int) $item->Id_Producto_Serie : null,
                 'codigo' => (string) $item->Id_Producto,
-                'descripcion' => trim(preg_replace('/\s+/', ' ', ($item->Nombre_Marca ? $item->Nombre_Marca . ' ' : '') . $item->Nombre_Producto . ' ' . ($item->Modelo ?? ''))),
+                'descripcion' => $this->limpiarTexto(
+                    trim(
+                        ($item->Nombre_Marca ? $item->Nombre_Marca . ' ' : '') .
+                        $item->Nombre_Producto . ' ' .
+                        ($item->Modelo ?? '')
+                    )
+                ),
                 'serie' => $item->Numero_Serie ?? 'N/A',
                 'cantidad' => (float) $item->Cantidad,
                 'precio' => (float) $item->Precio_Unitario,
@@ -664,7 +797,13 @@ new class extends Component
         $this->productoPrecio = 0;
         $this->productoTieneSeries = false;
         $this->seriesDisponibles = [];
-        $this->resetErrorBag(['productoId', 'productoSerieId', 'productoCantidad', 'productoPrecio']);
+
+        $this->resetErrorBag([
+            'productoId',
+            'productoSerieId',
+            'productoCantidad',
+            'productoPrecio',
+        ]);
     }
 
     private function limpiarFormulario(): void
@@ -684,6 +823,7 @@ new class extends Component
         $this->fechaEstimadaEntrega = null;
         $this->observacionTecnica = '';
         $this->productos = [];
+
         $this->resetProductoForm();
 
         foreach (array_keys($this->checklistItems) as $key) {
@@ -703,11 +843,13 @@ new class extends Component
             ?? auth()->id();
 
         if (!$id) {
-            $id = DB::table('usuario')->where('Estado', 1)->value('Id_Usuario');
+            $id = Usuario::query()
+                ->where('Estado', 1)
+                ->value('Id_Usuario');
         }
 
         if (!$id) {
-            throw new \RuntimeException('No hay usuario activo para registrar el movimiento.');
+            throw new RuntimeException('No hay usuario activo para registrar el movimiento.');
         }
 
         return (int) $id;
@@ -715,7 +857,7 @@ new class extends Component
 
     private function servicioPorTipo(string $tipo): int
     {
-        $id = DB::table('servicio')
+        $id = Servicio::query()
             ->where('Tipo_Servicio', $tipo)
             ->where('Estado', 1)
             ->value('Id_Servicio');
@@ -739,7 +881,7 @@ new class extends Component
             ],
         };
 
-        return (int) DB::table('servicio')->insertGetId(array_merge($datos, [
+        $servicio = $this->crearModelo(Servicio::class, array_merge($datos, [
             'Precio_Base' => 0,
             'Requiere_Contrato' => 0,
             'Requiere_Anticipo' => 0,
@@ -748,61 +890,64 @@ new class extends Component
             'Estado' => 1,
             'Permite_Credito' => 1,
         ]));
+
+        return (int) $servicio->Id_Servicio;
     }
 
-    private function generarNumeroUnico(string $prefijo, string $tabla, string $columna): string
+    private function generarNumeroUnico(string $prefijo, string $modelo, string $columna): string
     {
         do {
-            $numero = $prefijo . '-' . now()->format('Ymd') . '-' . str_pad((string) random_int(1, 9999), 4, '0', STR_PAD_LEFT);
-        } while (DB::table($tabla)->where($columna, $numero)->exists());
+            $numero = $prefijo . '-' . now()->format('Ymd') . '-' . str_pad(
+                (string) random_int(1, 9999),
+                4,
+                '0',
+                STR_PAD_LEFT
+            );
+        } while ($modelo::query()->where($columna, $numero)->exists());
 
         return $numero;
     }
 
     private function descontarInventario(array $item, string $estadoSerie, string $tipoMovimiento): void
     {
-        $producto = DB::table('producto')
+        $producto = Producto::query()
             ->where('Id_Producto', $item['producto_id'])
             ->lockForUpdate()
             ->first();
 
         if (!$producto || (int) $producto->Estado !== 1) {
-            throw new \RuntimeException('Producto no disponible: ' . $item['descripcion']);
+            throw new RuntimeException('Producto no disponible: ' . $item['descripcion']);
         }
 
         $cantidad = (int) ceil((float) $item['cantidad']);
 
         if ($cantidad <= 0) {
-            throw new \RuntimeException('Cantidad inválida para: ' . $item['descripcion']);
+            throw new RuntimeException('Cantidad inválida para: ' . $item['descripcion']);
         }
 
         if ((int) $producto->Stock_Actual < $cantidad) {
-            throw new \RuntimeException('Stock insuficiente para: ' . $item['descripcion']);
+            throw new RuntimeException('Stock insuficiente para: ' . $item['descripcion']);
         }
 
         if ($item['producto_serie_id']) {
-            $serie = DB::table('producto_serie')
+            $serie = ProductoSerie::query()
                 ->where('id_producto_serie', $item['producto_serie_id'])
                 ->lockForUpdate()
                 ->first();
 
             if (!$serie || $serie->Estado !== 'DISPONIBLE') {
-                throw new \RuntimeException('La serie ya no está disponible: ' . $item['serie']);
+                throw new RuntimeException('La serie ya no está disponible: ' . $item['serie']);
             }
 
-            DB::table('producto_serie')
-                ->where('id_producto_serie', $item['producto_serie_id'])
-                ->update([
-                    'Estado' => $estadoSerie,
-                    'Observacion' => 'Usado en servicio técnico',
-                ]);
+            $serie->forceFill([
+                'Estado' => $estadoSerie,
+                'Observacion' => 'Usado en servicio técnico',
+            ])->save();
         }
 
-        DB::table('producto')
-            ->where('Id_Producto', $item['producto_id'])
-            ->update(['Stock_Actual' => DB::raw('Stock_Actual - ' . $cantidad)]);
+        $producto->decrement('Stock_Actual', $cantidad);
 
-        DB::table('movimiento_inventario')->insert([
+        $this->crearModelo(MovimientoInventario::class, [
             'Id_Producto' => $item['producto_id'],
             'Id_Producto_Serie' => $item['producto_serie_id'],
             'Fecha_Movimiento' => now(),
@@ -810,6 +955,22 @@ new class extends Component
             'Cantidad' => $cantidad,
             'Motivo_Movimiento' => 1,
         ]);
+    }
+
+    private function crearModelo(string $modelo, array $datos): Model
+    {
+        /** @var Model $instancia */
+        $instancia = new $modelo();
+
+        $instancia->forceFill($datos);
+        $instancia->save();
+
+        return $instancia;
+    }
+
+    private function limpiarTexto(?string $texto): string
+    {
+        return trim(preg_replace('/\s+/', ' ', (string) $texto));
     }
 
     private function mostrarMensaje(string $tipo, string $titulo, string $descripcion): void
@@ -853,13 +1014,6 @@ new class extends Component
                 <div class="flex flex-wrap gap-2">
                     <x-button icon="o-document-plus" label="Nuevo" wire:click="nuevoIngreso"
                         class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-bold text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]" />
-
-                    <x-button icon="o-folder-open" label="Ver pendientes" wire:click="abrirPendientes"
-                        class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-bold text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]" />
-
-                    <x-button icon="o-check" label="{{ $servicioTecnicoIdSeleccionado ? 'Actualizar' : 'Guardar' }}"
-                        wire:click="guardar" spinner="guardar"
-                        class="h-10 min-h-10 rounded-xl border-0 bg-[#2E8BC0] px-5 text-sm font-bold text-white shadow-sm hover:bg-[#0B6FE4]" />
                 </div>
             </div>
         </div>
@@ -989,18 +1143,18 @@ new class extends Component
                         <div class="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
                             @foreach($checklistItems as $key => $label)
                             <label
-                                class="flex cursor-pointer items-center gap-2 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] px-3 py-2 text-sm font-bold text-[#1A2B42] transition hover:bg-[#EAF2FB]">
-                                <x-checkbox wire:model="checklist.{{ $key }}" />
-                                <span class="leading-tight">{{ $label }}</span>
+                                class="flex cursor-pointer items-center gap-3 rounded-2xl border border-[#2E8BC0] bg-[#F7F9FC] px-4 py-3 text-sm font-bold text-[#1A2B42] transition hover:bg-[#EAF2FB]">
+                                <x-checkbox wire:model.live="checklist.{{ $key }}"
+                                    class="checkbox-sm border-2 border-[#2E8BC0] bg-white text-white checked:border-[#0B6FE4] checked:bg-[#0B6FE4] checked:[--chkbg:#0B6FE4] checked:[--chkfg:white]" />
+
+                                <span class="leading-tight">
+                                    {{ $label }}
+                                </span>
                             </label>
                             @endforeach
                         </div>
 
-                        <div class="mt-3">
-                            <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Observación del checklist</label>
-                            <x-textarea wire:model="checklist.observacion_checklist" rows="2"
-                                class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                        </div>
+
                     </x-card>
 
                     <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
@@ -1217,7 +1371,7 @@ new class extends Component
                 class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
 
             <div class="max-h-[60vh] overflow-auto rounded-2xl border border-[#D7E4F3]">
-                <table class="w-full min-w-[760px] text-left text-sm">
+                <table class="w-full min-w-190 text-left text-sm">
                     <thead class="sticky top-0 z-10 bg-[#2E8BC0] text-white">
                         <tr>
                             <th class="px-3 py-2 font-bold">Orden</th>
