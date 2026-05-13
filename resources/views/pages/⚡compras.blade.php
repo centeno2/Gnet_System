@@ -65,6 +65,7 @@ new class extends Component
     public string $cantidad = '1';
     public string $precioCompra = '0';
     public string $precioVenta = '0';
+    public string $garantiaProveedor = '';
     public string $seriesTexto = '';
 
     public bool $editandoDetalle = false;
@@ -749,7 +750,24 @@ new class extends Component
             'cantidad' => 'required|integer|min:1',
             'precioCompra' => 'required|numeric|min:0.01',
             'precioVenta' => 'required|numeric|min:0.01',
+            'garantiaProveedor' => 'nullable|integer|min:0|max:240',
             'seriesTexto' => 'nullable|string|max:1000',
+        ];
+
+        $mensajesDetalle = [
+            'cantidad.required' => 'Ingrese la cantidad comprada.',
+            'cantidad.integer' => 'La cantidad debe ser un número entero.',
+            'cantidad.min' => 'La cantidad debe ser al menos 1.',
+            'precioCompra.required' => 'Ingrese el precio de compra.',
+            'precioCompra.numeric' => 'El precio de compra debe ser numérico.',
+            'precioCompra.min' => 'El precio de compra debe ser mayor a 0.',
+            'precioVenta.required' => 'Ingrese el precio de venta.',
+            'precioVenta.numeric' => 'El precio de venta debe ser numérico.',
+            'precioVenta.min' => 'El precio de venta debe ser mayor a 0.',
+            'garantiaProveedor.integer' => 'La garantía del proveedor debe ingresarse en meses completos.',
+            'garantiaProveedor.min' => 'La garantía del proveedor no puede ser negativa.',
+            'garantiaProveedor.max' => 'La garantía del proveedor no puede superar 240 meses.',
+            'seriesTexto.max' => 'El listado de series es demasiado largo.',
         ];
 
         if ($this->modoProducto === 'existente') {
@@ -760,7 +778,7 @@ new class extends Component
 
             $this->validate(array_merge($reglasBase, [
                 'idProducto' => 'required|exists:producto,Id_Producto',
-            ]));
+            ]), $mensajesDetalle);
 
             if ((float) $this->precioCompra > $this->precioVentaActual && (float) $this->precioVenta < (float) $this->precioCompra) {
                 $this->addError('precioVenta', 'El precio de venta debe ser mayor o igual al precio de compra.');
@@ -794,7 +812,7 @@ new class extends Component
                 'nuevoGarantiaNuevo' => 'nullable|integer|min:0',
                 'nuevoGarantiaUsado' => 'nullable|integer|min:0',
                 'nuevoEstado' => 'required|in:0,1',
-            ]));
+            ]), $mensajesDetalle);
 
             if (! $this->existeEnCatalogo($this->nuevoCategoriaSeleccionada, $this->categorias)) {
                 $this->addError('nuevoCategoriaSeleccionada', 'Seleccione una categoría válida.');
@@ -836,6 +854,7 @@ new class extends Component
         $precioCompra = (float) $this->precioCompra;
         $precioVenta = (float) $this->precioVenta;
         $subtotal = $cantidad * $precioCompra;
+        $garantiaProveedor = $this->garantiaProveedor !== '' ? (int) $this->garantiaProveedor : null;
 
         $uid = uniqid('detalle_', true);
 
@@ -860,6 +879,7 @@ new class extends Component
             'cantidad' => $cantidad,
             'precio_compra' => $precioCompra,
             'precio_venta' => $precioVenta,
+            'garantia_proveedor' => $garantiaProveedor,
             'subtotal' => $subtotal,
             'series' => $series,
             'actualizar_precio_venta' => $this->modoProducto === 'nuevo' || $precioVenta > $this->precioVentaActual,
@@ -972,6 +992,7 @@ new class extends Component
         }
 
         $this->cantidad = (string) $detalle['cantidad'];
+        $this->garantiaProveedor = $detalle['garantia_proveedor'] !== null ? (string) $detalle['garantia_proveedor'] : '';
         $this->seriesTexto = implode(PHP_EOL, $detalle['series'] ?? []);
 
         $this->mostrarToast('Detalle cargado para edición.');
@@ -1218,6 +1239,7 @@ new class extends Component
                         'Id_Producto' => $producto->Id_Producto,
                         'Cantidad' => $detalle['cantidad'],
                         'Precio_Compra' => $detalle['precio_compra'],
+                        'Meses_Garantia_Proveedor' => $detalle['garantia_proveedor'],
                         'Subtotal' => $detalle['subtotal'],
                     ]);
                 }
@@ -1288,6 +1310,7 @@ new class extends Component
         $this->cantidad = '1';
         $this->precioCompra = '0';
         $this->precioVenta = '0';
+        $this->garantiaProveedor = '';
         $this->seriesTexto = '';
 
         $this->editandoDetalle = false;
@@ -1507,7 +1530,7 @@ new class extends Component
             <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
                 <div class="relative lg:col-span-4">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Proveedor 
+                        Proveedor
                     </label>
 
                     <x-input
@@ -1551,7 +1574,7 @@ new class extends Component
 
                 <div class="lg:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Número de factura 
+                        Número de factura
                     </label>
                     <x-input
                         wire:model.defer="numeroCompra"
@@ -1567,7 +1590,7 @@ new class extends Component
 
                 <div class="lg:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Fecha 
+                        Fecha
                     </label>
                     <x-input
                         wire:model.defer="fechaCompra"
@@ -1616,7 +1639,7 @@ new class extends Component
 
                 <div class="lg:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Medio de pago 
+                        Medio de pago
                     </label>
                     <select
                         wire:model.live="medioPago"
@@ -1695,7 +1718,7 @@ new class extends Component
 
                     <div class="lg:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Referencia 
+                            Referencia
                         </label>
                         <x-input
                             wire:model.defer="numeroReferenciaTransferencia"
@@ -1795,7 +1818,7 @@ new class extends Component
                 <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
                     <div class="relative xl:col-span-4">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Buscar producto 
+                            Buscar producto
                         </label>
 
                         <x-input
@@ -1876,7 +1899,6 @@ new class extends Component
                     <div class="xl:col-span-3">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                             Nombre del producto
-                    </label>
                         </label>
                         <x-input
                             wire:model.defer="nuevoNombreProducto"
@@ -1892,7 +1914,7 @@ new class extends Component
 
                     <div class="xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Modelo 
+                            Modelo
                         </label>
                         <x-input
                             wire:model.defer="nuevoModelo"
@@ -1909,7 +1931,7 @@ new class extends Component
                     <div class="xl:col-span-3">
                         <div class="flex items-center justify-between gap-2">
                             <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                                Categoría 
+                                Categoría
                             </label>
                             <button type="button" wire:click="$toggle('mostrarNuevaCategoria')" class="text-xs font-semibold text-[#0B6FE4]">
                                 + Nueva
@@ -1954,7 +1976,7 @@ new class extends Component
                     <div class="xl:col-span-3">
                         <div class="flex items-center justify-between gap-2">
                             <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                                Marca 
+                                Marca
                             </label>
                             <button type="button" wire:click="$toggle('mostrarNuevaMarca')" class="text-xs font-semibold text-[#0B6FE4]">
                                 + Nueva
@@ -1998,7 +2020,7 @@ new class extends Component
 
                     <div class="xl:col-span-1">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Stock mín. 
+                            Stock mín.
                         </label>
                         <x-input
                             wire:model.defer="nuevoStockMinimo"
@@ -2023,7 +2045,6 @@ new class extends Component
                         @error('nuevoGarantiaNuevo')
                             <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                         @enderror
-                    </label>
                     </div>
 
                     <div class="xl:col-span-2">
@@ -2055,14 +2076,13 @@ new class extends Component
                             <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                         @enderror
                     </div>
-                    </label>
                 </div>
             @endif
 
             <div class="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-12">
                 <div class="xl:col-span-1">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Cantidad 
+                        Cantidad
                     </label>
                     <x-input
                         wire:model.defer="cantidad"
@@ -2077,7 +2097,7 @@ new class extends Component
 
                 <div class="xl:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Precio compra 
+                        Precio compra
                     </label>
                     <x-input
                         wire:model.live.debounce.250ms="precioCompra"
@@ -2093,7 +2113,7 @@ new class extends Component
 
                 <div class="xl:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Precio venta 
+                        Precio venta
                         @if ($modoProducto === 'existente' && ! $precioVentaEditable)
                             <span class="text-xs font-normal text-[#5F6B7A]">👁️</span>
                         @endif
@@ -2111,7 +2131,27 @@ new class extends Component
                     @enderror
                 </div>
 
-                <div class="xl:col-span-7">
+                <div class="xl:col-span-2">
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                        Garantía proveedor
+                        <span class="text-xs font-normal text-[#5F6B7A]">Opcional</span>
+                    </label>
+                    <x-input
+                        wire:model.defer="garantiaProveedor"
+                        type="number"
+                        min="0"
+                        max="240"
+                        step="1"
+                        placeholder="Meses"
+                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                    />
+                    @error('garantiaProveedor')
+                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    @enderror
+                
+                </div>
+
+                <div class="xl:col-span-5">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                         Número de serie
                         <span class="text-xs font-normal text-[#5F6B7A]">
@@ -2196,7 +2236,7 @@ new class extends Component
 
             <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-white">
                 <div class="max-h-[430px] overflow-x-auto overflow-y-auto">
-                    <table class="min-w-[1250px] w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
+                    <table class="min-w-[1350px] w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
                         <thead class="sticky top-0 z-10">
                             <tr>
                                 <th class="rounded-tl-xl bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">Tipo</th>
@@ -2206,6 +2246,7 @@ new class extends Component
                                 <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Cantidad</th>
                                 <th class="bg-[#2E8BC0] px-3 py-3 text-right font-semibold text-white">P. compra</th>
                                 <th class="bg-[#2E8BC0] px-3 py-3 text-right font-semibold text-white">P. venta</th>
+                                <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Garantía prov.</th>
                                 <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Series</th>
                                 <th class="bg-[#2E8BC0] px-3 py-3 text-right font-semibold text-white">Subtotal</th>
                                 <th class="rounded-tr-xl bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Acción</th>
@@ -2231,6 +2272,9 @@ new class extends Component
                                     <td class="px-3 py-3 text-center whitespace-nowrap">{{ $detalle['cantidad'] }}</td>
                                     <td class="px-3 py-3 text-right whitespace-nowrap">C$ {{ number_format($detalle['precio_compra'], 2) }}</td>
                                     <td class="px-3 py-3 text-right whitespace-nowrap">C$ {{ number_format($detalle['precio_venta'], 2) }}</td>
+                                    <td class="px-3 py-3 text-center whitespace-nowrap">
+                                        {{ $detalle['garantia_proveedor'] !== null ? $detalle['garantia_proveedor'] . ' mes(es)' : 'Sin garantía' }}
+                                    </td>
                                     <td class="px-3 py-3 text-center whitespace-nowrap">{{ count($detalle['series']) }}</td>
                                     <td class="px-3 py-3 text-right font-semibold whitespace-nowrap">C$ {{ number_format($detalle['subtotal'], 2) }}</td>
 
@@ -2252,7 +2296,7 @@ new class extends Component
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="10" class="px-4 py-8 text-center text-sm text-[#7B8794]">
+                                    <td colspan="11" class="px-4 py-8 text-center text-sm text-[#7B8794]">
                                         Todavía no hay productos agregados a la compra.
                                     </td>
                                 </tr>
