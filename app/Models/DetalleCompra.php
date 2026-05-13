@@ -18,6 +18,7 @@ class DetalleCompra extends Model
         'Id_Producto',
         'Cantidad',
         'Precio_Compra',
+        'Meses_Garantia_Proveedor',
         'Subtotal',
     ];
 
@@ -27,6 +28,7 @@ class DetalleCompra extends Model
         'Id_Producto' => 'integer',
         'Cantidad' => 'decimal:2',
         'Precio_Compra' => 'decimal:2',
+        'Meses_Garantia_Proveedor' => 'integer',
         'Subtotal' => 'decimal:2',
     ];
 
