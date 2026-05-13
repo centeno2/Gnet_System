@@ -1,7 +1,19 @@
 <?php
 
 use Livewire\Component;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+
+use App\Models\Cliente;
+use App\Models\Trabajador;
+use App\Models\Producto;
+use App\Models\ProductoSerie;
+use App\Models\Servicio;
+use App\Models\Usuario;
+use App\Models\MovimientoInventario;
+use App\Models\ContratoInstalacionCamara;
+use App\Models\ContratoInstalacionCamaraChecklist;
+use App\Models\ContratoInstalacionCamaraProducto;
 
 new class extends Component
 {
@@ -11,18 +23,28 @@ new class extends Component
     public array $seriesDisponibles = [];
     public array $productosUsados = [];
 
+    public ?array $mensaje = null;
+
     public ?int $clienteId = null;
     public string $telefonoCliente = '';
     public string $municipio = '';
     public ?int $tecnicoId = null;
+
     public int|string $cantidadCamaras = 0;
     public float|string $metrosCableado = 0;
     public float|string $costoManoObra = 0;
     public float|string $porcentajeAnticipo = 30;
+
     public ?string $fechaEstimada = null;
     public string $direccionInstalacion = '';
     public string $detalleContrato = '';
     public string $estadoContrato = 'PENDIENTE';
+
+    public ?int $productoId = null;
+    public ?int $productoSerieId = null;
+    public float|string $productoCantidad = 1;
+    public float|string $productoPrecio = 0;
+    public bool $productoTieneSeries = false;
 
     public array $checklist = [
         'incluye_instalacion_fisica' => true,
@@ -37,12 +59,24 @@ new class extends Component
         'observacion_checklist' => '',
     ];
 
-    public bool $modalProducto = false;
-    public ?int $productoId = null;
-    public ?int $productoSerieId = null;
-    public float|string $productoCantidad = 1;
-    public float|string $productoPrecio = 0;
-    public bool $productoTieneSeries = false;
+    public array $condicionesChecklist = [
+        'incluye_instalacion_fisica' => 'Instalación física',
+        'incluye_configuracion_app' => 'Configuración en app',
+        'incluye_pruebas_sistema' => 'Pruebas del sistema',
+        'incluye_capacitacion_basica' => 'Capacitación básica',
+        'incluye_garantia' => 'Incluye garantía',
+        'anticipo_recibido' => 'Anticipo recibido',
+        'contrato_firmado' => 'Contrato firmado',
+        'cliente_aprueba_recorrido' => 'Cliente aprueba recorrido',
+        'sistema_energizado' => 'Sistema energizado',
+    ];
+
+    public array $estadosContrato = [
+        ['id' => 'PENDIENTE', 'name' => 'Pendiente'],
+        ['id' => 'EN_PROCESO', 'name' => 'En proceso'],
+        ['id' => 'FINALIZADO', 'name' => 'Finalizado'],
+        ['id' => 'CANCELADO', 'name' => 'Cancelado'],
+    ];
 
     public array $headers = [
         ['key' => 'codigo', 'label' => 'Código'],
@@ -61,44 +95,125 @@ new class extends Component
 
     public function cargarCombos(): void
     {
-        $this->clientes = DB::table('cliente as c')
-            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'c.Id_Persona')
-            ->where('c.Estado', 1)
-            ->selectRaw("c.Id_Cliente as id, TRIM(CONCAT(COALESCE(c.Institucion, ''), CASE WHEN c.Institucion IS NOT NULL AND c.Institucion <> '' THEN ' - ' ELSE '' END, COALESCE(p.Primer_Nombre, ''), ' ', COALESCE(p.Segundo_Nombre, ''), ' ', COALESCE(p.Primer_Apellido, ''), ' ', COALESCE(p.Segundo_Apellido, ''), ' | Tel: ', COALESCE(p.Telefono, ''))) as name")
-            ->orderBy('name')
+        $this->clientes = Cliente::query()
+            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'cliente.Id_Persona')
+            ->where('cliente.Estado', 1)
+            ->select([
+                'cliente.Id_Cliente as id',
+                'cliente.Institucion',
+                'cliente.Telefono_Institucion',
+                'p.Primer_Nombre',
+                'p.Segundo_Nombre',
+                'p.Primer_Apellido',
+                'p.Segundo_Apellido',
+                'p.Telefono',
+            ])
+            ->orderBy('cliente.Institucion')
+            ->orderBy('p.Primer_Nombre')
             ->get()
-            ->map(fn ($item) => ['id' => (int) $item->id, 'name' => trim(preg_replace('/\s+/', ' ', $item->name))])
-            ->toArray();
+            ->map(function ($item) {
+                $nombrePersona = trim(
+                    ($item->Primer_Nombre ?? '') . ' ' .
+                    ($item->Segundo_Nombre ?? '') . ' ' .
+                    ($item->Primer_Apellido ?? '') . ' ' .
+                    ($item->Segundo_Apellido ?? '')
+                );
 
-        $this->tecnicos = DB::table('trabajador as t')
-            ->join('persona as p', 'p.Id_Persona', '=', 't.Id_Persona')
-            ->leftJoin('cargo as cg', 'cg.Id_Cargo', '=', 't.Id_Cargo')
-            ->where('t.Estado', 1)
-            ->selectRaw("t.Id_Trabajador as id, TRIM(CONCAT(p.Primer_Nombre, ' ', COALESCE(p.Segundo_Nombre, ''), ' ', p.Primer_Apellido, ' ', COALESCE(p.Segundo_Apellido, ''), ' - ', COALESCE(cg.Cargo_Asignado, 'Trabajador'))) as name")
-            ->orderBy('name')
-            ->get()
-            ->map(fn ($item) => ['id' => (int) $item->id, 'name' => trim(preg_replace('/\s+/', ' ', $item->name))])
-            ->toArray();
+                $nombre = trim(
+                    ($item->Institucion ? $item->Institucion . ' - ' : '') .
+                    $nombrePersona
+                );
 
-        $this->productosDisponibles = DB::table('producto as p')
-            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'p.Id_Marca')
-            ->leftJoin('producto_serie as ps', function ($join) {
-                $join->on('ps.Id_Producto', '=', 'p.Id_Producto')
-                    ->where('ps.Estado', '=', 'DISPONIBLE');
+                $telefono = $item->Telefono ?: $item->Telefono_Institucion;
+
+                return [
+                    'id' => (int) $item->id,
+                    'name' => $this->limpiarTexto(($nombre ?: 'Cliente sin nombre') . ' | Tel: ' . ($telefono ?: 'N/A')),
+                ];
             })
-            ->where('p.Estado', 1)
-            ->where('p.Stock_Actual', '>', 0)
-            ->groupBy('p.Id_Producto', 'p.Nombre_Producto', 'p.Modelo', 'p.Precio_Venta', 'p.Stock_Actual', 'm.Nombre_Marca')
-            ->orderBy('p.Nombre_Producto')
-            ->selectRaw("p.Id_Producto as id, CONCAT(p.Nombre_Producto, ' ', COALESCE(p.Modelo, ''), ' - Stock: ', p.Stock_Actual, CASE WHEN COUNT(ps.id_producto_serie) > 0 THEN CONCAT(' | Series: ', COUNT(ps.id_producto_serie)) ELSE '' END) as name, p.Precio_Venta as precio, COUNT(ps.id_producto_serie) as series_disponibles")
+            ->toArray();
+
+        $this->tecnicos = Trabajador::query()
+            ->join('persona as p', 'p.Id_Persona', '=', 'trabajador.Id_Persona')
+            ->leftJoin('cargo as cg', 'cg.Id_Cargo', '=', 'trabajador.Id_Cargo')
+            ->where('trabajador.Estado', 1)
+            ->select([
+                'trabajador.Id_Trabajador as id',
+                'p.Primer_Nombre',
+                'p.Segundo_Nombre',
+                'p.Primer_Apellido',
+                'p.Segundo_Apellido',
+                'cg.Cargo_Asignado',
+            ])
+            ->orderBy('p.Primer_Nombre')
+            ->orderBy('p.Primer_Apellido')
             ->get()
             ->map(fn ($item) => [
                 'id' => (int) $item->id,
-                'name' => trim($item->name),
-                'precio' => (float) $item->precio,
-                'series_disponibles' => (int) $item->series_disponibles,
+                'name' => $this->limpiarTexto(
+                    trim(
+                        ($item->Primer_Nombre ?? '') . ' ' .
+                        ($item->Segundo_Nombre ?? '') . ' ' .
+                        ($item->Primer_Apellido ?? '') . ' ' .
+                        ($item->Segundo_Apellido ?? '')
+                    ) . ' - ' . ($item->Cargo_Asignado ?: 'Trabajador')
+                ),
             ])
             ->toArray();
+
+        $seriesDisponiblesPorProducto = ProductoSerie::query()
+            ->where('Estado', 'DISPONIBLE')
+            ->get(['Id_Producto'])
+            ->groupBy('Id_Producto')
+            ->map(fn ($items) => $items->count());
+
+        $this->productosDisponibles = Producto::query()
+            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
+            ->where('producto.Estado', 1)
+            ->where('producto.Stock_Actual', '>', 0)
+            ->select([
+                'producto.Id_Producto as id',
+                'producto.Nombre_Producto',
+                'producto.Modelo',
+                'producto.Precio_Venta as precio',
+                'producto.Stock_Actual',
+                'm.Nombre_Marca',
+            ])
+            ->orderBy('producto.Nombre_Producto')
+            ->get()
+            ->map(function ($item) use ($seriesDisponiblesPorProducto) {
+                $seriesDisponibles = (int) ($seriesDisponiblesPorProducto[$item->id] ?? 0);
+
+                $nombre = $this->limpiarTexto(
+                    trim(
+                        ($item->Nombre_Marca ? $item->Nombre_Marca . ' ' : '') .
+                        $item->Nombre_Producto . ' ' .
+                        ($item->Modelo ?? '')
+                    )
+                );
+
+                return [
+                    'id' => (int) $item->id,
+                    'name' => $nombre .
+                        ' - Stock: ' . (int) $item->Stock_Actual .
+                        ($seriesDisponibles > 0 ? ' | Series: ' . $seriesDisponibles : ''),
+                    'precio' => (float) $item->precio,
+                    'series_disponibles' => $seriesDisponibles,
+                ];
+            })
+            ->toArray();
+    }
+
+    public function nuevoContrato(): void
+    {
+        $this->limpiarFormulario();
+        $this->cargarCombos();
+
+        $this->mostrarMensaje(
+            'success',
+            'Formulario limpio',
+            'Listo para registrar un nuevo contrato de instalación.'
+        );
     }
 
     public function updatedClienteId($value): void
@@ -110,20 +225,23 @@ new class extends Component
             return;
         }
 
-        $cliente = DB::table('cliente as c')
-            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'c.Id_Persona')
-            ->where('c.Id_Cliente', $value)
-            ->select('p.Telefono', 'c.Municipio')
+        $cliente = Cliente::query()
+            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'cliente.Id_Persona')
+            ->where('cliente.Id_Cliente', $value)
+            ->select([
+                'p.Telefono',
+                'cliente.Telefono_Institucion',
+                'cliente.Municipio',
+            ])
             ->first();
 
-        $this->telefonoCliente = (string) ($cliente->Telefono ?? '');
-        $this->municipio = (string) ($cliente->Municipio ?? '');
-    }
+        $this->telefonoCliente = (string) (
+            $cliente->Telefono
+            ?: $cliente->Telefono_Institucion
+            ?: ''
+        );
 
-    public function abrirProducto(): void
-    {
-        $this->resetProductoForm();
-        $this->modalProducto = true;
+        $this->municipio = (string) ($cliente->Municipio ?? '');
     }
 
     public function updatedProductoId($value): void
@@ -138,30 +256,46 @@ new class extends Component
             return;
         }
 
-        $producto = DB::table('producto')->where('Id_Producto', $value)->first();
+        $producto = Producto::query()
+            ->where('Id_Producto', $value)
+            ->first();
+
         if (!$producto) {
             return;
         }
 
         $this->productoPrecio = (float) $producto->Precio_Venta;
 
-        $seriesUsadas = collect($this->productosUsados)->pluck('producto_serie_id')->filter()->values()->all();
+        $seriesUsadasEnPantalla = collect($this->productosUsados)
+            ->pluck('producto_serie_id')
+            ->filter()
+            ->values()
+            ->all();
 
-        $query = DB::table('producto_serie')
+        $query = ProductoSerie::query()
             ->where('Id_Producto', $value)
             ->where('Estado', 'DISPONIBLE');
 
-        if (!empty($seriesUsadas)) {
-            $query->whereNotIn('id_producto_serie', $seriesUsadas);
+        if (!empty($seriesUsadasEnPantalla)) {
+            $query->whereNotIn('id_producto_serie', $seriesUsadasEnPantalla);
         }
 
         $this->seriesDisponibles = $query
             ->orderBy('Numero_Serie')
-            ->get(['id_producto_serie as id', 'Numero_Serie as name'])
-            ->map(fn ($item) => ['id' => (int) $item->id, 'name' => $item->name])
+            ->get(['id_producto_serie', 'Numero_Serie'])
+            ->map(fn ($item) => [
+                'id' => (int) $item->id_producto_serie,
+                'name' => $item->Numero_Serie,
+            ])
             ->toArray();
 
-        $this->productoTieneSeries = count($this->seriesDisponibles) > 0;
+        $this->productoTieneSeries = ProductoSerie::query()
+            ->where('Id_Producto', $value)
+            ->exists();
+
+        if ($this->productoTieneSeries) {
+            $this->productoCantidad = 1;
+        }
     }
 
     public function agregarProducto(): void
@@ -175,13 +309,16 @@ new class extends Component
             'productoCantidad.min' => 'La cantidad debe ser mayor a cero.',
         ]);
 
-        $producto = DB::table('producto as p')
-            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'p.Id_Marca')
-            ->where('p.Id_Producto', $this->productoId)
-            ->select('p.*', 'm.Nombre_Marca')
+        $producto = Producto::query()
+            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
+            ->where('producto.Id_Producto', $this->productoId)
+            ->select([
+                'producto.*',
+                'm.Nombre_Marca',
+            ])
             ->first();
 
-        if (!$producto || (int) $producto->Estado !== 1) {
+        if (!$producto || (int) $producto->Estado !== 1 || (int) $producto->Stock_Actual <= 0) {
             $this->addError('productoId', 'El producto no está disponible.');
             return;
         }
@@ -195,7 +332,7 @@ new class extends Component
                 return;
             }
 
-            $serie = DB::table('producto_serie')
+            $serie = ProductoSerie::query()
                 ->where('id_producto_serie', $this->productoSerieId)
                 ->where('Id_Producto', $this->productoId)
                 ->where('Estado', 'DISPONIBLE')
@@ -231,7 +368,13 @@ new class extends Component
             'producto_id' => (int) $producto->Id_Producto,
             'producto_serie_id' => $serie?->id_producto_serie ? (int) $serie->id_producto_serie : null,
             'codigo' => (string) $producto->Id_Producto,
-            'descripcion' => trim(($producto->Nombre_Marca ? $producto->Nombre_Marca . ' ' : '') . $producto->Nombre_Producto . ' ' . ($producto->Modelo ?? '')),
+            'descripcion' => $this->limpiarTexto(
+                trim(
+                    ($producto->Nombre_Marca ? $producto->Nombre_Marca . ' ' : '') .
+                    $producto->Nombre_Producto . ' ' .
+                    ($producto->Modelo ?? '')
+                )
+            ),
             'serie' => $serie->Numero_Serie ?? 'N/A',
             'cantidad' => $cantidad,
             'precio' => $precio,
@@ -239,15 +382,30 @@ new class extends Component
             'acciones' => '',
         ];
 
-        $this->modalProducto = false;
         $this->resetProductoForm();
         $this->cargarCombos();
+
+        $this->mostrarMensaje(
+            'success',
+            'Producto agregado',
+            'El material quedó listo para guardarse con el contrato.'
+        );
     }
 
     public function quitarProducto(string $tmpId): void
     {
-        $this->productosUsados = array_values(array_filter($this->productosUsados, fn ($item) => $item['tmp_id'] !== $tmpId));
+        $this->productosUsados = array_values(array_filter(
+            $this->productosUsados,
+            fn ($item) => $item['tmp_id'] !== $tmpId
+        ));
+
         $this->cargarCombos();
+
+        $this->mostrarMensaje(
+            'success',
+            'Producto quitado',
+            'El material fue removido del contrato.'
+        );
     }
 
     public function guardar(): void
@@ -271,74 +429,122 @@ new class extends Component
         ]);
 
         try {
-            DB::transaction(function () {
-                $usuarioId = $this->usuarioActualId();
-                $numeroContrato = $this->generarNumeroUnico('IC', 'contrato_instalacion_camara', 'Numero_Contrato');
-                $servicioId = $this->servicioPorTipo('INSTALACION');
-
-                $totalMateriales = collect($this->productosUsados)->sum('subtotal');
-                $totalContrato = round($totalMateriales + (float) $this->costoManoObra, 2);
-                $montoAnticipo = round($totalContrato * ((float) $this->porcentajeAnticipo / 100), 2);
-                $saldoPendiente = round($totalContrato - $montoAnticipo, 2);
-
-                $contratoId = DB::table('contrato_instalacion_camara')->insertGetId([
-                    'Numero_Contrato' => $numeroContrato,
-                    'Fecha_Contrato' => now(),
-                    'Id_Cliente' => $this->clienteId,
-                    'Id_Usuario' => $usuarioId,
-                    'Id_Servicio' => $servicioId,
-                    'Id_Trabajador' => $this->tecnicoId,
-                    'Municipio' => $this->municipio ?: null,
-                    'Direccion_Instalacion' => $this->direccionInstalacion,
-                    'Cantidad_Camaras' => (int) $this->cantidadCamaras,
-                    'Metros_Cableado' => (float) $this->metrosCableado,
-                    'Costo_Mano_Obra' => (float) $this->costoManoObra,
-                    'Porcentaje_Anticipo' => (float) $this->porcentajeAnticipo,
-                    'Monto_Anticipo' => $montoAnticipo,
-                    'Fecha_Estimada' => $this->fechaEstimada ?: null,
-                    'Detalle_Contrato' => $this->detalleContrato ?: null,
-                    'Estado_Contrato' => $this->estadoContrato,
-                    'Total_Materiales' => $totalMateriales,
-                    'Total_Contrato' => $totalContrato,
-                    'Saldo_Pendiente' => $saldoPendiente,
-                ]);
-
-                DB::table('contrato_instalacion_camara_checklist')->insert([
-                    'Id_Contrato_Instalacion_Camara' => $contratoId,
-                    'Incluye_Instalacion_Fisica' => (bool) $this->checklist['incluye_instalacion_fisica'],
-                    'Incluye_Configuracion_App' => (bool) $this->checklist['incluye_configuracion_app'],
-                    'Incluye_Pruebas_Sistema' => (bool) $this->checklist['incluye_pruebas_sistema'],
-                    'Incluye_Capacitacion_Basica' => (bool) $this->checklist['incluye_capacitacion_basica'],
-                    'Incluye_Garantia' => (bool) $this->checklist['incluye_garantia'],
-                    'Anticipo_Recibido' => (bool) $this->checklist['anticipo_recibido'],
-                    'Contrato_Firmado' => (bool) $this->checklist['contrato_firmado'],
-                    'Cliente_Aprueba_Recorrido' => (bool) $this->checklist['cliente_aprueba_recorrido'],
-                    'Sistema_Energizado' => (bool) $this->checklist['sistema_energizado'],
-                    'Observacion_Checklist' => $this->checklist['observacion_checklist'] ?: null,
-                ]);
-
-                foreach ($this->productosUsados as $item) {
-                    $this->descontarInventario($item, 'INSTALADO', 'SALIDA_INSTALACION');
-
-                    DB::table('contrato_instalacion_camara_producto')->insert([
-                        'Id_Contrato_Instalacion_Camara' => $contratoId,
-                        'Id_Producto' => $item['producto_id'],
-                        'Id_Producto_Serie' => $item['producto_serie_id'],
-                        'Cantidad' => $item['cantidad'],
-                        'Precio_Unitario' => $item['precio'],
-                        'Subtotal' => $item['subtotal'],
-                        'Observacion' => null,
-                    ]);
-                }
-            }, 3);
+            $contratoId = $this->crearContratoInstalacion();
 
             $this->limpiarFormulario();
             $this->cargarCombos();
-            toast(type: 'success', title: 'Contrato guardado', description: 'La instalación de cámaras se registró correctamente.', position: 'toast-top toast-end');
-        } catch (Throwable $e) {
+
+            $this->mostrarMensaje(
+                'success',
+                'Contrato guardado',
+                'La instalación de cámaras se registró correctamente. Contrato #' . $contratoId . '.'
+            );
+        } catch (\Throwable $e) {
             report($e);
-            toast(type: 'error', title: 'No se pudo guardar', description: $e->getMessage(), position: 'toast-top toast-end');
+
+            $this->mostrarMensaje(
+                'error',
+                'No se pudo guardar',
+                $e->getMessage()
+            );
         }
+    }
+
+    public function estadoNombre(?string $estado): string
+    {
+        return match ($estado) {
+            'PENDIENTE' => 'Pendiente',
+            'EN_PROCESO' => 'En proceso',
+            'FINALIZADO' => 'Finalizado',
+            'CANCELADO' => 'Cancelado',
+            default => str_replace('_', ' ', (string) $estado),
+        };
+    }
+
+    private function crearContratoInstalacion(): int
+    {
+        return DB::transaction(function () {
+            $usuarioId = $this->usuarioActualId();
+
+            $numeroContrato = $this->generarNumeroUnico(
+                'IC',
+                ContratoInstalacionCamara::class,
+                'Numero_Contrato'
+            );
+
+            $servicioId = $this->servicioPorTipo('INSTALACION');
+
+            $totalMateriales = round((float) collect($this->productosUsados)->sum('subtotal'), 2);
+            $totalContrato = round($totalMateriales + (float) $this->costoManoObra, 2);
+            $montoAnticipo = round($totalContrato * ((float) $this->porcentajeAnticipo / 100), 2);
+            $saldoPendiente = round($totalContrato - $montoAnticipo, 2);
+
+            $contrato = ContratoInstalacionCamara::query()->create([
+                'Numero_Contrato' => $numeroContrato,
+                'Fecha_Contrato' => now(),
+                'Id_Cliente' => $this->clienteId,
+                'Id_Usuario' => $usuarioId,
+                'Id_Servicio' => $servicioId,
+                'Id_Trabajador' => $this->tecnicoId,
+                'Municipio' => $this->municipio ?: null,
+                'Direccion_Instalacion' => $this->direccionInstalacion,
+                'Cantidad_Camaras' => (int) $this->cantidadCamaras,
+                'Metros_Cableado' => (float) $this->metrosCableado,
+                'Costo_Mano_Obra' => (float) $this->costoManoObra,
+                'Porcentaje_Anticipo' => (float) $this->porcentajeAnticipo,
+                'Monto_Anticipo' => $montoAnticipo,
+                'Fecha_Estimada' => $this->fechaEstimada ?: null,
+                'Detalle_Contrato' => $this->detalleContrato ?: null,
+                'Estado_Contrato' => $this->estadoContrato,
+                'Total_Materiales' => $totalMateriales,
+                'Total_Contrato' => $totalContrato,
+                'Saldo_Pendiente' => $saldoPendiente,
+            ]);
+
+            $contratoId = (int) $contrato->Id_Contrato_Instalacion_Camara;
+
+            ContratoInstalacionCamaraChecklist::query()->create(
+                $this->datosChecklist($contratoId)
+            );
+
+            foreach ($this->productosUsados as $item) {
+                $this->registrarProductoContrato($contratoId, $item);
+            }
+
+            return $contratoId;
+        }, 3);
+    }
+
+    private function registrarProductoContrato(int $contratoId, array $item): void
+    {
+        $this->descontarInventario($item, 'INSTALADO', 'SALIDA_INSTALACION');
+
+        ContratoInstalacionCamaraProducto::query()->create([
+            'Id_Contrato_Instalacion_Camara' => $contratoId,
+            'Id_Producto' => $item['producto_id'],
+            'Id_Producto_Serie' => $item['producto_serie_id'],
+            'Cantidad' => $item['cantidad'],
+            'Precio_Unitario' => $item['precio'],
+            'Subtotal' => $item['subtotal'],
+            'Observacion' => null,
+        ]);
+    }
+
+    private function datosChecklist(int $contratoId): array
+    {
+        return [
+            'Id_Contrato_Instalacion_Camara' => $contratoId,
+            'Incluye_Instalacion_Fisica' => (bool) $this->checklist['incluye_instalacion_fisica'],
+            'Incluye_Configuracion_App' => (bool) $this->checklist['incluye_configuracion_app'],
+            'Incluye_Pruebas_Sistema' => (bool) $this->checklist['incluye_pruebas_sistema'],
+            'Incluye_Capacitacion_Basica' => (bool) $this->checklist['incluye_capacitacion_basica'],
+            'Incluye_Garantia' => (bool) $this->checklist['incluye_garantia'],
+            'Anticipo_Recibido' => (bool) $this->checklist['anticipo_recibido'],
+            'Contrato_Firmado' => (bool) $this->checklist['contrato_firmado'],
+            'Cliente_Aprueba_Recorrido' => (bool) $this->checklist['cliente_aprueba_recorrido'],
+            'Sistema_Energizado' => (bool) $this->checklist['sistema_energizado'],
+            'Observacion_Checklist' => $this->checklist['observacion_checklist'] ?: null,
+        ];
     }
 
     private function resetProductoForm(): void
@@ -349,7 +555,13 @@ new class extends Component
         $this->productoPrecio = 0;
         $this->productoTieneSeries = false;
         $this->seriesDisponibles = [];
-        $this->resetErrorBag(['productoId', 'productoSerieId', 'productoCantidad', 'productoPrecio']);
+
+        $this->resetErrorBag([
+            'productoId',
+            'productoSerieId',
+            'productoCantidad',
+            'productoPrecio',
+        ]);
     }
 
     private function limpiarFormulario(): void
@@ -358,18 +570,34 @@ new class extends Component
         $this->telefonoCliente = '';
         $this->municipio = '';
         $this->tecnicoId = null;
+
         $this->cantidadCamaras = 0;
         $this->metrosCableado = 0;
         $this->costoManoObra = 0;
         $this->porcentajeAnticipo = 30;
+
         $this->fechaEstimada = null;
         $this->direccionInstalacion = '';
         $this->detalleContrato = '';
         $this->estadoContrato = 'PENDIENTE';
+
         $this->productosUsados = [];
-        $this->checklist = array_merge($this->checklist, array_fill_keys(array_keys($this->checklist), false));
-        $this->checklist['incluye_instalacion_fisica'] = true;
-        $this->checklist['observacion_checklist'] = '';
+
+        $this->checklist = [
+            'incluye_instalacion_fisica' => true,
+            'incluye_configuracion_app' => false,
+            'incluye_pruebas_sistema' => false,
+            'incluye_capacitacion_basica' => false,
+            'incluye_garantia' => false,
+            'anticipo_recibido' => false,
+            'contrato_firmado' => false,
+            'cliente_aprueba_recorrido' => false,
+            'sistema_energizado' => false,
+            'observacion_checklist' => '',
+        ];
+
+        $this->resetProductoForm();
+        $this->resetErrorBag();
     }
 
     private function usuarioActualId(): int
@@ -381,58 +609,111 @@ new class extends Component
             ?? auth()->id();
 
         if (!$id) {
-            $id = DB::table('usuario')->where('Estado', 1)->value('Id_Usuario');
+            $id = Usuario::query()
+                ->where('Estado', 1)
+                ->value('Id_Usuario');
         }
 
         if (!$id) {
-            throw new RuntimeException('No hay usuario activo para registrar el movimiento.');
+            throw new \RuntimeException('No hay usuario activo para registrar el movimiento.');
         }
 
         return (int) $id;
     }
 
-    private function servicioPorTipo(string $tipo): ?int
+    private function servicioPorTipo(string $tipo): int
     {
-        $id = DB::table('servicio')->where('Tipo_Servicio', $tipo)->where('Estado', 1)->value('Id_Servicio');
-        return $id ? (int) $id : null;
+        $id = Servicio::query()
+            ->where('Tipo_Servicio', $tipo)
+            ->where('Estado', 1)
+            ->value('Id_Servicio');
+
+        if ($id) {
+            return (int) $id;
+        }
+
+        $datos = match ($tipo) {
+            'INSTALACION' => [
+                'Nombre_Servicio' => 'Instalación de cámaras',
+                'Descripcion' => 'Contrato de instalación, configuración y pruebas de sistemas de cámaras.',
+                'Tipo_Servicio' => 'INSTALACION',
+                'Unidad_Medida' => 'CONTRATO',
+            ],
+            default => [
+                'Nombre_Servicio' => 'Servicio general',
+                'Descripcion' => 'Servicio registrado desde el sistema.',
+                'Tipo_Servicio' => 'GENERAL',
+                'Unidad_Medida' => 'SERVICIO',
+            ],
+        };
+
+        $servicio = $this->crearModelo(Servicio::class, array_merge($datos, [
+            'Precio_Base' => 0,
+            'Requiere_Contrato' => 1,
+            'Requiere_Anticipo' => 1,
+            'Porcentaje_Anticipo' => 30,
+            'Garantia' => 1,
+            'Estado' => 1,
+            'Permite_Credito' => 1,
+        ]));
+
+        return (int) $servicio->Id_Servicio;
     }
 
-    private function generarNumeroUnico(string $prefijo, string $tabla, string $columna): string
+    private function generarNumeroUnico(string $prefijo, string $modelo, string $columna): string
     {
         do {
-            $numero = $prefijo . '-' . now()->format('Ymd') . '-' . str_pad((string) random_int(1, 9999), 4, '0', STR_PAD_LEFT);
-        } while (DB::table($tabla)->where($columna, $numero)->exists());
+            $numero = $prefijo . '-' . now()->format('Ymd') . '-' . str_pad(
+                (string) random_int(1, 9999),
+                4,
+                '0',
+                STR_PAD_LEFT
+            );
+        } while ($modelo::query()->where($columna, $numero)->exists());
 
         return $numero;
     }
 
     private function descontarInventario(array $item, string $estadoSerie, string $tipoMovimiento): void
     {
-        $producto = DB::table('producto')->where('Id_Producto', $item['producto_id'])->lockForUpdate()->first();
+        $producto = Producto::query()
+            ->where('Id_Producto', $item['producto_id'])
+            ->lockForUpdate()
+            ->first();
 
         if (!$producto || (int) $producto->Estado !== 1) {
-            throw new RuntimeException('Producto no disponible: ' . $item['descripcion']);
+            throw new \RuntimeException('Producto no disponible: ' . $item['descripcion']);
         }
 
         $cantidad = (int) ceil((float) $item['cantidad']);
 
+        if ($cantidad <= 0) {
+            throw new \RuntimeException('Cantidad inválida para: ' . $item['descripcion']);
+        }
+
         if ((int) $producto->Stock_Actual < $cantidad) {
-            throw new RuntimeException('Stock insuficiente para: ' . $item['descripcion']);
+            throw new \RuntimeException('Stock insuficiente para: ' . $item['descripcion']);
         }
 
         if ($item['producto_serie_id']) {
-            $serie = DB::table('producto_serie')->where('id_producto_serie', $item['producto_serie_id'])->lockForUpdate()->first();
+            $serie = ProductoSerie::query()
+                ->where('id_producto_serie', $item['producto_serie_id'])
+                ->lockForUpdate()
+                ->first();
 
             if (!$serie || $serie->Estado !== 'DISPONIBLE') {
-                throw new RuntimeException('La serie ya no está disponible: ' . $item['serie']);
+                throw new \RuntimeException('La serie ya no está disponible: ' . $item['serie']);
             }
 
-            DB::table('producto_serie')->where('id_producto_serie', $item['producto_serie_id'])->update(['Estado' => $estadoSerie]);
+            $serie->forceFill([
+                'Estado' => $estadoSerie,
+                'Observacion' => 'Instalado en contrato de cámaras',
+            ])->save();
         }
 
-        DB::table('producto')->where('Id_Producto', $item['producto_id'])->update(['Stock_Actual' => DB::raw('Stock_Actual - ' . $cantidad)]);
+        $producto->decrement('Stock_Actual', $cantidad);
 
-        DB::table('movimiento_inventario')->insert([
+        $this->crearModelo(MovimientoInventario::class, [
             'Id_Producto' => $item['producto_id'],
             'Id_Producto_Serie' => $item['producto_serie_id'],
             'Fecha_Movimiento' => now(),
@@ -441,237 +722,492 @@ new class extends Component
             'Motivo_Movimiento' => 1,
         ]);
     }
+
+    private function crearModelo(string $modelo, array $datos): Model
+    {
+        /** @var Model $instancia */
+        $instancia = new $modelo();
+
+        $instancia->forceFill($datos);
+        $instancia->save();
+
+        return $instancia;
+    }
+
+    private function limpiarTexto(?string $texto): string
+    {
+        return trim(preg_replace('/\s+/', ' ', (string) $texto));
+    }
+
+    private function mostrarMensaje(string $tipo, string $titulo, string $descripcion): void
+    {
+        $this->mensaje = [
+            'tipo' => $tipo,
+            'titulo' => $titulo,
+            'descripcion' => $descripcion,
+        ];
+    }
 };
 ?>
 
-<div
-    class="flex h-[calc(100vh-3rem)] min-h-0 w-full flex-col gap-4 overflow-y-auto bg-[#F0F3F7] px-4 py-4 md:px-6 md:py-5">
-    <div class="flex shrink-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-            <h1 class="text-2xl font-bold text-[#1A2B42]">Instalación de cámaras</h1>
-            <p class="mt-1 text-sm text-[#5F6B7A]">Registro del contrato, condiciones y materiales utilizados.</p>
+<div class="h-[calc(100vh-3rem)] min-h-0 overflow-hidden bg-[#F0F3F7]">
+    <div class="flex h-full min-h-0 flex-col gap-4 px-4 py-4 md:px-6">
+
+        <div
+            class="sticky top-0 z-20 -mx-4 -mt-4 border-b border-[#D7E4F3] bg-[#F0F3F7]/95 px-4 py-4 backdrop-blur md:-mx-6 md:px-6">
+            <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <h1 class="text-2xl font-black tracking-tight text-[#1A2B42]">
+                            Instalación de cámaras
+                        </h1>
+
+                        <span
+                            class="rounded-full bg-white px-3 py-1 text-xs font-bold text-[#5F6B7A] ring-1 ring-[#D7E4F3]">
+                            Nuevo contrato
+                        </span>
+                    </div>
+
+                    <p class="mt-1 text-sm text-[#5F6B7A]">
+                        Registro del contrato, materiales, condiciones y resumen económico en una sola pantalla.
+                    </p>
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                    <x-button icon="o-document-plus" label="Nuevo" wire:click="nuevoContrato"
+                        class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-bold text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]" />
+
+                    <x-button icon="o-check" label="Guardar contrato" wire:click="guardar" spinner="guardar"
+                        class="h-10 min-h-10 rounded-xl border-0 bg-[#2E8BC0] px-4 text-sm font-black text-white hover:bg-[#0B6FE4]" />
+                </div>
+            </div>
         </div>
 
-        <div class="flex flex-wrap gap-2">
-            <x-button label="Buscar contratos"
-                class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]" />
-            <x-button label="Guardar contrato" wire:click="guardar" spinner="guardar"
-                class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]" />
+        @if($mensaje)
+        <div
+            class="fixed right-5 top-5 z-50 w-[min(420px,calc(100vw-2rem))] rounded-2xl border px-4 py-3 shadow-xl {{ $mensaje['tipo'] === 'success' ? 'border-[#B7E4C7] bg-[#ECFDF3] text-[#166534]' : 'border-[#F5C2C7] bg-[#FEF2F2] text-[#991B1B]' }}">
+            <div class="flex items-start justify-between gap-3">
+                <div>
+                    <p class="font-black">{{ $mensaje['titulo'] }}</p>
+                    <p class="text-sm">{{ $mensaje['descripcion'] }}</p>
+                </div>
+
+                <button type="button" wire:click="$set('mensaje', null)"
+                    class="rounded-lg px-2 text-sm font-black opacity-70 hover:bg-white/60 hover:opacity-100">
+                    X
+                </button>
+            </div>
+        </div>
+        @endif
+
+        @php
+        $totalMateriales = round((float) collect($productosUsados)->sum('subtotal'), 2);
+        $totalContrato = round($totalMateriales + (float) $costoManoObra, 2);
+        $anticipo = round($totalContrato * ((float) $porcentajeAnticipo / 100), 2);
+        $saldo = round($totalContrato - $anticipo, 2);
+        @endphp
+
+        <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-12">
+            <div class="min-h-0 overflow-y-auto pr-0 xl:col-span-8 xl:pr-1">
+                <div class="space-y-4">
+
+                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                        <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <h2 class="text-lg font-black text-[#1A2B42]">Datos del contrato</h2>
+                                <p class="text-sm text-[#5F6B7A]">
+                                    Cliente, técnico, ubicación y condiciones principales de instalación.
+                                </p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#EAF2FB] px-4 py-2 text-right">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#0B6FE4]">Total contrato</p>
+                                <p class="text-xl font-black text-[#1A2B42]">
+                                    C$ {{ number_format($totalContrato, 2) }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                            <div class="xl:col-span-2">
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">
+                                    Cliente / institución
+                                </label>
+
+                                <x-select wire:model.live="clienteId" :options="$clientes" option-value="id"
+                                    option-label="name" placeholder="Seleccione cliente"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+
+                                @error('clienteId')
+                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                @enderror
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Teléfono</label>
+                                <x-input wire:model="telefonoCliente" readonly
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Municipio</label>
+                                <x-input wire:model="municipio"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+
+                                @error('municipio')
+                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                @enderror
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Cámaras</label>
+                                <x-input wire:model.live="cantidadCamaras" type="number"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+
+                                @error('cantidadCamaras')
+                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                @enderror
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Metros cableado</label>
+                                <x-input wire:model.live="metrosCableado" type="number" step="0.01"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+
+                                @error('metrosCableado')
+                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                @enderror
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Mano de obra</label>
+                                <x-input wire:model.live="costoManoObra" type="number" step="0.01" prefix="C$"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+
+                                @error('costoManoObra')
+                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                @enderror
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Anticipo</label>
+                                <x-input wire:model.live="porcentajeAnticipo" type="number" step="0.01" suffix="%"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+
+                                @error('porcentajeAnticipo')
+                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                @enderror
+                            </div>
+
+                            <div class="xl:col-span-2">
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Técnico asignado</label>
+
+                                <x-select wire:model="tecnicoId" :options="$tecnicos" option-value="id"
+                                    option-label="name" placeholder="Opcional"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+
+                                @error('tecnicoId')
+                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                @enderror
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Fecha estimada</label>
+                                <x-input wire:model="fechaEstimada" type="date"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+
+                                @error('fechaEstimada')
+                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                @enderror
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Estado</label>
+
+                                <x-select wire:model="estadoContrato" :options="$estadosContrato" option-value="id"
+                                    option-label="name"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+
+                                @error('estadoContrato')
+                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                @enderror
+                            </div>
+
+                            <div class="md:col-span-2 xl:col-span-4">
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">
+                                    Dirección de instalación
+                                </label>
+
+                                <x-input wire:model="direccionInstalacion"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+
+                                @error('direccionInstalacion')
+                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                @enderror
+                            </div>
+
+                            <div class="md:col-span-2 xl:col-span-4">
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">
+                                    Detalle del contrato
+                                </label>
+
+                                <x-textarea wire:model="detalleContrato" rows="2"
+                                    class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+
+                                @error('detalleContrato')
+                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                @enderror
+                            </div>
+                        </div>
+                    </x-card>
+
+                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                        <div class="mb-4">
+                            <h2 class="text-lg font-black text-[#1A2B42]">Condiciones del servicio</h2>
+                            <p class="text-sm text-[#5F6B7A]">
+                                Checklist rápido de instalación y entrega.
+                            </p>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+                            @foreach($condicionesChecklist as $key => $label)
+                            <label
+                                class="flex cursor-pointer items-center gap-3 rounded-2xl border border-[#2E8BC0] bg-[#F7F9FC] px-4 py-3 text-sm font-bold text-[#1A2B42] transition hover:bg-[#EAF2FB]">
+                                <x-checkbox wire:model.live="checklist.{{ $key }}"
+                                    class="checkbox-sm border-2 border-[#2E8BC0] bg-white text-white checked:border-[#0B6FE4] checked:bg-[#0B6FE4] checked:[--chkbg:#0B6FE4] checked:[--chkfg:white]" />
+
+                                <span class="leading-tight">{{ $label }}</span>
+                            </label>
+                            @endforeach
+                        </div>
+
+                        <div class="mt-3">
+                            <label class="mb-1 block text-sm font-bold text-[#1A2B42]">
+                                Observación del checklist
+                            </label>
+
+                            <x-textarea wire:model="checklist.observacion_checklist" rows="2"
+                                class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                        </div>
+                    </x-card>
+
+                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                        <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <h2 class="text-lg font-black text-[#1A2B42]">Materiales / productos usados</h2>
+                                <p class="text-sm text-[#5F6B7A]">
+                                    Agregá productos directo aquí. Las series instaladas salen del inventario
+                                    disponible.
+                                </p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#EAF2FB] px-4 py-2 text-right">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#0B6FE4]">Materiales</p>
+                                <p class="text-xl font-black text-[#1A2B42]">
+                                    C$ {{ number_format($totalMateriales, 2) }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="mb-4 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3"
+                            wire:keydown.enter.prevent="agregarProducto">
+                            <div class="grid grid-cols-1 gap-3 md:grid-cols-12">
+                                <div class="md:col-span-5">
+                                    <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Producto</label>
+
+                                    <x-select wire:model.live="productoId" :options="$productosDisponibles"
+                                        option-value="id" option-label="name" placeholder="Seleccione producto"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+
+                                    @error('productoId')
+                                    <span class="text-xs text-red-600">{{ $message }}</span>
+                                    @enderror
+                                </div>
+
+                                @if($productoTieneSeries)
+                                <div class="md:col-span-3">
+                                    <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Serie</label>
+
+                                    <x-select wire:model="productoSerieId" :options="$seriesDisponibles"
+                                        option-value="id" option-label="name" placeholder="Seleccione serie"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+
+                                    @error('productoSerieId')
+                                    <span class="text-xs text-red-600">{{ $message }}</span>
+                                    @enderror
+                                </div>
+                                @else
+                                <div class="md:col-span-2">
+                                    <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Cantidad</label>
+
+                                    <x-input wire:model="productoCantidad" type="number" step="0.01"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+
+                                    @error('productoCantidad')
+                                    <span class="text-xs text-red-600">{{ $message }}</span>
+                                    @enderror
+                                </div>
+                                @endif
+
+                                <div class="{{ $productoTieneSeries ? 'md:col-span-2' : 'md:col-span-2' }}">
+                                    <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Precio</label>
+
+                                    <x-input wire:model="productoPrecio" type="number" step="0.01" prefix="C$"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+
+                                    @error('productoPrecio')
+                                    <span class="text-xs text-red-600">{{ $message }}</span>
+                                    @enderror
+                                </div>
+
+                                <div
+                                    class="{{ $productoTieneSeries ? 'md:col-span-2' : 'md:col-span-3' }} flex items-end">
+                                    <x-button icon="o-plus" label="Agregar" wire:click="agregarProducto"
+                                        class="h-10 min-h-10 w-full rounded-xl border-0 bg-[#2E8BC0] text-sm font-bold text-white hover:bg-[#0B6FE4]" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="overflow-hidden rounded-2xl border border-[#D7E4F3]">
+                            <x-table :headers="$headers" :rows="$productosUsados"
+                                class="[&_thead_th]:bg-[#2E8BC0] [&_thead_th]:font-bold [&_thead_th]:text-white [&_tbody_tr:hover]:bg-[#F7F9FC]">
+
+                                @scope('cell_cantidad', $row)
+                                {{ number_format((float) $row['cantidad'], 2) }}
+                                @endscope
+
+                                @scope('cell_precio', $row)
+                                C$ {{ number_format((float) $row['precio'], 2) }}
+                                @endscope
+
+                                @scope('cell_subtotal', $row)
+                                C$ {{ number_format((float) $row['subtotal'], 2) }}
+                                @endscope
+
+                                @scope('cell_acciones', $row)
+                                <x-button icon="o-trash" wire:click="quitarProducto('{{ $row['tmp_id'] }}')"
+                                    class="btn-ghost btn-sm text-red-600 hover:bg-red-50" />
+                                @endscope
+                            </x-table>
+                        </div>
+                    </x-card>
+                </div>
+            </div>
+
+            <div class="min-h-0 overflow-y-auto xl:col-span-4">
+                <div class="space-y-4">
+
+                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                        <h2 class="text-lg font-black text-[#1A2B42]">Resumen</h2>
+                        <p class="mb-3 text-sm text-[#5F6B7A]">
+                            Vista rápida antes de guardar el contrato.
+                        </p>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="rounded-2xl bg-[#F7F9FC] p-3">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">Estado</p>
+                                <p class="mt-1 text-sm font-black text-[#1A2B42]">
+                                    {{ $this->estadoNombre($estadoContrato) }}
+                                </p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#F7F9FC] p-3">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">Cámaras</p>
+                                <p class="mt-1 text-sm font-black text-[#1A2B42]">
+                                    {{ (int) $cantidadCamaras }}
+                                </p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#F7F9FC] p-3">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">Materiales</p>
+                                <p class="mt-1 text-sm font-black text-[#1A2B42]">
+                                    C$ {{ number_format($totalMateriales, 2) }}
+                                </p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#F7F9FC] p-3">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">Mano de obra</p>
+                                <p class="mt-1 text-sm font-black text-[#1A2B42]">
+                                    C$ {{ number_format((float) $costoManoObra, 2) }}
+                                </p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#F7F9FC] p-3">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">Anticipo</p>
+                                <p class="mt-1 text-sm font-black text-[#1A2B42]">
+                                    C$ {{ number_format($anticipo, 2) }}
+                                </p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#F7F9FC] p-3">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">Saldo</p>
+                                <p class="mt-1 text-sm font-black text-[#1A2B42]">
+                                    C$ {{ number_format($saldo, 2) }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="mt-3 rounded-2xl bg-[#2E8BC0] p-4 text-white">
+                            <p class="text-xs font-bold uppercase tracking-wide text-white/80">Total general</p>
+                            <p class="text-2xl font-black">
+                                C$ {{ number_format($totalContrato, 2) }}
+                            </p>
+                        </div>
+
+                        <x-button icon="o-check" label="Guardar contrato" wire:click="guardar" spinner="guardar"
+                            class="mt-3 h-11 min-h-11 w-full rounded-xl border-0 bg-[#2E8BC0] text-sm font-black text-white hover:bg-[#0B6FE4]" />
+                    </x-card>
+
+                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                        <h2 class="text-lg font-black text-[#1A2B42]">Materiales agregados</h2>
+                        <p class="mb-3 text-sm text-[#5F6B7A]">
+                            Control rápido de productos cargados al contrato.
+                        </p>
+
+                        <div class="space-y-2">
+                            @forelse(array_slice($productosUsados, 0, 6) as $item)
+                            <div class="rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0">
+                                        <p class="truncate text-sm font-black text-[#1A2B42]">
+                                            {{ $item['descripcion'] }}
+                                        </p>
+
+                                        <p class="truncate text-xs font-semibold text-[#5F6B7A]">
+                                            Serie: {{ $item['serie'] }}
+                                        </p>
+                                    </div>
+
+                                    <span
+                                        class="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] font-black text-[#0B6FE4] ring-1 ring-[#D7E4F3]">
+                                        x{{ number_format((float) $item['cantidad'], 2) }}
+                                    </span>
+                                </div>
+
+                                <div class="mt-2 flex items-center justify-between gap-3">
+                                    <p class="text-xs text-[#5F6B7A]">
+                                        C$ {{ number_format((float) $item['precio'], 2) }} c/u
+                                    </p>
+
+                                    <p class="shrink-0 text-xs font-black text-[#1A2B42]">
+                                        C$ {{ number_format((float) $item['subtotal'], 2) }}
+                                    </p>
+                                </div>
+                            </div>
+                            @empty
+                            <div
+                                class="rounded-2xl border border-dashed border-[#D7E4F3] bg-[#F7F9FC] px-4 py-8 text-center">
+                                <p class="text-sm font-bold text-[#1A2B42]">Sin materiales</p>
+                                <p class="text-xs text-[#5F6B7A]">
+                                    Agregá productos para calcular el contrato.
+                                </p>
+                            </div>
+                            @endforelse
+                        </div>
+                    </x-card>
+
+                </div>
+            </div>
         </div>
     </div>
-
-    <div class="grid grid-cols-1 gap-4 xl:grid-cols-4">
-        <x-card class="xl:col-span-3 rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-            <div class="mb-4">
-                <h2 class="text-xl font-bold text-[#1A2B42]">Datos del contrato</h2>
-                <p class="text-sm text-[#5F6B7A]">Seleccione cliente y registre las condiciones de instalación.</p>
-            </div>
-
-            <div class="grid grid-cols-1 gap-x-4 gap-y-3 md:grid-cols-2 xl:grid-cols-4">
-                <div class="xl:col-span-2">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Cliente / institución</label>
-                    <x-select wire:model.live="clienteId" :options="$clientes" option-value="id" option-label="name"
-                        placeholder="Seleccione cliente"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                    @error('clienteId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Teléfono</label>
-                    <x-input wire:model="telefonoCliente" readonly
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Municipio</label>
-                    <x-input wire:model="municipio"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Cantidad de cámaras</label>
-                    <x-input wire:model.live="cantidadCamaras" type="number"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                    @error('cantidadCamaras') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Metros de cableado</label>
-                    <x-input wire:model.live="metrosCableado" type="number" step="0.01"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Costo mano de obra</label>
-                    <x-input wire:model.live="costoManoObra" type="number" step="0.01" prefix="C$"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Porcentaje anticipo</label>
-                    <x-input wire:model.live="porcentajeAnticipo" type="number" step="0.01" suffix="%"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Técnico asignado</label>
-                    <x-select wire:model="tecnicoId" :options="$tecnicos" option-value="id" option-label="name"
-                        placeholder="Opcional"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Fecha estimada</label>
-                    <x-input wire:model="fechaEstimada" type="date"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div class="xl:col-span-2">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Dirección de instalación</label>
-                    <x-input wire:model="direccionInstalacion"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                    @error('direccionInstalacion') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-                </div>
-
-                <div class="xl:col-span-4">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Detalle del contrato</label>
-                    <x-textarea wire:model="detalleContrato" rows="4"
-                        class="w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-            </div>
-        </x-card>
-
-        <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-            <div class="mb-4">
-                <h2 class="text-xl font-bold text-[#1A2B42]">Resumen económico</h2>
-                <p class="text-sm text-[#5F6B7A]">Totales calculados del contrato.</p>
-            </div>
-
-            @php
-            $totalMateriales = collect($productosUsados)->sum('subtotal');
-            $totalContrato = $totalMateriales + (float) $costoManoObra;
-            $anticipo = $totalContrato * ((float) $porcentajeAnticipo / 100);
-            $saldo = $totalContrato - $anticipo;
-            @endphp
-
-            <div class="space-y-3">
-                <div class="rounded-xl bg-[#F0F3F7] px-4 py-4 text-[#1A2B42]"><span
-                        class="block text-sm">Materiales</span><strong>C$ {{ number_format($totalMateriales, 2)
-                        }}</strong></div>
-                <div class="rounded-xl bg-[#F0F3F7] px-4 py-4 text-[#1A2B42]"><span class="block text-sm">Mano de
-                        obra</span><strong>C$ {{ number_format((float) $costoManoObra, 2) }}</strong></div>
-                <div class="rounded-xl bg-[#F0F3F7] px-4 py-4 text-[#1A2B42]"><span
-                        class="block text-sm">Anticipo</span><strong>C$ {{ number_format($anticipo, 2) }}</strong></div>
-                <div class="rounded-xl bg-[#EAF2FB] px-4 py-4 text-[#0B6FE4]"><span
-                        class="block text-sm font-semibold">Total contrato</span><strong>C$ {{
-                        number_format($totalContrato, 2) }}</strong></div>
-                <div class="rounded-xl bg-[#F5EEDF] px-4 py-4 text-[#9A6B00]"><span
-                        class="block text-sm font-semibold">Saldo pendiente</span><strong>C$ {{ number_format($saldo, 2)
-                        }}</strong></div>
-            </div>
-        </x-card>
-    </div>
-
-    <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-        <div class="mb-4">
-            <h2 class="text-xl font-bold text-[#1A2B42]">Condiciones del servicio</h2>
-            <p class="text-sm text-[#5F6B7A]">Confirmaciones rápidas del contrato.</p>
-        </div>
-
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.incluye_instalacion_fisica" /> Incluye instalación física
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.incluye_configuracion_app" /> Incluye configuración en app
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.incluye_pruebas_sistema" /> Incluye pruebas del sistema
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.incluye_capacitacion_basica" /> Capacitación básica
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.incluye_garantia" /> Incluye garantía
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.anticipo_recibido" /> Anticipo recibido
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.contrato_firmado" /> Contrato firmado
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.cliente_aprueba_recorrido" /> Cliente aprueba recorrido
-            </label>
-        </div>
-    </x-card>
-
-    <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-        <div class="mb-3 flex shrink-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-                <h2 class="text-xl font-bold text-[#1A2B42]">Productos usados</h2>
-                <p class="text-sm text-[#5F6B7A]">Las series instaladas quedan fuera del inventario disponible.</p>
-            </div>
-            <x-button label="Agregar producto" wire:click="abrirProducto"
-                class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]" />
-        </div>
-
-        <div class="overflow-hidden rounded-xl border border-[#D7E4F3]">
-            <x-table :headers="$headers" :rows="$productosUsados"
-                class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0]">
-                @scope('cell_precio', $row)
-                C$ {{ number_format((float) $row['precio'], 2) }}
-                @endscope
-                @scope('cell_subtotal', $row)
-                C$ {{ number_format((float) $row['subtotal'], 2) }}
-                @endscope
-                @scope('cell_acciones', $row)
-                <x-button icon="o-trash" wire:click="quitarProducto('{{ $row['tmp_id'] }}')"
-                    class="btn-ghost btn-sm text-red-600" />
-                @endscope
-            </x-table>
-        </div>
-    </x-card>
-
-    <x-modal wire:model="modalProducto" title="Agregar producto usado" separator>
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div class="md:col-span-2">
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Producto</label>
-                <x-select wire:model.live="productoId" :options="$productosDisponibles" option-value="id"
-                    option-label="name" placeholder="Seleccione producto"
-                    class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                @error('productoId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-            </div>
-
-            @if($productoTieneSeries)
-            <div class="md:col-span-2">
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Serie disponible</label>
-                <x-select wire:model="productoSerieId" :options="$seriesDisponibles" option-value="id"
-                    option-label="name" placeholder="Seleccione serie"
-                    class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                @error('productoSerieId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-            </div>
-            @else
-            <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Cantidad</label>
-                <x-input wire:model="productoCantidad" type="number" step="0.01"
-                    class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                @error('productoCantidad') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-            </div>
-            @endif
-
-            <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Precio</label>
-                <x-input wire:model="productoPrecio" type="number" step="0.01" prefix="C$"
-                    class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-            </div>
-        </div>
-
-        <x-slot:actions>
-            <x-button label="Cancelar" wire:click="$set('modalProducto', false)"
-                class="border border-[#D7E4F3] bg-white text-[#1A2B42]" />
-            <x-button label="Agregar" wire:click="agregarProducto"
-                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" />
-        </x-slot:actions>
-    </x-modal>
 </div>
