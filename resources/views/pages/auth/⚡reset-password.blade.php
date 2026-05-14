@@ -36,11 +36,11 @@ new #[Layout('layouts.blank')] class extends Component {
             'password.confirmed' => 'Las contraseñas no coinciden.',
         ]);
 
-        $usuario = Usuario::with('persona')
-            ->whereHas('persona', function ($query) {
-                $query->where('Correo', $this->correo);
-            })
-            ->first();
+        $usuario = Usuario::with('trabajador')
+         ->whereHas('trabajador', function ($query) {
+            $query->where('Correo', $this->correo);
+         })
+         ->first();
 
         if (!$usuario) {
             $this->mostrarMensaje('Usuario no válido.');
@@ -139,12 +139,12 @@ new #[Layout('layouts.blank')] class extends Component {
                         Nueva contraseña
                     </label>
 
-                    <x-input
-                        type="password"
-                        wire:model="password"
-                        placeholder="Ingrese la nueva contraseña"
-                        class="h-11 min-h-11 w-full rounded-xl bg-[#F0F3F7] text-sm text-[#1A2B42]"
-                    />
+                <x-password
+                    wire:model="password"
+                    placeholder="Ingrese la nueva contraseña"
+                    clearable
+                    class="h-11 min-h-11 w-full rounded-xl bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                />
 
                     @error('password')
                         <p class="mt-1 text-sm font-medium text-red-600">
@@ -158,12 +158,13 @@ new #[Layout('layouts.blank')] class extends Component {
                         Confirmar contraseña
                     </label>
 
-                    <x-input
-                        type="password"
+                    <x-password
                         wire:model="password_confirmation"
                         placeholder="Confirme la nueva contraseña"
+                        clearable
                         class="h-11 min-h-11 w-full rounded-xl bg-[#F0F3F7] text-sm text-[#1A2B42]"
                     />
+
                 </div>
 
                 <div class="mt-6 flex flex-col gap-3">

@@ -153,10 +153,10 @@ new #[Layout('layouts.blank')] class extends Component
                             </a>
                         </div>
 
-                        <x-input
-                            type="password"
+                        <x-password
                             wire:model="password"
                             placeholder="Ingrese su contraseña"
+                            clearable
                             class="h-11 min-h-11 w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
                         />
 

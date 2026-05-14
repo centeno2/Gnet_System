@@ -49,7 +49,7 @@ class Usuario extends Authenticatable
     {
         return $this->belongsTo(Trabajador::class, 'Id_Trabajador', 'Id_Trabajador');
     }
-}
+
 
     public function compras(): HasMany
     {
@@ -75,6 +75,8 @@ class Usuario extends Authenticatable
     {
         return $this->hasMany(Venta::class, 'Id_Usuario', 'Id_Usuario');
     }
+
+
 
 
     //MÉTODOS DE SEGURIDAD 

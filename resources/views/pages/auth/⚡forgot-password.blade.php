@@ -26,11 +26,11 @@ new #[Layout('layouts.blank')] class extends Component
         try {
             $correo = trim($this->correo);
 
-            $usuarioData = Usuario::with('persona')
-                ->whereHas('persona', function ($query) use ($correo) {
-                    $query->where('Correo', $correo);
-                })
-                ->first();
+                $usuarioData = Usuario::with('trabajador.persona')
+                    ->whereHas('trabajador.persona', function ($query) use ($correo) {
+                     $query->where('Correo', $correo);
+             })
+            ->first();
 
             /*
              * Mensaje genérico:
