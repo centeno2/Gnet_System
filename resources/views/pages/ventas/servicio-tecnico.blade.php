@@ -1106,7 +1106,7 @@ new class extends Component
             </div>
 
             <div class="max-h-[60vh] overflow-auto rounded-xl border border-[#D7E4F3]">
-                <table class="w-full min-w-[780px] text-left text-sm">
+                <table class="w-full min-w-195 text-left text-sm">
                     <thead class="bg-[#2E8BC0] text-white">
                         <tr>
                             <th class="px-3 py-2 font-semibold">Orden</th>
