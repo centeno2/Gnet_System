@@ -1,6 +1,9 @@
 <?php
 
-use App\Models\TazaCambio;
+use App\Models\AperturaCaja;
+use App\Models\TasaCambio;
+use App\Models\Usuario;
+use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 
 new class extends Component
@@ -10,6 +13,9 @@ new class extends Component
     public bool $modificarTasaModal = false;
 
     public string $caja = '1';
+
+    public bool $cajaAbierta = false;
+    public ?int $aperturaCajaId = null;
 
     public string $montoApertura = '0.00';
     public string $tasaOficial = '0.00';
@@ -53,11 +59,29 @@ new class extends Component
     public function mount(): void
     {
         $this->cargarTasaCambio();
+        $this->cargarAperturaAbierta();
+    }
+
+    public function cargarAperturaAbierta(): void
+    {
+        $apertura = AperturaCaja::actualCajaAbiertaHoy();
+
+        if (! $apertura) {
+            $this->cajaAbierta = false;
+            $this->aperturaCajaId = null;
+            $this->montoApertura = '0.00';
+
+            return;
+        }
+
+        $this->cajaAbierta = true;
+        $this->aperturaCajaId = (int) $apertura->Id_Apertura_Caja;
+        $this->montoApertura = number_format((float) $apertura->Monto_Apertura, 2, '.', '');
     }
 
     public function cargarTasaCambio(): void
     {
-        $tasaActual = TazaCambio::actual();
+        $tasaActual = TasaCambio::actual();
 
         $valorActual = $tasaActual
             ? (float) $tasaActual->Valor_Cambio
@@ -69,6 +93,23 @@ new class extends Component
 
     public function abrirModalCaja(): void
     {
+        $this->resetValidation();
+        $this->mensajeExito = null;
+
+        $existeCajaAbiertaHoy = AperturaCaja::query()
+        ->abierta()
+        ->deHoy()
+        ->exists();
+
+        if ($existeCajaAbiertaHoy) {
+            $this->cargarAperturaAbierta();
+
+            $this->mensajeExito = 'Ya existe una caja abierta. Debes cerrarla antes de abrir otra.';
+
+            return;
+        }
+
+        $this->montoApertura = '0.00';
         $this->abrirCajaModal = true;
     }
 
@@ -113,10 +154,49 @@ new class extends Component
             'montoApertura.min' => 'El monto de apertura no puede ser negativo.',
         ]);
 
-        $this->montoApertura = number_format((float) $this->montoApertura, 2, '.', '');
-        $this->abrirCajaModal = false;
+        $usuario = Usuario::query()
+            ->orderBy('Id_Usuario')
+            ->first();
 
-        $this->mensajeExito = 'Caja abierta correctamente.';
+        if (! $usuario) {
+            $this->addError('montoApertura', 'No existe ningún usuario registrado para asignar la apertura de caja.');
+            return;
+        }
+
+        try {
+            DB::transaction(function () use ($usuario) {
+                $aperturaAbiertaHoy = AperturaCaja::query()
+                    ->abierta()
+                    ->deHoy()
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($aperturaAbiertaHoy) 
+                {
+                    throw new \RuntimeException('Ya existe una caja abierta para hoy. Debes cerrarla antes de abrir otra.');
+                }
+
+                $apertura = AperturaCaja::create([
+                    'Id_Usuario' => $usuario->Id_Usuario,
+                    'Monto_Apertura' => number_format((float) $this->montoApertura, 2, '.', ''),
+                    'Fecha_Apertura' => now(),
+                    'Estado_Apertura' => AperturaCaja::ABIERTO,
+                ]);
+
+                $this->aperturaCajaId = (int) $apertura->Id_Apertura_Caja;
+                $this->montoApertura = number_format((float) $apertura->Monto_Apertura, 2, '.', '');
+                $this->cajaAbierta = true;
+            });
+
+            $this->abrirCajaModal = false;
+            $this->mensajeExito = 'Caja abierta correctamente.';
+
+        } catch (\RuntimeException $e) {
+            $this->abrirCajaModal = false;
+            $this->cargarAperturaAbierta();
+
+            $this->mensajeExito = $e->getMessage();
+        }
     }
 
     public function guardarTasaCambio(): void
@@ -129,7 +209,7 @@ new class extends Component
             'nuevaTasaOficial.min' => 'La tasa de cambio debe ser mayor a 0.',
         ]);
 
-        TazaCambio::create([
+        TasaCambio::create([
             'Valor_Cambio' => number_format((float) $this->nuevaTasaOficial, 2, '.', ''),
         ]);
 

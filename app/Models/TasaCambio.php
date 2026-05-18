@@ -5,11 +5,11 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
-class TazaCambio extends Model
+class TasaCambio extends Model
 {
-    protected $table = 'taza_cambio';
+    protected $table = 'tasa_cambio';
 
-    protected $primaryKey = 'Id_Taza_Cambio';
+    protected $primaryKey = 'Id_Tasa_Cambio';
 
     public $timestamps = false;
 
@@ -23,20 +23,20 @@ class TazaCambio extends Model
     ];
 
     protected $casts = [
-        'Id_Taza_Cambio' => 'integer',
+        'Id_Tasa_Cambio' => 'integer',
         'Valor_Cambio' => 'decimal:2',
         'Fecha_Modificacion' => 'datetime',
     ];
 
     protected static function booted(): void
     {
-        static::creating(function (TazaCambio $tazaCambio): void {
+        static::creating(function (TasaCambio $tazaCambio): void {
             if (empty($tazaCambio->Fecha_Modificacion)) {
                 $tazaCambio->Fecha_Modificacion = Carbon::now();
             }
         });
 
-        static::updating(function (TazaCambio $tazaCambio): void {
+        static::updating(function (TasaCambio $tazaCambio): void {
             $tazaCambio->Fecha_Modificacion = Carbon::now();
         });
     }
