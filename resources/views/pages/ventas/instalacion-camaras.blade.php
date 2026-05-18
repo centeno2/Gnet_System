@@ -22,8 +22,13 @@ new class extends Component
     public array $productosDisponibles = [];
     public array $seriesDisponibles = [];
     public array $productosUsados = [];
+    public array $contratosPendientes = [];
 
+    public ?int $contratoInstalacionIdSeleccionado = null;
     public ?array $mensaje = null;
+
+    public bool $modalPendientes = false;
+    public string $filtroPendientes = '';
 
     public ?int $clienteId = null;
     public string $telefonoCliente = '';
@@ -91,6 +96,7 @@ new class extends Component
     public function mount(): void
     {
         $this->cargarCombos();
+        $this->cargarPendientes();
     }
 
     public function cargarCombos(): void
@@ -204,10 +210,142 @@ new class extends Component
             ->toArray();
     }
 
+    public function cargarPendientes(): void
+    {
+        $tablaContrato = (new ContratoInstalacionCamara())->getTable();
+
+        $query = ContratoInstalacionCamara::query()
+            ->leftJoin('cliente as c', 'c.Id_Cliente', '=', $tablaContrato . '.Id_Cliente')
+            ->leftJoin('persona as pc', 'pc.Id_Persona', '=', 'c.Id_Persona')
+            ->leftJoin('trabajador as t', 't.Id_Trabajador', '=', $tablaContrato . '.Id_Trabajador')
+            ->leftJoin('persona as pt', 'pt.Id_Persona', '=', 't.Id_Persona')
+            ->whereNotIn($tablaContrato . '.Estado_Contrato', ['FINALIZADO', 'CANCELADO'])
+            ->select([
+                $tablaContrato . '.Id_Contrato_Instalacion_Camara as id',
+                $tablaContrato . '.Numero_Contrato as numero',
+                $tablaContrato . '.Fecha_Contrato as fecha',
+                $tablaContrato . '.Municipio as municipio',
+                $tablaContrato . '.Direccion_Instalacion as direccion',
+                $tablaContrato . '.Cantidad_Camaras as camaras',
+                $tablaContrato . '.Estado_Contrato as estado',
+                $tablaContrato . '.Total_Contrato as total',
+                $tablaContrato . '.Saldo_Pendiente as saldo',
+                'c.Institucion as cliente_institucion',
+                'pc.Primer_Nombre as cliente_primer_nombre',
+                'pc.Segundo_Nombre as cliente_segundo_nombre',
+                'pc.Primer_Apellido as cliente_primer_apellido',
+                'pc.Segundo_Apellido as cliente_segundo_apellido',
+                'pt.Primer_Nombre as tecnico_primer_nombre',
+                'pt.Primer_Apellido as tecnico_primer_apellido',
+            ])
+            ->orderByDesc($tablaContrato . '.Fecha_Contrato')
+            ->limit(25);
+
+        $filtro = trim($this->filtroPendientes);
+
+        if ($filtro !== '') {
+            $query->where(function ($q) use ($filtro, $tablaContrato) {
+                $q->where($tablaContrato . '.Numero_Contrato', 'like', '%' . $filtro . '%')
+                    ->orWhere($tablaContrato . '.Municipio', 'like', '%' . $filtro . '%')
+                    ->orWhere($tablaContrato . '.Direccion_Instalacion', 'like', '%' . $filtro . '%')
+                    ->orWhere('pc.Primer_Nombre', 'like', '%' . $filtro . '%')
+                    ->orWhere('pc.Primer_Apellido', 'like', '%' . $filtro . '%')
+                    ->orWhere('c.Institucion', 'like', '%' . $filtro . '%');
+            });
+        }
+
+        $this->contratosPendientes = $query
+            ->get()
+            ->map(function ($item) {
+                $cliente = $this->limpiarTexto(
+                    trim(
+                        ($item->cliente_institucion ? $item->cliente_institucion . ' - ' : '') .
+                        ($item->cliente_primer_nombre ?? '') . ' ' .
+                        ($item->cliente_segundo_nombre ?? '') . ' ' .
+                        ($item->cliente_primer_apellido ?? '') . ' ' .
+                        ($item->cliente_segundo_apellido ?? '')
+                    )
+                );
+
+                $tecnico = $this->limpiarTexto(
+                    trim(
+                        ($item->tecnico_primer_nombre ?? '') . ' ' .
+                        ($item->tecnico_primer_apellido ?? '')
+                    )
+                );
+
+                return [
+                    'id' => (int) $item->id,
+                    'numero' => $item->numero,
+                    'fecha' => $item->fecha,
+                    'cliente' => $cliente ?: 'Cliente no especificado',
+                    'ubicacion' => $this->limpiarTexto(
+                        trim(($item->municipio ?? '') . ' ' . ($item->direccion ?? ''))
+                    ) ?: 'Sin ubicación',
+                    'tecnico' => $tecnico ?: 'Sin técnico',
+                    'camaras' => (int) $item->camaras,
+                    'estado' => $item->estado,
+                    'total' => (float) $item->total,
+                    'saldo' => (float) $item->saldo,
+                ];
+            })
+            ->toArray();
+    }
+
+    public function abrirPendientes(): void
+    {
+        $this->cargarPendientes();
+        $this->modalPendientes = true;
+    }
+
+    public function updatedFiltroPendientes(): void
+    {
+        $this->cargarPendientes();
+    }
+
+    public function cargarPendiente(int $id, bool $cerrarModal = true): void
+    {
+        $contrato = ContratoInstalacionCamara::query()
+            ->where('Id_Contrato_Instalacion_Camara', $id)
+            ->first();
+
+        if (!$contrato) {
+            $this->mostrarMensaje('error', 'No encontrado', 'El contrato seleccionado ya no existe.');
+            return;
+        }
+
+        $this->contratoInstalacionIdSeleccionado = (int) $contrato->Id_Contrato_Instalacion_Camara;
+        $this->clienteId = $contrato->Id_Cliente ? (int) $contrato->Id_Cliente : null;
+        $this->updatedClienteId($this->clienteId);
+
+        $this->tecnicoId = $contrato->Id_Trabajador ? (int) $contrato->Id_Trabajador : null;
+        $this->municipio = (string) ($contrato->Municipio ?? $this->municipio);
+        $this->direccionInstalacion = (string) $contrato->Direccion_Instalacion;
+        $this->cantidadCamaras = (int) $contrato->Cantidad_Camaras;
+        $this->metrosCableado = (float) $contrato->Metros_Cableado;
+        $this->costoManoObra = (float) $contrato->Costo_Mano_Obra;
+        $this->porcentajeAnticipo = (float) $contrato->Porcentaje_Anticipo;
+        $this->fechaEstimada = $this->normalizarFechaInput($contrato->Fecha_Estimada);
+        $this->detalleContrato = (string) ($contrato->Detalle_Contrato ?? '');
+        $this->estadoContrato = (string) $contrato->Estado_Contrato;
+
+        $this->cargarChecklistContrato((int) $contrato->Id_Contrato_Instalacion_Camara);
+        $this->cargarProductosDelContrato((int) $contrato->Id_Contrato_Instalacion_Camara);
+        $this->resetProductoForm();
+        $this->resetErrorBag();
+
+        if ($cerrarModal) {
+            $this->modalPendientes = false;
+        }
+
+        $this->mostrarMensaje('success', 'Pendiente cargado', 'Ya podés actualizar el contrato o agregar materiales.');
+    }
+
     public function nuevoContrato(): void
     {
         $this->limpiarFormulario();
         $this->cargarCombos();
+        $this->cargarPendientes();
 
         $this->mostrarMensaje(
             'success',
@@ -365,6 +503,7 @@ new class extends Component
 
         $this->productosUsados[] = [
             'tmp_id' => uniqid('prod_', true),
+            'ya_guardado' => false,
             'producto_id' => (int) $producto->Id_Producto,
             'producto_serie_id' => $serie?->id_producto_serie ? (int) $serie->id_producto_serie : null,
             'codigo' => (string) $producto->Id_Producto,
@@ -394,6 +533,13 @@ new class extends Component
 
     public function quitarProducto(string $tmpId): void
     {
+        $producto = collect($this->productosUsados)->firstWhere('tmp_id', $tmpId);
+
+        if ($producto && !empty($producto['ya_guardado'])) {
+            $this->mostrarMensaje('error', 'No permitido', 'Este material ya fue descontado del inventario. Para revertirlo hay que hacer una devolución o ajuste de inventario.');
+            return;
+        }
+
         $this->productosUsados = array_values(array_filter(
             $this->productosUsados,
             fn ($item) => $item['tmp_id'] !== $tmpId
@@ -429,10 +575,24 @@ new class extends Component
         ]);
 
         try {
+            if ($this->contratoInstalacionIdSeleccionado) {
+                $this->actualizarContratoInstalacion();
+
+                $id = $this->contratoInstalacionIdSeleccionado;
+
+                $this->cargarCombos();
+                $this->cargarPendientes();
+                $this->cargarPendiente($id, false);
+
+                $this->mostrarMensaje('success', 'Contrato actualizado', 'La instalación de cámaras se actualizó correctamente.');
+                return;
+            }
+
             $contratoId = $this->crearContratoInstalacion();
 
             $this->limpiarFormulario();
             $this->cargarCombos();
+            $this->cargarPendientes();
 
             $this->mostrarMensaje(
                 'success',
@@ -515,6 +675,58 @@ new class extends Component
         }, 3);
     }
 
+    private function actualizarContratoInstalacion(): void
+    {
+        DB::transaction(function () {
+            $contratoId = (int) $this->contratoInstalacionIdSeleccionado;
+
+            $contrato = ContratoInstalacionCamara::query()
+                ->where('Id_Contrato_Instalacion_Camara', $contratoId)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$contrato) {
+                throw new \RuntimeException('El contrato seleccionado ya no existe.');
+            }
+
+            $totalMateriales = round((float) collect($this->productosUsados)->sum('subtotal'), 2);
+            $totalContrato = round($totalMateriales + (float) $this->costoManoObra, 2);
+            $montoAnticipo = round($totalContrato * ((float) $this->porcentajeAnticipo / 100), 2);
+            $saldoPendiente = round($totalContrato - $montoAnticipo, 2);
+
+            $contrato->forceFill([
+                'Id_Cliente' => $this->clienteId,
+                'Id_Trabajador' => $this->tecnicoId,
+                'Municipio' => $this->municipio ?: null,
+                'Direccion_Instalacion' => $this->direccionInstalacion,
+                'Cantidad_Camaras' => (int) $this->cantidadCamaras,
+                'Metros_Cableado' => (float) $this->metrosCableado,
+                'Costo_Mano_Obra' => (float) $this->costoManoObra,
+                'Porcentaje_Anticipo' => (float) $this->porcentajeAnticipo,
+                'Monto_Anticipo' => $montoAnticipo,
+                'Fecha_Estimada' => $this->fechaEstimada ?: null,
+                'Detalle_Contrato' => $this->detalleContrato ?: null,
+                'Estado_Contrato' => $this->estadoContrato,
+                'Total_Materiales' => $totalMateriales,
+                'Total_Contrato' => $totalContrato,
+                'Saldo_Pendiente' => $saldoPendiente,
+            ])->save();
+
+            $checklist = ContratoInstalacionCamaraChecklist::query()
+                ->firstOrNew(['Id_Contrato_Instalacion_Camara' => $contratoId]);
+
+            $checklist->forceFill($this->datosChecklist($contratoId))->save();
+
+            foreach ($this->productosUsados as $item) {
+                if (!empty($item['ya_guardado'])) {
+                    continue;
+                }
+
+                $this->registrarProductoContrato($contratoId, $item);
+            }
+        }, 3);
+    }
+
     private function registrarProductoContrato(int $contratoId, array $item): void
     {
         $this->descontarInventario($item, 'INSTALADO', 'SALIDA_INSTALACION');
@@ -528,6 +740,71 @@ new class extends Component
             'Subtotal' => $item['subtotal'],
             'Observacion' => null,
         ]);
+    }
+
+    private function cargarChecklistContrato(int $contratoId): void
+    {
+        $check = ContratoInstalacionCamaraChecklist::query()
+            ->where('Id_Contrato_Instalacion_Camara', $contratoId)
+            ->first();
+
+        $this->checklist = [
+            'incluye_instalacion_fisica' => (bool) ($check->Incluye_Instalacion_Fisica ?? true),
+            'incluye_configuracion_app' => (bool) ($check->Incluye_Configuracion_App ?? false),
+            'incluye_pruebas_sistema' => (bool) ($check->Incluye_Pruebas_Sistema ?? false),
+            'incluye_capacitacion_basica' => (bool) ($check->Incluye_Capacitacion_Basica ?? false),
+            'incluye_garantia' => (bool) ($check->Incluye_Garantia ?? false),
+            'anticipo_recibido' => (bool) ($check->Anticipo_Recibido ?? false),
+            'contrato_firmado' => (bool) ($check->Contrato_Firmado ?? false),
+            'cliente_aprueba_recorrido' => (bool) ($check->Cliente_Aprueba_Recorrido ?? false),
+            'sistema_energizado' => (bool) ($check->Sistema_Energizado ?? false),
+            'observacion_checklist' => (string) ($check->Observacion_Checklist ?? ''),
+        ];
+    }
+
+    private function cargarProductosDelContrato(int $contratoId): void
+    {
+        $tablaDetalle = (new ContratoInstalacionCamaraProducto())->getTable();
+
+        $this->productosUsados = ContratoInstalacionCamaraProducto::query()
+            ->join('producto as p', 'p.Id_Producto', '=', $tablaDetalle . '.Id_Producto')
+            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'p.Id_Marca')
+            ->leftJoin('producto_serie as ps', 'ps.id_producto_serie', '=', $tablaDetalle . '.Id_Producto_Serie')
+            ->where($tablaDetalle . '.Id_Contrato_Instalacion_Camara', $contratoId)
+            ->select([
+                $tablaDetalle . '.Id_Producto',
+                $tablaDetalle . '.Id_Producto_Serie',
+                $tablaDetalle . '.Cantidad',
+                $tablaDetalle . '.Precio_Unitario',
+                $tablaDetalle . '.Subtotal',
+                'p.Nombre_Producto',
+                'p.Modelo',
+                'm.Nombre_Marca',
+                'ps.Numero_Serie',
+            ])
+            ->orderBy($tablaDetalle . '.Id_Producto')
+            ->get()
+            ->values()
+            ->map(fn ($item, $index) => [
+                'tmp_id' => 'guardado_' . $contratoId . '_' . $index,
+                'ya_guardado' => true,
+                'producto_id' => (int) $item->Id_Producto,
+                'producto_serie_id' => $item->Id_Producto_Serie ? (int) $item->Id_Producto_Serie : null,
+                'codigo' => (string) $item->Id_Producto,
+                'descripcion' => $this->limpiarTexto(
+                    trim(
+                        ($item->Nombre_Marca ? $item->Nombre_Marca . ' ' : '') .
+                        $item->Nombre_Producto . ' ' .
+                        ($item->Modelo ?? '')
+                    )
+                ),
+                'serie' => $item->Numero_Serie ?? 'N/A',
+                'cantidad' => (float) $item->Cantidad,
+                'precio' => (float) $item->Precio_Unitario,
+                'subtotal' => (float) $item->Subtotal,
+                'acciones' => '',
+            ])
+            ->toArray();
     }
 
     private function datosChecklist(int $contratoId): array
@@ -566,6 +843,7 @@ new class extends Component
 
     private function limpiarFormulario(): void
     {
+        $this->contratoInstalacionIdSeleccionado = null;
         $this->clienteId = null;
         $this->telefonoCliente = '';
         $this->municipio = '';
@@ -734,6 +1012,19 @@ new class extends Component
         return $instancia;
     }
 
+    private function normalizarFechaInput(mixed $fecha): ?string
+    {
+        if (!$fecha) {
+            return null;
+        }
+
+        if ($fecha instanceof \DateTimeInterface) {
+            return $fecha->format('Y-m-d');
+        }
+
+        return substr((string) $fecha, 0, 10);
+    }
+
     private function limpiarTexto(?string $texto): string
     {
         return trim(preg_replace('/\s+/', ' ', (string) $texto));
@@ -762,10 +1053,16 @@ new class extends Component
                             Instalación de cámaras
                         </h1>
 
+                        @if($contratoInstalacionIdSeleccionado)
+                        <span class="rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-bold text-[#0B6FE4]">
+                            Editando #{{ $contratoInstalacionIdSeleccionado }}
+                        </span>
+                        @else
                         <span
                             class="rounded-full bg-white px-3 py-1 text-xs font-bold text-[#5F6B7A] ring-1 ring-[#D7E4F3]">
                             Nuevo contrato
                         </span>
+                        @endif
                     </div>
 
                     <p class="mt-1 text-sm text-[#5F6B7A]">
@@ -776,9 +1073,6 @@ new class extends Component
                 <div class="flex flex-wrap gap-2">
                     <x-button icon="o-document-plus" label="Nuevo" wire:click="nuevoContrato"
                         class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-bold text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]" />
-
-                    <x-button icon="o-check" label="Guardar contrato" wire:click="guardar" spinner="guardar"
-                        class="h-10 min-h-10 rounded-xl border-0 bg-[#2E8BC0] px-4 text-sm font-black text-white hover:bg-[#0B6FE4]" />
                 </div>
             </div>
         </div>
@@ -1085,8 +1379,14 @@ new class extends Component
                                 @endscope
 
                                 @scope('cell_acciones', $row)
+                                @if(!empty($row['ya_guardado']))
+                                <span class="rounded-full bg-[#EAF2FB] px-2 py-1 text-xs font-bold text-[#0B6FE4]">
+                                    Guardado
+                                </span>
+                                @else
                                 <x-button icon="o-trash" wire:click="quitarProducto('{{ $row['tmp_id'] }}')"
                                     class="btn-ghost btn-sm text-red-600 hover:bg-red-50" />
+                                @endif
                                 @endscope
                             </x-table>
                         </div>
@@ -1096,6 +1396,64 @@ new class extends Component
 
             <div class="min-h-0 overflow-y-auto xl:col-span-4">
                 <div class="space-y-4">
+
+                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                        <div class="mb-3 flex items-start justify-between gap-3">
+                            <div>
+                                <h2 class="text-lg font-black text-[#1A2B42]">Pendientes rápidos</h2>
+                                <p class="text-sm text-[#5F6B7A]">Buscá y cargá contratos sin salir de esta pantalla.
+                                </p>
+                            </div>
+
+                            <span class="rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-black text-[#0B6FE4]">
+                                {{ count($contratosPendientes) }}
+                            </span>
+                        </div>
+
+                        <x-input wire:model.live.debounce.350ms="filtroPendientes" icon="o-magnifying-glass"
+                            placeholder="Contrato, cliente, municipio..."
+                            class="mb-3 h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+
+                        <div class="space-y-2">
+                            @forelse(array_slice($contratosPendientes, 0, 7) as $item)
+                            <button type="button" wire:click="cargarPendiente({{ $item['id'] }}, false)"
+                                class="w-full rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3 text-left transition hover:border-[#2E8BC0] hover:bg-[#EAF2FB]">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0">
+                                        <p class="truncate text-sm font-black text-[#1A2B42]">
+                                            {{ $item['numero'] }}
+                                        </p>
+
+                                        <p class="truncate text-xs font-semibold text-[#5F6B7A]">
+                                            {{ $item['cliente'] }}
+                                        </p>
+                                    </div>
+
+                                    <span
+                                        class="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] font-black text-[#0B6FE4] ring-1 ring-[#D7E4F3]">
+                                        {{ $this->estadoNombre($item['estado']) }}
+                                    </span>
+                                </div>
+
+                                <div class="mt-2 flex items-center justify-between gap-3">
+                                    <p class="truncate text-xs text-[#5F6B7A]">{{ $item['ubicacion'] }}</p>
+                                    <p class="shrink-0 text-xs font-black text-[#1A2B42]">
+                                        C$ {{ number_format((float) $item['saldo'], 2) }}
+                                    </p>
+                                </div>
+                            </button>
+                            @empty
+                            <div
+                                class="rounded-2xl border border-dashed border-[#D7E4F3] bg-[#F7F9FC] px-4 py-8 text-center">
+                                <p class="text-sm font-bold text-[#1A2B42]">Sin pendientes</p>
+                                <p class="text-xs text-[#5F6B7A]">No hay contratos con ese filtro.</p>
+                            </div>
+                            @endforelse
+                        </div>
+
+                        <x-button icon="o-folder-open" label="Abrir listado completo" wire:click="abrirPendientes"
+                            class="mt-3 h-10 min-h-10 w-full rounded-xl border border-[#D7E4F3] bg-white text-sm font-bold text-[#1A2B42] hover:bg-[#F7F9FC]" />
+                    </x-card>
 
                     <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
                         <h2 class="text-lg font-black text-[#1A2B42]">Resumen</h2>
@@ -1154,9 +1512,12 @@ new class extends Component
                             </p>
                         </div>
 
-                        <x-button icon="o-check" label="Guardar contrato" wire:click="guardar" spinner="guardar"
+                        <x-button icon="o-check"
+                            label="{{ $contratoInstalacionIdSeleccionado ? 'Actualizar contrato' : 'Guardar contrato' }}"
+                            wire:click="guardar" spinner="guardar"
                             class="mt-3 h-11 min-h-11 w-full rounded-xl border-0 bg-[#2E8BC0] text-sm font-black text-white hover:bg-[#0B6FE4]" />
                     </x-card>
+
 
                     <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
                         <h2 class="text-lg font-black text-[#1A2B42]">Materiales agregados</h2>
@@ -1210,4 +1571,61 @@ new class extends Component
             </div>
         </div>
     </div>
+
+
+    <x-modal wire:model="modalPendientes" title="Contratos de instalación pendientes" separator class="backdrop-blur">
+        <div class="space-y-3">
+            <x-input wire:model.live.debounce.350ms="filtroPendientes" icon="o-magnifying-glass"
+                placeholder="Buscar por contrato, cliente, municipio o dirección..."
+                class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+
+            <div class="max-h-[60vh] overflow-auto rounded-2xl border border-[#D7E4F3]">
+                <table class="w-full min-w-190 text-left text-sm">
+                    <thead class="sticky top-0 z-10 bg-[#2E8BC0] text-white">
+                        <tr>
+                            <th class="px-3 py-2 font-bold">Contrato</th>
+                            <th class="px-3 py-2 font-bold">Cliente</th>
+                            <th class="px-3 py-2 font-bold">Ubicación</th>
+                            <th class="px-3 py-2 font-bold">Estado</th>
+                            <th class="px-3 py-2 font-bold">Saldo</th>
+                            <th class="px-3 py-2 text-center font-bold">Acción</th>
+                        </tr>
+                    </thead>
+
+                    <tbody class="divide-y divide-[#D7E4F3] bg-white text-[#1A2B42]">
+                        @forelse($contratosPendientes as $item)
+                        <tr class="hover:bg-[#F7F9FC]">
+                            <td class="px-3 py-2 font-black">{{ $item['numero'] }}</td>
+                            <td class="px-3 py-2">{{ $item['cliente'] }}</td>
+                            <td class="px-3 py-2">{{ $item['ubicacion'] }}</td>
+                            <td class="px-3 py-2">
+                                <span class="rounded-full bg-[#EAF2FB] px-2 py-1 text-xs font-black text-[#0B6FE4]">
+                                    {{ $this->estadoNombre($item['estado']) }}
+                                </span>
+                            </td>
+                            <td class="px-3 py-2 font-bold">C$ {{ number_format((float) $item['saldo'], 2) }}</td>
+                            <td class="px-3 py-2 text-center">
+                                <x-button icon="o-arrow-down-tray" label="Cargar"
+                                    wire:click="cargarPendiente({{ $item['id'] }})"
+                                    class="h-8 min-h-8 rounded-xl border-0 bg-[#2E8BC0] px-3 text-xs font-bold text-white hover:bg-[#0B6FE4]" />
+                            </td>
+                        </tr>
+                        @empty
+                        <tr>
+                            <td colspan="6" class="px-3 py-8 text-center text-[#5F6B7A]">
+                                No hay contratos pendientes con ese filtro.
+                            </td>
+                        </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <x-slot:actions>
+            <x-button label="Cerrar" wire:click="$set('modalPendientes', false)"
+                class="rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42]" />
+        </x-slot:actions>
+    </x-modal>
+
 </div>

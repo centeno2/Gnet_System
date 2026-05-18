@@ -153,6 +153,22 @@ new class extends Component
         $this->pagoDolares = '0';
         $this->referenciaCordobas = '';
         $this->referenciaDolares = '';
+        $this->clientesEncontrados = [];
+        $this->mostrarClientes = false;
+
+        if ($this->clienteId) {
+            $cliente = Cliente::query()
+                ->where('Id_Cliente', $this->clienteId)
+                ->first();
+
+            if (! $cliente || ! $this->clientePermitidoParaTipoVenta($cliente)) {
+                $this->limpiarClienteFacturacion();
+            } elseif ($this->tipoVenta === self::TIPO_CREDITO) {
+                $this->departamentoMunicipio = $cliente->Municipio ?? '';
+            }
+        } else {
+            $this->limpiarClienteFacturacion();
+        }
 
         if ($this->tipoVenta === self::TIPO_CONTADO) {
             $this->departamentoMunicipio = '';
@@ -174,9 +190,12 @@ new class extends Component
             return;
         }
 
+        $tipoClientePermitido = $this->tipoClientePermitidoVenta();
+
         $this->clientesEncontrados = Cliente::query()
             ->with('persona')
             ->where('Estado', true)
+            ->where('Tipo_Cliente', $tipoClientePermitido)
             ->where(function ($query) use ($busqueda) {
                 $query->where('Institucion', 'like', "%{$busqueda}%")
                     ->orWhere('Telefono_Institucion', 'like', "%{$busqueda}%")
@@ -216,13 +235,18 @@ new class extends Component
             return;
         }
 
+        if (! $this->clientePermitidoParaTipoVenta($cliente)) {
+            $this->mostrarToast($this->mensajeClienteNoPermitido(), 'error');
+            $this->limpiarClienteFacturacion();
+            return;
+        }
+
         $this->clienteId = (int) $cliente->Id_Cliente;
         $this->clienteNombre = $this->nombreClienteFacturacion($cliente);
         $this->buscarCliente = $this->clienteNombre;
-
-        if ($this->tipoVenta === self::TIPO_CREDITO) {
-            $this->departamentoMunicipio = $cliente->Municipio ?? '';
-        }
+        $this->departamentoMunicipio = $this->tipoVenta === self::TIPO_CREDITO
+            ? (string) ($cliente->Municipio ?? '')
+            : '';
 
         $this->clientesEncontrados = [];
         $this->mostrarClientes = false;
@@ -230,12 +254,12 @@ new class extends Component
 
     public function usarConsumidorFinal(): void
     {
-        $this->clienteId = null;
-        $this->buscarCliente = '';
-        $this->clienteNombre = 'Consumidor final';
-        $this->departamentoMunicipio = '';
-        $this->clientesEncontrados = [];
-        $this->mostrarClientes = false;
+        if ($this->tipoVenta === self::TIPO_CREDITO) {
+            $this->mostrarToast('Para crédito debe seleccionar una institución registrada.', 'error');
+            return;
+        }
+
+        $this->limpiarClienteFacturacion();
     }
 
     protected function buscarItems(): void
@@ -564,8 +588,8 @@ new class extends Component
             return;
         }
 
-        if ($this->tipoVenta === self::TIPO_CREDITO && ! $this->clienteId) {
-            $this->mostrarToast('Para crédito debe seleccionar un cliente registrado.', 'error');
+        if (! $this->clienteSeleccionadoValidoParaVenta()) {
+            $this->mostrarToast($this->mensajeClienteNoPermitido(), 'error');
             return;
         }
 
@@ -619,8 +643,8 @@ new class extends Component
             return;
         }
 
-        if ($this->tipoVenta === self::TIPO_CREDITO && ! $this->clienteId) {
-            $this->mostrarToast('Para crédito debe seleccionar un cliente registrado.', 'error');
+        if (! $this->clienteSeleccionadoValidoParaVenta()) {
+            $this->mostrarToast($this->mensajeClienteNoPermitido(), 'error');
             return;
         }
 
@@ -954,6 +978,50 @@ new class extends Component
         return trim($base);
     }
 
+    protected function tipoClientePermitidoVenta(): int
+    {
+        return $this->tipoVenta === self::TIPO_CREDITO
+            ? Cliente::TIPO_INSTITUCION
+            : Cliente::TIPO_NATURAL;
+    }
+
+    protected function clientePermitidoParaTipoVenta(Cliente $cliente): bool
+    {
+        return (int) $cliente->Tipo_Cliente === $this->tipoClientePermitidoVenta();
+    }
+
+    protected function clienteSeleccionadoValidoParaVenta(): bool
+    {
+        if (! $this->clienteId) {
+            return $this->tipoVenta === self::TIPO_CONTADO;
+        }
+
+        $cliente = Cliente::query()
+            ->where('Id_Cliente', $this->clienteId)
+            ->first();
+
+        return $cliente && $this->clientePermitidoParaTipoVenta($cliente);
+    }
+
+    protected function mensajeClienteNoPermitido(): string
+    {
+        return $this->tipoVenta === self::TIPO_CREDITO
+            ? 'Para crédito solo puede seleccionar clientes institucionales.'
+            : 'Para contado solo puede seleccionar clientes naturales o consumidor final.';
+    }
+
+    protected function limpiarClienteFacturacion(): void
+    {
+        $this->clienteId = null;
+        $this->buscarCliente = '';
+        $this->clienteNombre = $this->tipoVenta === self::TIPO_CREDITO
+            ? 'Seleccione institución'
+            : 'Consumidor final';
+        $this->departamentoMunicipio = '';
+        $this->clientesEncontrados = [];
+        $this->mostrarClientes = false;
+    }
+
     protected function nombreClienteFacturacion(Cliente $cliente): string
     {
         if ((int) $cliente->Tipo_Cliente === Cliente::TIPO_INSTITUCION) {
@@ -1107,17 +1175,21 @@ new class extends Component
                     <div class="grid grid-cols-1 gap-3 lg:grid-cols-12">
                         <div
                             class="relative min-w-0 {{ $tipoVenta === 'CREDITO' ? 'lg:col-span-5' : 'lg:col-span-7' }}">
-                            <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Cliente</label>
+                            <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                                {{ $tipoVenta === 'CREDITO' ? 'Institución' : 'Cliente natural' }}
+                            </label>
 
                             <div class="flex gap-2">
                                 <x-input wire:model.live.debounce.250ms="buscarCliente" type="text" autocomplete="off"
-                                    placeholder="Buscar cliente o institución"
+                                    placeholder="{{ $tipoVenta === 'CREDITO' ? 'Buscar institución' : 'Buscar cliente natural' }}"
                                     class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
 
+                                @if ($tipoVenta === 'CONTADO')
                                 <button type="button" wire:click="usarConsumidorFinal"
                                     class="inline-flex h-11 shrink-0 items-center justify-center rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] hover:bg-[#F8FAFC]">
                                     Final
                                 </button>
+                                @endif
                             </div>
 
                             @if ($mostrarClientes)
