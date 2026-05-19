@@ -4,39 +4,35 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class Vacaciones extends Model
+class DeduccionTrabajador extends Model
 {
-    protected $table = 'vacaciones';
+    protected $table = 'deduccion_trabajador';
 
-    protected $primaryKey = 'Id_Vacacion';
+    protected $primaryKey = 'Id_Deduccion';
 
     public $timestamps = false;
 
-    public const ESTADO_SOLICITADA = 'SOLICITADA';
-    public const ESTADO_APROBADA = 'APROBADA';
-    public const ESTADO_PAGADA = 'PAGADA';
+    public const ESTADO_PENDIENTE = 'PENDIENTE';
+    public const ESTADO_APLICADA = 'APLICADA';
     public const ESTADO_ANULADA = 'ANULADA';
-    public const ESTADO_RECHAZADA = 'RECHAZADA';
 
     protected $fillable = [
         'Id_Trabajador',
         'Id_Detalle_Planilla',
-        'Fecha_Inicio',
-        'Fecha_Fin',
-        'Dias_Tomados',
+        'Fecha_Deduccion',
+        'Concepto',
+        'Monto',
         'Estado',
         'Observacion',
     ];
 
     protected $casts = [
-        'Id_Vacacion' => 'integer',
+        'Id_Deduccion' => 'integer',
         'Id_Trabajador' => 'integer',
         'Id_Detalle_Planilla' => 'integer',
-        'Fecha_Inicio' => 'date',
-        'Fecha_Fin' => 'date',
-        'Dias_Tomados' => 'integer',
+        'Fecha_Deduccion' => 'datetime',
+        'Monto' => 'decimal:2',
     ];
 
     public function trabajador(): BelongsTo
@@ -47,10 +43,5 @@ class Vacaciones extends Model
     public function detallePlanilla(): BelongsTo
     {
         return $this->belongsTo(DetallePlanilla::class, 'Id_Detalle_Planilla', 'Id_Detalle_Planilla');
-    }
-
-    public function movimientos(): HasMany
-    {
-        return $this->hasMany(MovimientoVacacion::class, 'Id_Vacacion', 'Id_Vacacion');
     }
 }
