@@ -20,6 +20,11 @@ class ProductoSerie extends Model
     public const ESTADO_DANADO = 'DANADO';
     public const ESTADO_VENDIDO = 'VENDIDO';
 
+    // Estados agregados para salidas manuales de inventario
+    public const ESTADO_RETIRADO_INVENTARIO = 'RETIRADO_INVENTARIO';
+    public const ESTADO_USO_INTERNO = 'USO_INTERNO';
+    public const ESTADO_PERDIDO = 'PERDIDO';
+
     protected $fillable = [
         'Id_Producto',
         'Numero_Serie',
