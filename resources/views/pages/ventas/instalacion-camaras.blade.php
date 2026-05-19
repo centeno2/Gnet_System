@@ -11,12 +11,26 @@ use App\Models\ProductoSerie;
 use App\Models\Servicio;
 use App\Models\Usuario;
 use App\Models\MovimientoInventario;
+use App\Models\Venta;
 use App\Models\ContratoInstalacionCamara;
 use App\Models\ContratoInstalacionCamaraChecklist;
 use App\Models\ContratoInstalacionCamaraProducto;
 
 new class extends Component
 {
+    private const MONEDA_CORDOBA = 'NIO';
+    private const MONEDA_DOLAR = 'USD';
+
+    private const PAGO_EFECTIVO = 'EFECTIVO';
+    private const PAGO_TRANSFERENCIA = 'TRANSFERENCIA';
+    private const PAGO_TARJETA = 'TARJETA';
+
+    private const TIPO_CONTADO = 'CONTADO';
+    private const TIPO_CREDITO = 'CREDITO';
+
+    private const ESTADO_CREDITO_PENDIENTE = 'PENDIENTE';
+    private const ESTADO_CREDITO_CANCELADO = 'CANCELADO';
+
     public array $clientes = [];
     public array $tecnicos = [];
     public array $productosDisponibles = [];
@@ -30,25 +44,35 @@ new class extends Component
     public bool $modalPendientes = false;
     public string $filtroPendientes = '';
 
+    public string $tipoOperacion = self::TIPO_CONTADO;
+
     public ?int $clienteId = null;
     public string $telefonoCliente = '';
     public string $municipio = '';
     public ?int $tecnicoId = null;
 
-    public int|string $cantidadCamaras = 0;
-    public float|string $metrosCableado = 0;
-    public float|string $costoManoObra = 0;
-    public float|string $porcentajeAnticipo = 30;
+    public $cantidadCamaras = 0;
+    public $metrosCableado = 0;
+    public $costoManoObra = 0;
+    public $porcentajeAnticipo = 30;
 
     public ?string $fechaEstimada = null;
     public string $direccionInstalacion = '';
     public string $detalleContrato = '';
     public string $estadoContrato = 'PENDIENTE';
 
+    public string $tipoCambio = '36.50';
+    public string $tipoPagoCordobas = self::PAGO_EFECTIVO;
+    public string $tipoPagoDolares = self::PAGO_EFECTIVO;
+    public string $pagoCordobas = '0';
+    public string $pagoDolares = '0';
+    public string $referenciaCordobas = '';
+    public string $referenciaDolares = '';
+
     public ?int $productoId = null;
     public ?int $productoSerieId = null;
-    public float|string $productoCantidad = 1;
-    public float|string $productoPrecio = 0;
+    public $productoCantidad = 1;
+    public $productoPrecio = 0;
     public bool $productoTieneSeries = false;
 
     public array $checklist = [
@@ -99,14 +123,65 @@ new class extends Component
         $this->cargarPendientes();
     }
 
+    public function updatedPagoCordobas($value): void
+    {
+        $this->pagoCordobas = $this->formatearMonto((string) $value);
+    }
+
+    public function updatedPagoDolares($value): void
+    {
+        $this->pagoDolares = $this->formatearDecimal((string) $value);
+    }
+
+    public function updatedTipoCambio($value): void
+    {
+        $this->tipoCambio = $this->formatearDecimal((string) $value);
+    }
+
+    public function updatedTipoPagoCordobas(): void
+    {
+        if (! $this->pagoRequiereReferencia($this->tipoPagoCordobas)) {
+            $this->referenciaCordobas = '';
+        }
+    }
+
+    public function updatedTipoPagoDolares(): void
+    {
+        if (! $this->pagoRequiereReferencia($this->tipoPagoDolares)) {
+            $this->referenciaDolares = '';
+        }
+    }
+
+    public function cambiarTipoOperacion(string $tipo): void
+    {
+        if (! in_array($tipo, [self::TIPO_CONTADO, self::TIPO_CREDITO], true)) {
+            return;
+        }
+
+        $this->tipoOperacion = $tipo;
+        $this->limpiarCobroContrato();
+
+        if ($tipo === self::TIPO_CREDITO && $this->clienteId && ! $this->clienteEsInstitucion((int) $this->clienteId)) {
+            $this->clienteId = null;
+            $this->telefonoCliente = '';
+            $this->municipio = '';
+        }
+
+        $this->cargarCombos();
+    }
+
     public function cargarCombos(): void
     {
         $this->clientes = Cliente::query()
             ->leftJoin('persona as p', 'p.Id_Persona', '=', 'cliente.Id_Persona')
             ->where('cliente.Estado', 1)
+            ->when($this->tipoOperacion === self::TIPO_CREDITO, function ($query) {
+                $query->where('cliente.Tipo_Cliente', Cliente::TIPO_INSTITUCION);
+            })
             ->select([
                 'cliente.Id_Cliente as id',
                 'cliente.Institucion',
+                'cliente.Tipo_Cliente',
                 'cliente.Telefono_Institucion',
                 'p.Primer_Nombre',
                 'p.Segundo_Nombre',
@@ -328,6 +403,16 @@ new class extends Component
         $this->fechaEstimada = $this->normalizarFechaInput($contrato->Fecha_Estimada);
         $this->detalleContrato = (string) ($contrato->Detalle_Contrato ?? '');
         $this->estadoContrato = (string) $contrato->Estado_Contrato;
+        $tipoVentaGuardada = $contrato->Id_Venta
+            ? DB::table('venta')->where('Id_Venta', $contrato->Id_Venta)->value('Tipo_Venta')
+            : null;
+
+        $this->tipoOperacion = $tipoVentaGuardada === self::TIPO_CREDITO
+            ? self::TIPO_CREDITO
+            : self::TIPO_CONTADO;
+        $this->cargarCombos();
+        $this->tipoCambio = number_format((float) ($contrato->Tipo_Cambio ?? 36.50), 2, '.', '');
+        $this->limpiarCobroContrato();
 
         $this->cargarChecklistContrato((int) $contrato->Id_Contrato_Instalacion_Camara);
         $this->cargarProductosDelContrato((int) $contrato->Id_Contrato_Instalacion_Camara);
@@ -574,6 +659,21 @@ new class extends Component
             'cantidadCamaras.min' => 'Ingrese al menos una cámara.',
         ]);
 
+        if ($this->tipoOperacion === self::TIPO_CREDITO && ! $this->clienteEsInstitucion((int) $this->clienteId)) {
+            $this->mostrarMensaje('error', 'Cliente no permitido', 'El crédito solo se puede registrar a clientes institucionales.');
+            return;
+        }
+
+        if ($this->limpiarMonto($this->pagoCordobas) > 0 && $this->pagoRequiereReferencia($this->tipoPagoCordobas) && trim($this->referenciaCordobas) === '') {
+            $this->mostrarMensaje('error', 'Referencia requerida', 'Ingrese la referencia del pago en córdobas.');
+            return;
+        }
+
+        if ($this->limpiarDecimal($this->pagoDolares) > 0 && $this->pagoRequiereReferencia($this->tipoPagoDolares) && trim($this->referenciaDolares) === '') {
+            $this->mostrarMensaje('error', 'Referencia requerida', 'Ingrese la referencia del pago en dólares.');
+            return;
+        }
+
         try {
             if ($this->contratoInstalacionIdSeleccionado) {
                 $this->actualizarContratoInstalacion();
@@ -634,12 +734,38 @@ new class extends Component
 
             $servicioId = $this->servicioPorTipo('INSTALACION');
 
-            $totalMateriales = round((float) collect($this->productosUsados)->sum('subtotal'), 2);
-            $totalContrato = round($totalMateriales + (float) $this->costoManoObra, 2);
-            $montoAnticipo = round($totalContrato * ((float) $this->porcentajeAnticipo / 100), 2);
-            $saldoPendiente = round($totalContrato - $montoAnticipo, 2);
+            $totalMateriales = round(collect($this->productosUsados)
+                ->sum(fn ($item) => $this->numeroSeguro($item['subtotal'] ?? 0)), 2);
+            $totalContrato = round($totalMateriales + $this->numeroSeguro($this->costoManoObra), 2);
+            $anticipoEsperado = round($totalContrato * ($this->numeroSeguro($this->porcentajeAnticipo) / 100), 2);
+
+            $clienteCredito = null;
+            $credito = null;
+
+            if ($this->tipoOperacion === self::TIPO_CREDITO) {
+                $clienteCredito = $this->obtenerClienteCreditoActivo((int) $this->clienteId);
+                $credito = $this->calcularCreditoConSaldoFavor($clienteCredito, $totalContrato);
+
+                $cobro = [
+                    'pagado_total' => $credito['abono_inicial_total'],
+                    'saldo_pendiente' => $credito['saldo_pendiente_credito'],
+                    'cambio_entregado' => $credito['cambio_entregado'],
+                    'pago_cordobas' => $credito['pago_cordobas_recibido'],
+                    'pago_dolares' => $credito['pago_dolares_recibido'],
+                    'equivalente_dolares' => $credito['equivalente_dolares_recibido'],
+                ];
+            } else {
+                $cobro = $this->calcularCobroContrato($totalContrato, 0);
+            }
+
+            if ((bool) ($this->checklist['anticipo_recibido'] ?? false) && $cobro['pagado_total'] < $anticipoEsperado) {
+                throw new \RuntimeException('El pago recibido no cubre el anticipo esperado.');
+            }
+
+            $ventaId = $this->crearVentaContratoInstalacion($usuarioId, $totalContrato, $cobro);
 
             $contrato = ContratoInstalacionCamara::query()->create([
+                'Id_Venta' => $ventaId,
                 'Numero_Contrato' => $numeroContrato,
                 'Fecha_Contrato' => now(),
                 'Id_Cliente' => $this->clienteId,
@@ -650,18 +776,29 @@ new class extends Component
                 'Direccion_Instalacion' => $this->direccionInstalacion,
                 'Cantidad_Camaras' => (int) $this->cantidadCamaras,
                 'Metros_Cableado' => (float) $this->metrosCableado,
-                'Costo_Mano_Obra' => (float) $this->costoManoObra,
-                'Porcentaje_Anticipo' => (float) $this->porcentajeAnticipo,
-                'Monto_Anticipo' => $montoAnticipo,
+                'Costo_Mano_Obra' => $this->numeroSeguro($this->costoManoObra),
+                'Porcentaje_Anticipo' => $this->numeroSeguro($this->porcentajeAnticipo),
+                'Monto_Anticipo' => $cobro['pagado_total'],
+                'Tipo_Venta' => $this->tipoOperacion,
+                'Tipo_Cambio' => $this->tasaCambio(),
+                'Cambio_Entregado_Cordobas' => $cobro['cambio_entregado'],
                 'Fecha_Estimada' => $this->fechaEstimada ?: null,
                 'Detalle_Contrato' => $this->detalleContrato ?: null,
                 'Estado_Contrato' => $this->estadoContrato,
                 'Total_Materiales' => $totalMateriales,
                 'Total_Contrato' => $totalContrato,
-                'Saldo_Pendiente' => $saldoPendiente,
+                'Saldo_Pendiente' => $cobro['saldo_pendiente'],
             ]);
 
             $contratoId = (int) $contrato->Id_Contrato_Instalacion_Camara;
+
+            $this->registrarDetalleVentaContratoInstalacion($ventaId, $servicioId, $numeroContrato);
+
+            if ($this->tipoOperacion === self::TIPO_CREDITO) {
+                $this->registrarCreditoContratoInstalacion($ventaId, $clienteCredito, $credito, $numeroContrato);
+            } else {
+                $this->registrarPagosContrato($contratoId, $ventaId, $cobro);
+            }
 
             ContratoInstalacionCamaraChecklist::query()->create(
                 $this->datosChecklist($contratoId)
@@ -689,28 +826,80 @@ new class extends Component
                 throw new \RuntimeException('El contrato seleccionado ya no existe.');
             }
 
-            $totalMateriales = round((float) collect($this->productosUsados)->sum('subtotal'), 2);
-            $totalContrato = round($totalMateriales + (float) $this->costoManoObra, 2);
-            $montoAnticipo = round($totalContrato * ((float) $this->porcentajeAnticipo / 100), 2);
-            $saldoPendiente = round($totalContrato - $montoAnticipo, 2);
+            $totalMateriales = round(collect($this->productosUsados)
+                ->sum(fn ($item) => $this->numeroSeguro($item['subtotal'] ?? 0)), 2);
+            $totalContrato = round($totalMateriales + $this->numeroSeguro($this->costoManoObra), 2);
+            $anticipoEsperado = round($totalContrato * ($this->numeroSeguro($this->porcentajeAnticipo) / 100), 2);
+            $servicioId = (int) ($contrato->Id_Servicio ?: $this->servicioPorTipo('INSTALACION'));
+            $usuarioId = $this->usuarioActualId();
+            $ventaId = $contrato->Id_Venta ? (int) $contrato->Id_Venta : null;
+
+            if (!$ventaId) {
+                $cobroInicial = $this->tipoOperacion === self::TIPO_CREDITO
+                    ? ['pagado_total' => 0, 'saldo_pendiente' => $totalContrato, 'cambio_entregado' => 0]
+                    : $this->calcularCobroContrato($totalContrato, 0);
+
+                $ventaId = $this->crearVentaContratoInstalacion($usuarioId, $totalContrato, $cobroInicial);
+            }
+
+            $creditoExistente = DB::table('credito')
+                ->where('Id_Venta', $ventaId)
+                ->lockForUpdate()
+                ->first();
+
+            if ($creditoExistente && $this->tipoOperacion === self::TIPO_CONTADO) {
+                throw new \RuntimeException('Este contrato ya está registrado al crédito. Los abonos deben gestionarse desde el módulo de crédito.');
+            }
+
+            if ($this->tipoOperacion === self::TIPO_CREDITO) {
+                if ($creditoExistente) {
+                    $cobro = $this->actualizarCreditoContratoExistente($creditoExistente, $totalContrato);
+                } else {
+                    $clienteCredito = $this->obtenerClienteCreditoActivo((int) $this->clienteId);
+                    $credito = $this->calcularCreditoConSaldoFavor($clienteCredito, $totalContrato);
+                    $this->registrarCreditoContratoInstalacion($ventaId, $clienteCredito, $credito, (string) $contrato->Numero_Contrato);
+
+                    $cobro = [
+                        'pagado_total' => $credito['abono_inicial_total'],
+                        'saldo_pendiente' => $credito['saldo_pendiente_credito'],
+                        'cambio_entregado' => $credito['cambio_entregado'],
+                    ];
+                }
+            } else {
+                $montoPagadoAnterior = round((float) ($contrato->Monto_Anticipo ?? 0), 2);
+                $cobro = $this->calcularCobroContrato($totalContrato, $montoPagadoAnterior);
+                $this->registrarPagosContrato($contratoId, $ventaId, $cobro);
+            }
+
+            if ((bool) ($this->checklist['anticipo_recibido'] ?? false) && $cobro['pagado_total'] < $anticipoEsperado) {
+                throw new \RuntimeException('El pago recibido no cubre el anticipo esperado.');
+            }
+
+            $this->actualizarVentaContratoInstalacion($ventaId, $usuarioId, $totalContrato, $cobro);
 
             $contrato->forceFill([
+                'Id_Venta' => $ventaId,
                 'Id_Cliente' => $this->clienteId,
                 'Id_Trabajador' => $this->tecnicoId,
                 'Municipio' => $this->municipio ?: null,
                 'Direccion_Instalacion' => $this->direccionInstalacion,
                 'Cantidad_Camaras' => (int) $this->cantidadCamaras,
                 'Metros_Cableado' => (float) $this->metrosCableado,
-                'Costo_Mano_Obra' => (float) $this->costoManoObra,
-                'Porcentaje_Anticipo' => (float) $this->porcentajeAnticipo,
-                'Monto_Anticipo' => $montoAnticipo,
+                'Costo_Mano_Obra' => $this->numeroSeguro($this->costoManoObra),
+                'Porcentaje_Anticipo' => $this->numeroSeguro($this->porcentajeAnticipo),
+                'Monto_Anticipo' => $cobro['pagado_total'],
+                'Tipo_Venta' => $this->tipoOperacion,
+                'Tipo_Cambio' => $this->tasaCambio(),
+                'Cambio_Entregado_Cordobas' => round((float) ($contrato->Cambio_Entregado_Cordobas ?? 0) + ($cobro['cambio_entregado'] ?? 0), 2),
                 'Fecha_Estimada' => $this->fechaEstimada ?: null,
                 'Detalle_Contrato' => $this->detalleContrato ?: null,
                 'Estado_Contrato' => $this->estadoContrato,
                 'Total_Materiales' => $totalMateriales,
                 'Total_Contrato' => $totalContrato,
-                'Saldo_Pendiente' => $saldoPendiente,
+                'Saldo_Pendiente' => $cobro['saldo_pendiente'],
             ])->save();
+
+            $this->registrarDetalleVentaContratoInstalacion($ventaId, $servicioId, (string) $contrato->Numero_Contrato);
 
             $checklist = ContratoInstalacionCamaraChecklist::query()
                 ->firstOrNew(['Id_Contrato_Instalacion_Camara' => $contratoId]);
@@ -816,7 +1005,7 @@ new class extends Component
             'Incluye_Pruebas_Sistema' => (bool) $this->checklist['incluye_pruebas_sistema'],
             'Incluye_Capacitacion_Basica' => (bool) $this->checklist['incluye_capacitacion_basica'],
             'Incluye_Garantia' => (bool) $this->checklist['incluye_garantia'],
-            'Anticipo_Recibido' => (bool) $this->checklist['anticipo_recibido'],
+            'Anticipo_Recibido' => (bool) $this->checklist['anticipo_recibido'] || $this->totalPagadoCordobas() > 0,
             'Contrato_Firmado' => (bool) $this->checklist['contrato_firmado'],
             'Cliente_Aprueba_Recorrido' => (bool) $this->checklist['cliente_aprueba_recorrido'],
             'Sistema_Energizado' => (bool) $this->checklist['sistema_energizado'],
@@ -858,6 +1047,9 @@ new class extends Component
         $this->direccionInstalacion = '';
         $this->detalleContrato = '';
         $this->estadoContrato = 'PENDIENTE';
+        $this->tipoOperacion = self::TIPO_CONTADO;
+        $this->tipoCambio = '36.50';
+        $this->limpiarCobroContrato();
 
         $this->productosUsados = [];
 
@@ -876,6 +1068,512 @@ new class extends Component
 
         $this->resetProductoForm();
         $this->resetErrorBag();
+    }
+
+    public function totalMaterialesContrato(): float
+    {
+        return round(collect($this->productosUsados)
+            ->sum(fn ($item) => $this->numeroSeguro($item['subtotal'] ?? 0)), 2);
+    }
+
+    public function totalContratoActual(): float
+    {
+        return round($this->totalMaterialesContrato() + $this->numeroSeguro($this->costoManoObra), 2);
+    }
+
+    public function anticipoEsperadoContrato(): float
+    {
+        return round($this->totalContratoActual() * ($this->numeroSeguro($this->porcentajeAnticipo) / 100), 2);
+    }
+
+    public function totalPagadoCordobas(): float
+    {
+        return round($this->limpiarMonto($this->pagoCordobas) + ($this->limpiarDecimal($this->pagoDolares) * $this->tasaCambio()), 2);
+    }
+
+    public function cambioContrato(): float
+    {
+        $base = $this->tipoOperacion === self::TIPO_CREDITO
+            ? max($this->totalContratoActual() - $this->saldoFavorAplicadoContrato(), 0)
+            : $this->totalContratoActual();
+
+        return round(max($this->totalPagadoCordobas() - $base, 0), 2);
+    }
+
+    public function saldoContrato(): float
+    {
+        if ($this->tipoOperacion === self::TIPO_CREDITO) {
+            return $this->saldoCreditoContrato();
+        }
+
+        return round(max($this->totalContratoActual() - $this->totalPagadoCordobas(), 0), 2);
+    }
+
+    private function calcularCobroContrato(float $totalContrato, float $montoPagadoAnterior): array
+    {
+        $pagoCordobas = round($this->limpiarMonto($this->pagoCordobas), 2);
+        $pagoDolares = round($this->limpiarDecimal($this->pagoDolares), 2);
+        $equivalenteDolares = round($pagoDolares * $this->tasaCambio(), 2);
+        $recibidoEquivalente = round($pagoCordobas + $equivalenteDolares, 2);
+        $pendienteAnterior = round(max($totalContrato - $montoPagadoAnterior, 0), 2);
+        $aplicado = round(min($recibidoEquivalente, $pendienteAnterior), 2);
+        $cambioEntregado = round(max($recibidoEquivalente - $pendienteAnterior, 0), 2);
+        $pagadoTotal = round(min($montoPagadoAnterior + $aplicado, $totalContrato), 2);
+
+        return [
+            'pago_cordobas' => $pagoCordobas,
+            'pago_dolares' => $pagoDolares,
+            'equivalente_dolares' => $equivalenteDolares,
+            'recibido_equivalente' => $recibidoEquivalente,
+            'aplicado' => $aplicado,
+            'pagado_total' => $pagadoTotal,
+            'saldo_pendiente' => round(max($totalContrato - $pagadoTotal, 0), 2),
+            'cambio_entregado' => $cambioEntregado,
+        ];
+    }
+
+    private function registrarPagosContrato(int $contratoId, int $ventaId, array $cobro): void
+    {
+        if (($cobro['pago_cordobas'] ?? 0) > 0) {
+            DB::table('pago_venta')->insert([
+                'Id_Venta' => $ventaId,
+                'Fecha_Pago' => now(),
+                'Moneda' => 0,
+                'Tipo_Pago' => $this->tipoPagoCordobas,
+                'Numero_Referencia' => $this->pagoRequiereReferencia($this->tipoPagoCordobas)
+                    ? trim($this->referenciaCordobas)
+                    : null,
+                'Monto' => $cobro['pago_cordobas'],
+                'Tipo_Cambio' => 1,
+                'Monto_Equivalente_Cordobas' => $cobro['pago_cordobas'],
+            ]);
+        }
+
+        if (($cobro['pago_dolares'] ?? 0) > 0) {
+            DB::table('pago_venta')->insert([
+                'Id_Venta' => $ventaId,
+                'Fecha_Pago' => now(),
+                'Moneda' => 1,
+                'Tipo_Pago' => $this->tipoPagoDolares,
+                'Numero_Referencia' => $this->pagoRequiereReferencia($this->tipoPagoDolares)
+                    ? trim($this->referenciaDolares)
+                    : null,
+                'Monto' => $cobro['pago_dolares'],
+                'Tipo_Cambio' => $this->tasaCambio(),
+                'Monto_Equivalente_Cordobas' => $cobro['equivalente_dolares'],
+            ]);
+        }
+    }
+
+    public function saldoFavorDisponible(): float
+    {
+        if (! $this->clienteId || $this->tipoOperacion !== self::TIPO_CREDITO) {
+            return 0;
+        }
+
+        return round((float) DB::table('cliente_credito')
+            ->where('Id_Cliente', $this->clienteId)
+            ->where('Estado', 'ACTIVO')
+            ->value('Saldo_Actual'), 2);
+    }
+
+    public function saldoFavorAplicadoContrato(): float
+    {
+        return round(min($this->saldoFavorDisponible(), $this->totalContratoActual()), 2);
+    }
+
+    public function abonoInicialContrato(): float
+    {
+        if ($this->tipoOperacion !== self::TIPO_CREDITO) {
+            return $this->totalPagadoCordobas();
+        }
+
+        return round(min(
+            $this->totalPagadoCordobas(),
+            max($this->totalContratoActual() - $this->saldoFavorAplicadoContrato(), 0)
+        ), 2);
+    }
+
+    public function saldoCreditoContrato(): float
+    {
+        return round(max(
+            $this->totalContratoActual()
+            - $this->saldoFavorAplicadoContrato()
+            - $this->abonoInicialContrato(),
+            0
+        ), 2);
+    }
+
+    private function clienteEsInstitucion(int $clienteId): bool
+    {
+        return Cliente::query()
+            ->where('Id_Cliente', $clienteId)
+            ->where('Estado', 1)
+            ->where('Tipo_Cliente', Cliente::TIPO_INSTITUCION)
+            ->exists();
+    }
+
+    private function obtenerClienteCreditoActivo(int $clienteId): object
+    {
+        if (! $this->clienteEsInstitucion($clienteId)) {
+            throw new \RuntimeException('El crédito solo se puede registrar a clientes institucionales.');
+        }
+
+        $clienteCredito = DB::table('cliente_credito')
+            ->where('Id_Cliente', $clienteId)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $clienteCredito) {
+            $idClienteCredito = DB::table('cliente_credito')->insertGetId([
+                'Id_Cliente' => $clienteId,
+                'Saldo_Actual' => 0,
+                'Estado' => 'ACTIVO',
+                'Fecha_Registro' => now(),
+            ]);
+
+            $clienteCredito = DB::table('cliente_credito')
+                ->where('Id_Cliente_Credito', $idClienteCredito)
+                ->lockForUpdate()
+                ->first();
+        }
+
+        if (($clienteCredito->Estado ?? '') !== 'ACTIVO') {
+            throw new \RuntimeException('La cuenta de crédito de esta institución no está activa.');
+        }
+
+        return $clienteCredito;
+    }
+
+    private function calcularCreditoConSaldoFavor(object $clienteCredito, float $total): array
+    {
+        $saldoAnteriorFavor = round((float) ($clienteCredito->Saldo_Actual ?? 0), 2);
+        $saldoFavorAplicado = round(min($saldoAnteriorFavor, $total), 2);
+        $saldoDespuesFavor = round(max($saldoAnteriorFavor - $saldoFavorAplicado, 0), 2);
+        $pendienteDespuesFavor = round(max($total - $saldoFavorAplicado, 0), 2);
+
+        $pagoCordobas = round($this->limpiarMonto($this->pagoCordobas), 2);
+        $pagoDolares = round($this->limpiarDecimal($this->pagoDolares), 2);
+        $equivalenteDolares = round($pagoDolares * $this->tasaCambio(), 2);
+        $recibidoEquivalente = round($pagoCordobas + $equivalenteDolares, 2);
+        $abonoPagoAplicado = round(min($recibidoEquivalente, $pendienteDespuesFavor), 2);
+        $cambioEntregado = round(max($recibidoEquivalente - $pendienteDespuesFavor, 0), 2);
+
+        $pendienteAplicar = $abonoPagoAplicado;
+        $abonoCordobas = round(min($pagoCordobas, $pendienteAplicar), 2);
+        $pendienteAplicar = round(max($pendienteAplicar - $abonoCordobas, 0), 2);
+        $abonoDolaresEquivalente = round(min($equivalenteDolares, $pendienteAplicar), 2);
+        $abonoDolares = $abonoDolaresEquivalente > 0
+            ? round($abonoDolaresEquivalente / $this->tasaCambio(), 2)
+            : 0.00;
+
+        $abonoInicialTotal = round($saldoFavorAplicado + $abonoPagoAplicado, 2);
+        $saldoPendienteCredito = round(max($total - $abonoInicialTotal, 0), 2);
+
+        return [
+            'id_cliente_credito' => (int) $clienteCredito->Id_Cliente_Credito,
+            'id_cliente' => (int) $clienteCredito->Id_Cliente,
+            'saldo_anterior_favor' => $saldoAnteriorFavor,
+            'saldo_favor_aplicado' => $saldoFavorAplicado,
+            'saldo_despues_favor' => $saldoDespuesFavor,
+            'pago_cordobas_recibido' => $pagoCordobas,
+            'pago_dolares_recibido' => $pagoDolares,
+            'equivalente_dolares_recibido' => $equivalenteDolares,
+            'abono_pago_aplicado' => $abonoPagoAplicado,
+            'abono_cordobas' => $abonoCordobas,
+            'abono_dolares' => $abonoDolares,
+            'abono_dolares_equivalente' => $abonoDolaresEquivalente,
+            'abono_inicial_total' => $abonoInicialTotal,
+            'saldo_pendiente_credito' => $saldoPendienteCredito,
+            'cambio_entregado' => $cambioEntregado,
+            'estado_credito' => $saldoPendienteCredito <= 0
+                ? self::ESTADO_CREDITO_CANCELADO
+                : self::ESTADO_CREDITO_PENDIENTE,
+        ];
+    }
+
+    private function registrarCreditoContratoInstalacion(
+        int $ventaId,
+        object $clienteCredito,
+        array $credito,
+        string $numeroContrato
+    ): int {
+        $creditoId = DB::table('credito')->insertGetId([
+            'Id_Cliente_Credito' => $credito['id_cliente_credito'],
+            'Id_Venta' => $ventaId,
+            'Fecha_Credito' => now()->toDateString(),
+            'Abono_Inicial' => $credito['abono_inicial_total'],
+            'Saldo_Actual' => $credito['saldo_pendiente_credito'],
+            'Firma_Recibido' => null,
+            'Estado' => $credito['estado_credito'],
+        ]);
+
+        if ($credito['saldo_favor_aplicado'] > 0) {
+            DB::table('cliente_credito')
+                ->where('Id_Cliente_Credito', $credito['id_cliente_credito'])
+                ->update([
+                    'Saldo_Actual' => $credito['saldo_despues_favor'],
+                ]);
+
+            DB::table('cliente_credito_movimiento')->insert([
+                'Id_Cliente_Credito' => $credito['id_cliente_credito'],
+                'Id_Cliente' => $credito['id_cliente'],
+                'Id_Venta' => $ventaId,
+                'Id_Credito' => $creditoId,
+                'Tipo_Movimiento' => 'CARGO',
+                'Monto' => $credito['saldo_favor_aplicado'],
+                'Saldo_Anterior' => $credito['saldo_anterior_favor'],
+                'Saldo_Despues' => $credito['saldo_despues_favor'],
+                'Fecha_Movimiento' => now(),
+                'Observacion' => 'Saldo a favor aplicado al contrato de instalación ' . $numeroContrato,
+            ]);
+        }
+
+        $this->registrarAbonosCreditoIniciales($creditoId, $credito, 'Anticipo registrado desde instalación de cámaras ' . $numeroContrato);
+
+        return (int) $creditoId;
+    }
+
+    private function registrarAbonosCreditoIniciales(int $creditoId, array $credito, string $observacion): void
+    {
+        if (($credito['abono_cordobas'] ?? 0) > 0) {
+            DB::table('abono_credito')->insert([
+                'Id_Credito' => $creditoId,
+                'Fecha_Abono' => now(),
+                'Moneda' => self::MONEDA_CORDOBA,
+                'Monto' => $credito['abono_cordobas'],
+                'Numero_Transferencia' => $this->pagoRequiereReferencia($this->tipoPagoCordobas)
+                    ? trim($this->referenciaCordobas)
+                    : null,
+                'Observacion' => $observacion . '. Método: ' . $this->tipoPagoCordobas,
+                'Tipo_Cambio' => 1,
+                'Monto_Equivalente_Cordobas' => $credito['abono_cordobas'],
+            ]);
+        }
+
+        if (($credito['abono_dolares'] ?? 0) > 0) {
+            DB::table('abono_credito')->insert([
+                'Id_Credito' => $creditoId,
+                'Fecha_Abono' => now(),
+                'Moneda' => self::MONEDA_DOLAR,
+                'Monto' => $credito['abono_dolares'],
+                'Numero_Transferencia' => $this->pagoRequiereReferencia($this->tipoPagoDolares)
+                    ? trim($this->referenciaDolares)
+                    : null,
+                'Observacion' => $observacion . '. Método: ' . $this->tipoPagoDolares,
+                'Tipo_Cambio' => $this->tasaCambio(),
+                'Monto_Equivalente_Cordobas' => $credito['abono_dolares_equivalente'],
+            ]);
+        }
+    }
+
+    private function actualizarCreditoContratoExistente(object $credito, float $totalContrato): array
+    {
+        $abonosPosteriores = round((float) DB::table('abono_credito')
+            ->where('Id_Credito', $credito->Id_Credito)
+            ->sum('Monto_Equivalente_Cordobas'), 2);
+
+        $pagadoTotal = round((float) ($credito->Abono_Inicial ?? 0) + $abonosPosteriores, 2);
+        $saldoPendiente = round(max($totalContrato - $pagadoTotal, 0), 2);
+
+        DB::table('credito')
+            ->where('Id_Credito', $credito->Id_Credito)
+            ->update([
+                'Saldo_Actual' => $saldoPendiente,
+                'Estado' => $saldoPendiente <= 0
+                    ? self::ESTADO_CREDITO_CANCELADO
+                    : self::ESTADO_CREDITO_PENDIENTE,
+            ]);
+
+        return [
+            'pagado_total' => min($pagadoTotal, $totalContrato),
+            'saldo_pendiente' => $saldoPendiente,
+            'cambio_entregado' => 0,
+        ];
+    }
+
+    private function crearVentaContratoInstalacion(int $usuarioId, float $totalContrato, array $cobro): int
+    {
+        $venta = $this->crearModelo(Venta::class, [
+            'Numero_Factura' => $this->generarNumeroFactura(),
+            'Fecha_venta' => now(),
+            'Id_Cliente' => $this->clienteId,
+            'Id_Usuario' => $usuarioId,
+            'Tipo_Venta' => $this->tipoOperacion,
+            'Estado' => Venta::ESTADO_ACTIVA ?? 1,
+            'Descuento' => 0,
+            'Total' => $totalContrato,
+            'Tipo_Cambio' => $this->tasaCambio(),
+            'Cambio_Entregado_Cordobas' => $cobro['cambio_entregado'] ?? 0,
+        ]);
+
+        return (int) $venta->Id_Venta;
+    }
+
+    private function actualizarVentaContratoInstalacion(int $ventaId, int $usuarioId, float $totalContrato, array $cobro): void
+    {
+        DB::table('venta')
+            ->where('Id_Venta', $ventaId)
+            ->update([
+                'Id_Cliente' => $this->clienteId,
+                'Id_Usuario' => $usuarioId,
+                'Tipo_Venta' => $this->tipoOperacion,
+                'Estado' => Venta::ESTADO_ACTIVA ?? 1,
+                'Descuento' => 0,
+                'Total' => $totalContrato,
+                'Tipo_Cambio' => $this->tasaCambio(),
+                'Cambio_Entregado_Cordobas' => DB::raw('COALESCE(Cambio_Entregado_Cordobas, 0) + ' . (float) ($cobro['cambio_entregado'] ?? 0)),
+            ]);
+    }
+
+    private function registrarDetalleVentaContratoInstalacion(int $ventaId, int $servicioId, string $numeroContrato): void
+    {
+        DB::table('detalle_venta')->where('Id_Venta', $ventaId)->delete();
+
+        if ($this->numeroSeguro($this->costoManoObra) > 0) {
+            DB::table('detalle_venta')->insert([
+                'Id_Venta' => $ventaId,
+                'Tipo_Detalle' => 'SERVICIO',
+                'Id_Producto' => null,
+                'Id_Producto_serie' => null,
+                'Id_Servicio' => $servicioId,
+                'Id_Tarifa_Copia' => null,
+                'Nombre_Formato' => null,
+                'Formato_Copia' => null,
+                'Lados_Copia' => null,
+                'Cantidad' => 1,
+                'Precio_Unitario' => round($this->numeroSeguro($this->costoManoObra), 2),
+                'Subtotal' => round($this->numeroSeguro($this->costoManoObra), 2),
+                'Descuento' => 0,
+                'Observacion' => 'Mano de obra instalación de cámaras ' . $numeroContrato,
+            ]);
+        }
+
+        foreach ($this->productosUsados as $item) {
+            DB::table('detalle_venta')->insert([
+                'Id_Venta' => $ventaId,
+                'Tipo_Detalle' => 'PRODUCTO',
+                'Id_Producto' => $item['producto_id'],
+                'Id_Producto_serie' => $item['producto_serie_id'],
+                'Id_Servicio' => null,
+                'Id_Tarifa_Copia' => null,
+                'Nombre_Formato' => null,
+                'Formato_Copia' => null,
+                'Lados_Copia' => null,
+                'Cantidad' => $item['cantidad'],
+                'Precio_Unitario' => $item['precio'],
+                'Subtotal' => $item['subtotal'],
+                'Descuento' => 0,
+                'Observacion' => 'Material usado en instalación de cámaras ' . $numeroContrato,
+            ]);
+        }
+    }
+
+    private function generarNumeroFactura(): string
+    {
+        do {
+            $numero = 'F-' . now()->format('Ymd-His') . '-' . random_int(100, 999);
+        } while (Venta::query()->where('Numero_Factura', $numero)->exists());
+
+        return $numero;
+    }
+
+    private function limpiarCobroContrato(): void
+    {
+        $this->tipoPagoCordobas = self::PAGO_EFECTIVO;
+        $this->tipoPagoDolares = self::PAGO_EFECTIVO;
+        $this->pagoCordobas = '0';
+        $this->pagoDolares = '0';
+        $this->referenciaCordobas = '';
+        $this->referenciaDolares = '';
+    }
+
+    private function numeroSeguro(mixed $valor): float
+    {
+        if (is_null($valor)) {
+            return 0.00;
+        }
+
+        if (is_int($valor) || is_float($valor)) {
+            return round((float) $valor, 2);
+        }
+
+        if (is_string($valor)) {
+            $valor = trim($valor);
+
+            if ($valor === '') {
+                return 0.00;
+            }
+
+            $valor = str_replace(',', '', $valor);
+            $valor = preg_replace('/[^\d.]/', '', $valor);
+
+            return $valor === '' ? 0.00 : round((float) $valor, 2);
+        }
+
+        return 0.00;
+    }
+
+    private function limpiarMonto(?string $valor): float
+    {
+        $valor = str_replace(',', '', $valor ?? '');
+        $limpio = preg_replace('/[^\d.]/', '', $valor);
+
+        return $limpio === '' ? 0 : (float) $limpio;
+    }
+
+    private function limpiarDecimal(?string $valor): float
+    {
+        $valor = str_replace(',', '.', $valor ?? '');
+        $limpio = preg_replace('/[^\d.]/', '', $valor);
+
+        return $limpio === '' ? 0 : (float) $limpio;
+    }
+
+    private function formatearMonto(?string $valor): string
+    {
+        $limpio = preg_replace('/[^\d]/', '', $valor ?? '');
+
+        if ($limpio === '') {
+            return '';
+        }
+
+        return number_format((int) $limpio, 0, '.', ',');
+    }
+
+    private function formatearDecimal(?string $valor): string
+    {
+        $valor = str_replace(',', '.', $valor ?? '');
+        $valor = preg_replace('/[^\d.]/', '', $valor);
+
+        if ($valor === '') {
+            return '';
+        }
+
+        $partes = explode('.', $valor, 2);
+        $entero = $partes[0] === '' ? '0' : $partes[0];
+        $decimal = $partes[1] ?? '';
+
+        if ($decimal !== '') {
+            return $entero . '.' . substr($decimal, 0, 2);
+        }
+
+        return $entero;
+    }
+
+    public function tasaCambio(): float
+    {
+        $tasa = $this->limpiarDecimal($this->tipoCambio);
+
+        return $tasa > 0 ? $tasa : 1;
+    }
+
+    private function pagoRequiereReferencia(string $tipoPago): bool
+    {
+        return in_array($tipoPago, [
+            self::PAGO_TRANSFERENCIA,
+            self::PAGO_TARJETA,
+        ], true);
     }
 
     private function usuarioActualId(): int
@@ -1071,6 +1769,16 @@ new class extends Component
                 </div>
 
                 <div class="flex flex-wrap gap-2">
+                    <button type="button" wire:click="cambiarTipoOperacion('CONTADO')"
+                        class="{{ $tipoOperacion === 'CONTADO' ? 'bg-[#0B6FE4] text-white shadow-sm' : 'bg-white text-[#1A2B42]' }} inline-flex h-10 items-center justify-center rounded-xl border border-[#D7E4F3] px-4 text-sm font-bold transition hover:bg-[#F7F9FC]">
+                        Contado
+                    </button>
+
+                    <button type="button" wire:click="cambiarTipoOperacion('CREDITO')"
+                        class="{{ $tipoOperacion === 'CREDITO' ? 'bg-[#0B6FE4] text-white shadow-sm' : 'bg-white text-[#1A2B42]' }} inline-flex h-10 items-center justify-center rounded-xl border border-[#D7E4F3] px-4 text-sm font-bold transition hover:bg-[#F7F9FC]">
+                        Crédito
+                    </button>
+
                     <x-button icon="o-document-plus" label="Nuevo" wire:click="nuevoContrato"
                         class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-bold text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]" />
                 </div>
@@ -1095,10 +1803,10 @@ new class extends Component
         @endif
 
         @php
-        $totalMateriales = round((float) collect($productosUsados)->sum('subtotal'), 2);
-        $totalContrato = round($totalMateriales + (float) $costoManoObra, 2);
-        $anticipo = round($totalContrato * ((float) $porcentajeAnticipo / 100), 2);
-        $saldo = round($totalContrato - $anticipo, 2);
+        $totalMateriales = $this->totalMaterialesContrato();
+        $totalContrato = $this->totalContratoActual();
+        $anticipo = $this->anticipoEsperadoContrato();
+        $saldo = $this->saldoContrato();
         @endphp
 
         <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-12">
@@ -1125,11 +1833,12 @@ new class extends Component
                         <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                             <div class="xl:col-span-2">
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">
-                                    Cliente / institución
+                                    {{ $tipoOperacion === 'CREDITO' ? 'Institución' : 'Cliente / institución' }}
                                 </label>
 
                                 <x-select wire:model.live="clienteId" :options="$clientes" option-value="id"
-                                    option-label="name" placeholder="Seleccione cliente"
+                                    option-label="name"
+                                    placeholder="{{ $tipoOperacion === 'CREDITO' ? 'Seleccione institución' : 'Seleccione cliente' }}"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
 
                                 @error('clienteId')
@@ -1505,6 +2214,115 @@ new class extends Component
                             </div>
                         </div>
 
+                        <div class="mt-3 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3">
+                            <div class="mb-3">
+                                <h3 class="text-sm font-black text-[#1A2B42]">Pago recibido</h3>
+                                <p class="text-xs text-[#5F6B7A]">Guarda C$ y US$ separados; el cambio queda en C$.</p>
+                            </div>
+
+                            <div class="grid grid-cols-1 gap-2">
+                                <div>
+                                    <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Tipo cambio</label>
+                                    <x-input wire:model.live.debounce.250ms="tipoCambio" type="text" inputmode="decimal"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Tipo C$</label>
+                                        <select wire:model.live="tipoPagoCordobas"
+                                            class="h-10 w-full rounded-xl border-0 bg-white px-3 text-sm text-[#1A2B42]">
+                                            <option value="EFECTIVO">Efectivo</option>
+                                            <option value="TRANSFERENCIA">Transferencia</option>
+                                            <option value="TARJETA">Tarjeta</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Pago C$</label>
+                                        <x-input wire:model.live.debounce.250ms="pagoCordobas" type="text"
+                                            inputmode="numeric"
+                                            class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    </div>
+                                </div>
+
+                                @if(in_array($tipoPagoCordobas, ['TRANSFERENCIA', 'TARJETA'], true))
+                                <x-input wire:model.live.debounce.250ms="referenciaCordobas" type="text"
+                                    placeholder="Referencia C$"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                @endif
+
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Tipo US$</label>
+                                        <select wire:model.live="tipoPagoDolares"
+                                            class="h-10 w-full rounded-xl border-0 bg-white px-3 text-sm text-[#1A2B42]">
+                                            <option value="EFECTIVO">Efectivo</option>
+                                            <option value="TRANSFERENCIA">Transferencia</option>
+                                            <option value="TARJETA">Tarjeta</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Pago US$</label>
+                                        <x-input wire:model.live.debounce.250ms="pagoDolares" type="text"
+                                            inputmode="decimal"
+                                            class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    </div>
+                                </div>
+
+                                @if(in_array($tipoPagoDolares, ['TRANSFERENCIA', 'TARJETA'], true))
+                                <x-input wire:model.live.debounce.250ms="referenciaDolares" type="text"
+                                    placeholder="Referencia US$"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                @endif
+
+                                <div class="grid grid-cols-3 gap-2 text-xs">
+                                    <div class="rounded-xl bg-white p-2">
+                                        <span class="block text-[#5F6B7A]">Recibido</span>
+                                        <strong class="text-[#1A2B42]">C$ {{ number_format($this->totalPagadoCordobas(),
+                                            2) }}</strong>
+                                    </div>
+                                    <div class="rounded-xl bg-white p-2">
+                                        <span class="block text-[#5F6B7A]">Saldo</span>
+                                        <strong class="text-[#1A2B42]">C$ {{ number_format($this->saldoContrato(), 2)
+                                            }}</strong>
+                                    </div>
+                                    <div class="rounded-xl bg-white p-2">
+                                        <span class="block text-[#5F6B7A]">Cambio</span>
+                                        <strong class="text-[#1A2B42]">C$ {{ number_format($this->cambioContrato(), 2)
+                                            }}</strong>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        @if($tipoOperacion === 'CREDITO')
+                        <div class="mt-3 rounded-2xl border border-[#B7D6F2] bg-[#EAF4FD] p-3">
+                            <h3 class="text-sm font-black text-[#1A2B42]">Crédito institucional</h3>
+                            <p class="text-xs text-[#5F6B7A]">Solo instituciones. Se aplica el saldo a favor disponible
+                                y el restante queda en crédito.</p>
+
+                            <div class="mt-3 grid grid-cols-3 gap-2 text-xs">
+                                <div class="rounded-xl bg-white p-2">
+                                    <span class="block text-[#5F6B7A]">Saldo a favor</span>
+                                    <strong class="text-[#1A2B42]">C$ {{ number_format($this->saldoFavorDisponible(), 2)
+                                        }}</strong>
+                                </div>
+                                <div class="rounded-xl bg-white p-2">
+                                    <span class="block text-[#5F6B7A]">Aplicado</span>
+                                    <strong class="text-[#1A2B42]">C$ {{
+                                        number_format($this->saldoFavorAplicadoContrato(), 2) }}</strong>
+                                </div>
+                                <div class="rounded-xl bg-white p-2">
+                                    <span class="block text-[#5F6B7A]">Nuevo crédito</span>
+                                    <strong class="text-[#1A2B42]">C$ {{ number_format($this->saldoCreditoContrato(), 2)
+                                        }}</strong>
+                                </div>
+                            </div>
+                        </div>
+                        @endif
+
                         <div class="mt-3 rounded-2xl bg-[#2E8BC0] p-4 text-white">
                             <p class="text-xs font-bold uppercase tracking-wide text-white/80">Total general</p>
                             <p class="text-2xl font-black">
@@ -1513,7 +2331,7 @@ new class extends Component
                         </div>
 
                         <x-button icon="o-check"
-                            label="{{ $contratoInstalacionIdSeleccionado ? 'Actualizar contrato' : 'Guardar contrato' }}"
+                            label="{{ $contratoInstalacionIdSeleccionado ? ($tipoOperacion === 'CREDITO' ? 'Actualizar crédito' : 'Actualizar contrato') : ($tipoOperacion === 'CREDITO' ? 'Guardar crédito' : 'Guardar contrato') }}"
                             wire:click="guardar" spinner="guardar"
                             class="mt-3 h-11 min-h-11 w-full rounded-xl border-0 bg-[#2E8BC0] text-sm font-black text-white hover:bg-[#0B6FE4]" />
                     </x-card>
