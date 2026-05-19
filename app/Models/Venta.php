@@ -31,6 +31,7 @@ class Venta extends Model
         'Descuento',
         'Total',
         'Tipo_Cambio',
+        'Cambio_Entregado_Cordobas',
     ];
 
     protected $casts = [
@@ -42,6 +43,7 @@ class Venta extends Model
         'Descuento' => 'decimal:2',
         'Total' => 'decimal:2',
         'Tipo_Cambio' => 'decimal:4',
+        'Cambio_Entregado_Cordobas' => 'decimal:2',
     ];
 
     public function cliente(): BelongsTo
@@ -77,5 +79,15 @@ class Venta extends Model
     public function movimientosCreditoGeneral(): HasMany
     {
         return $this->hasMany(ClienteCreditoMovimiento::class, 'Id_Venta', 'Id_Venta');
+    }
+
+    public function servicioTecnico(): HasOne
+    {
+        return $this->hasOne(ServicioTecnico::class, 'Id_Venta', 'Id_Venta');
+    }
+
+    public function contratoInstalacionCamara(): HasOne
+    {
+        return $this->hasOne(ContratoInstalacionCamara::class, 'Id_Venta', 'Id_Venta');
     }
 }
