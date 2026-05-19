@@ -71,7 +71,7 @@ class DetalleVenta extends Model
 
     public function venta(): BelongsTo
     {
-        return $this->belongsTo(Venta::class, 'Id_Venta', 'Id_Venta');
+        return $this->belongsTo(Venta::class, 'Id_Venta', 'Id_Venta');   
     }
 
     public function detallesDevolucion(): HasMany

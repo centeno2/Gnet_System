@@ -75,6 +75,8 @@ new class extends Component
     public string $pagoCordobas = '0';
     public string $pagoDolares = '0';
 
+    public float $saldoFavorClienteCredito = 0.00;
+
     public ?int $ultimaVentaId = null;
     public string $ultimaFacturaNumero = '';
     public string $ultimoTipoVenta = '';
@@ -153,6 +155,23 @@ new class extends Component
         $this->pagoDolares = '0';
         $this->referenciaCordobas = '';
         $this->referenciaDolares = '';
+        $this->clientesEncontrados = [];
+        $this->mostrarClientes = false;
+
+        if ($this->clienteId) {
+            $cliente = Cliente::query()
+                ->where('Id_Cliente', $this->clienteId)
+                ->first();
+
+            if (! $cliente || ! $this->clientePermitidoParaTipoVenta($cliente)) {
+                $this->limpiarClienteFacturacion();
+            } elseif ($this->tipoVenta === self::TIPO_CREDITO) {
+                $this->departamentoMunicipio = $cliente->Municipio ?? '';
+                $this->cargarSaldoFavorClienteCredito();
+            }
+        } else {
+            $this->limpiarClienteFacturacion();
+        }
 
         if ($this->tipoVenta === self::TIPO_CONTADO) {
             $this->departamentoMunicipio = '';
@@ -174,9 +193,12 @@ new class extends Component
             return;
         }
 
+        $tipoClientePermitido = $this->tipoClientePermitidoVenta();
+
         $this->clientesEncontrados = Cliente::query()
             ->with('persona')
             ->where('Estado', true)
+            ->where('Tipo_Cliente', $tipoClientePermitido)
             ->where(function ($query) use ($busqueda) {
                 $query->where('Institucion', 'like', "%{$busqueda}%")
                     ->orWhere('Telefono_Institucion', 'like', "%{$busqueda}%")
@@ -216,26 +238,33 @@ new class extends Component
             return;
         }
 
+        if (! $this->clientePermitidoParaTipoVenta($cliente)) {
+            $this->mostrarToast($this->mensajeClienteNoPermitido(), 'error');
+            $this->limpiarClienteFacturacion();
+            return;
+        }
+
         $this->clienteId = (int) $cliente->Id_Cliente;
         $this->clienteNombre = $this->nombreClienteFacturacion($cliente);
         $this->buscarCliente = $this->clienteNombre;
-
-        if ($this->tipoVenta === self::TIPO_CREDITO) {
-            $this->departamentoMunicipio = $cliente->Municipio ?? '';
-        }
+        $this->departamentoMunicipio = $this->tipoVenta === self::TIPO_CREDITO
+            ? (string) ($cliente->Municipio ?? '')
+            : '';
 
         $this->clientesEncontrados = [];
         $this->mostrarClientes = false;
+
+        $this->cargarSaldoFavorClienteCredito();
     }
 
     public function usarConsumidorFinal(): void
     {
-        $this->clienteId = null;
-        $this->buscarCliente = '';
-        $this->clienteNombre = 'Consumidor final';
-        $this->departamentoMunicipio = '';
-        $this->clientesEncontrados = [];
-        $this->mostrarClientes = false;
+        if ($this->tipoVenta === self::TIPO_CREDITO) {
+            $this->mostrarToast('Para crédito debe seleccionar una institución registrada.', 'error');
+            return;
+        }
+
+        $this->limpiarClienteFacturacion();
     }
 
     protected function buscarItems(): void
@@ -564,8 +593,8 @@ new class extends Component
             return;
         }
 
-        if ($this->tipoVenta === self::TIPO_CREDITO && ! $this->clienteId) {
-            $this->mostrarToast('Para crédito debe seleccionar un cliente registrado.', 'error');
+        if (! $this->clienteSeleccionadoValidoParaVenta()) {
+            $this->mostrarToast($this->mensajeClienteNoPermitido(), 'error');
             return;
         }
 
@@ -573,6 +602,7 @@ new class extends Component
         $this->pagoDolares = '0';
         $this->referenciaCordobas = '';
         $this->referenciaDolares = '';
+        $this->cargarSaldoFavorClienteCredito();
 
         $this->modalCobro = true;
     }
@@ -591,8 +621,11 @@ new class extends Component
 
         $pagoCordobas = $this->limpiarMonto($this->pagoCordobas);
         $pagoDolares = $this->limpiarDecimal($this->pagoDolares);
-        $equivalenteDolares = $pagoDolares * $this->tasaCambio();
-        $totalPagado = $pagoCordobas + $equivalenteDolares;
+        $equivalenteDolares = round($pagoDolares * $this->tasaCambio(), 2);
+        $totalPagado = round($pagoCordobas + $equivalenteDolares, 2);
+        $cambioEntregadoCordobas = $this->tipoVenta === self::TIPO_CONTADO
+            ? round(max($totalPagado - $total, 0), 2)
+            : 0.00;
 
         if ($this->tipoVenta === self::TIPO_CONTADO && $totalPagado < $total) {
             $this->mostrarToast('El monto recibido no puede ser menor que el total.', 'error');
@@ -619,8 +652,8 @@ new class extends Component
             return;
         }
 
-        if ($this->tipoVenta === self::TIPO_CREDITO && ! $this->clienteId) {
-            $this->mostrarToast('Para crédito debe seleccionar un cliente registrado.', 'error');
+        if (! $this->clienteSeleccionadoValidoParaVenta()) {
+            $this->mostrarToast($this->mensajeClienteNoPermitido(), 'error');
             return;
         }
 
@@ -632,12 +665,14 @@ new class extends Component
                 $descuento,
                 $pagoCordobas,
                 $pagoDolares,
-                $equivalenteDolares
+                $equivalenteDolares,
+                $cambioEntregadoCordobas
             ) {
                 $idUsuario = $this->obtenerUsuarioId();
                 $numeroFactura = $this->generarNumeroFactura();
 
-                $venta = Venta::create([
+                $venta = new Venta();
+                $venta->forceFill([
                     'Numero_Factura' => $numeroFactura,
                     'Fecha_venta' => now(),
                     'Id_Cliente' => $this->clienteId,
@@ -647,7 +682,8 @@ new class extends Component
                     'Descuento' => $descuento,
                     'Total' => $total,
                     'Tipo_Cambio' => $this->tasaCambio(),
-                ]);
+                    'Cambio_Entregado_Cordobas' => $cambioEntregadoCordobas,
+                ])->save();
 
                 foreach ($this->detalleVenta as $item) {
                     if ($item['tipo'] === self::TIPO_PRODUCTO) {
@@ -739,13 +775,43 @@ new class extends Component
                 }
 
                 if ($this->tipoVenta === self::TIPO_CREDITO) {
-                    $venta->credito()->create([
+                    $clienteCredito = $this->obtenerOcrearClienteCreditoBloqueado((int) $this->clienteId);
+                    $saldoAnteriorFavor = round(max((float) $clienteCredito->Saldo_Actual, 0), 2);
+                    $saldoFavorAplicado = round(min($saldoAnteriorFavor, $total), 2);
+                    $saldoDespuesFavor = round(max($saldoAnteriorFavor - $saldoFavorAplicado, 0), 2);
+                    $saldoPendienteCredito = round(max($total - $saldoFavorAplicado, 0), 2);
+
+                    DB::table('cliente_credito')
+                        ->where('Id_Cliente_Credito', $clienteCredito->Id_Cliente_Credito)
+                        ->update([
+                            'Saldo_Actual' => $saldoDespuesFavor,
+                        ]);
+
+                    $credito = $venta->credito()->create([
+                        'Id_Cliente_Credito' => $clienteCredito->Id_Cliente_Credito,
                         'Fecha_Credito' => now()->toDateString(),
-                        'Abono_Inicial' => 0,
-                        'Saldo_Actual' => $total,
+                        'Abono_Inicial' => $saldoFavorAplicado,
+                        'Saldo_Actual' => $saldoPendienteCredito,
                         'Firma_Recibido' => null,
-                        'Estado' => self::ESTADO_CREDITO_PENDIENTE,
+                        'Estado' => $saldoPendienteCredito <= 0
+                            ? 'CANCELADO'
+                            : self::ESTADO_CREDITO_PENDIENTE,
                     ]);
+
+                    if ($saldoFavorAplicado > 0) {
+                        DB::table('cliente_credito_movimiento')->insert([
+                            'Id_Cliente_Credito' => $clienteCredito->Id_Cliente_Credito,
+                            'Id_Cliente' => $this->clienteId,
+                            'Id_Venta' => $venta->Id_Venta,
+                            'Id_Credito' => $credito->Id_Credito,
+                            'Tipo_Movimiento' => 'CARGO',
+                            'Monto' => $saldoFavorAplicado,
+                            'Saldo_Anterior' => $saldoAnteriorFavor,
+                            'Saldo_Despues' => $saldoDespuesFavor,
+                            'Fecha_Movimiento' => now(),
+                            'Observacion' => 'Saldo a favor aplicado a factura ' . $numeroFactura,
+                        ]);
+                    }
                 }
 
                 return [
@@ -853,9 +919,27 @@ new class extends Component
         return $this->totalPagadoCordobas() - $this->totalVenta();
     }
 
+    public function cambioEntregadoCordobas(): float
+    {
+        return round(max($this->cambioVenta(), 0), 2);
+    }
+
+    public function saldoFavorAplicable(): float
+    {
+        if ($this->tipoVenta !== self::TIPO_CREDITO) {
+            return 0;
+        }
+
+        return round(min($this->saldoFavorClienteCredito, $this->totalVenta()), 2);
+    }
+
     public function saldoCredito(): float
     {
-        return $this->tipoVenta === self::TIPO_CREDITO ? $this->totalVenta() : 0;
+        if ($this->tipoVenta !== self::TIPO_CREDITO) {
+            return 0;
+        }
+
+        return round(max($this->totalVenta() - $this->saldoFavorAplicable(), 0), 2);
     }
 
     protected function limpiarMonto(?string $valor): float
@@ -905,7 +989,7 @@ new class extends Component
         return $entero;
     }
 
-    protected function tasaCambio(): float
+    public function tasaCambio(): float
     {
         $tasa = $this->limpiarDecimal($this->tipoCambio);
 
@@ -954,6 +1038,66 @@ new class extends Component
         return trim($base);
     }
 
+    protected function cargarSaldoFavorClienteCredito(): void
+    {
+        $this->saldoFavorClienteCredito = 0.00;
+
+        if ($this->tipoVenta !== self::TIPO_CREDITO || ! $this->clienteId) {
+            return;
+        }
+
+        $saldo = DB::table('cliente_credito')
+            ->where('Id_Cliente', $this->clienteId)
+            ->value('Saldo_Actual');
+
+        $this->saldoFavorClienteCredito = round(max((float) ($saldo ?? 0), 0), 2);
+    }
+
+    protected function tipoClientePermitidoVenta(): int
+    {
+        return $this->tipoVenta === self::TIPO_CREDITO
+            ? Cliente::TIPO_INSTITUCION
+            : Cliente::TIPO_NATURAL;
+    }
+
+    protected function clientePermitidoParaTipoVenta(Cliente $cliente): bool
+    {
+        return (int) $cliente->Tipo_Cliente === $this->tipoClientePermitidoVenta();
+    }
+
+    protected function clienteSeleccionadoValidoParaVenta(): bool
+    {
+        if (! $this->clienteId) {
+            return $this->tipoVenta === self::TIPO_CONTADO;
+        }
+
+        $cliente = Cliente::query()
+            ->where('Id_Cliente', $this->clienteId)
+            ->first();
+
+        return $cliente && $this->clientePermitidoParaTipoVenta($cliente);
+    }
+
+    protected function mensajeClienteNoPermitido(): string
+    {
+        return $this->tipoVenta === self::TIPO_CREDITO
+            ? 'Para crédito solo puede seleccionar clientes institucionales.'
+            : 'Para contado solo puede seleccionar clientes naturales o consumidor final.';
+    }
+
+    protected function limpiarClienteFacturacion(): void
+    {
+        $this->clienteId = null;
+        $this->buscarCliente = '';
+        $this->clienteNombre = $this->tipoVenta === self::TIPO_CREDITO
+            ? 'Seleccione institución'
+            : 'Consumidor final';
+        $this->departamentoMunicipio = '';
+        $this->saldoFavorClienteCredito = 0.00;
+        $this->clientesEncontrados = [];
+        $this->mostrarClientes = false;
+    }
+
     protected function nombreClienteFacturacion(Cliente $cliente): string
     {
         if ((int) $cliente->Tipo_Cliente === Cliente::TIPO_INSTITUCION) {
@@ -997,6 +1141,37 @@ new class extends Component
             'DOBLE_CARA' => 2,
             default => null,
         };
+    }
+
+    protected function obtenerOcrearClienteCreditoBloqueado(int $clienteId): object
+    {
+        $clienteCredito = DB::table('cliente_credito')
+            ->where('Id_Cliente', $clienteId)
+            ->lockForUpdate()
+            ->first();
+
+        if ($clienteCredito) {
+            if ((string) $clienteCredito->Estado !== 'ACTIVO') {
+                throw ValidationException::withMessages([
+                    'cliente_credito' => 'El cliente crédito no está activo.',
+                ]);
+            }
+
+            return $clienteCredito;
+        }
+
+        $idClienteCredito = DB::table('cliente_credito')->insertGetId([
+            'Id_Cliente' => $clienteId,
+            'Limite_Credito' => 0,
+            'Saldo_Actual' => 0,
+            'Estado' => 'ACTIVO',
+            'Fecha_Registro' => now(),
+        ]);
+
+        return DB::table('cliente_credito')
+            ->where('Id_Cliente_Credito', $idClienteCredito)
+            ->lockForUpdate()
+            ->first();
     }
 
     protected function obtenerUsuarioId(): int
@@ -1107,17 +1282,21 @@ new class extends Component
                     <div class="grid grid-cols-1 gap-3 lg:grid-cols-12">
                         <div
                             class="relative min-w-0 {{ $tipoVenta === 'CREDITO' ? 'lg:col-span-5' : 'lg:col-span-7' }}">
-                            <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Cliente</label>
+                            <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                                {{ $tipoVenta === 'CREDITO' ? 'Institución' : 'Cliente natural' }}
+                            </label>
 
                             <div class="flex gap-2">
                                 <x-input wire:model.live.debounce.250ms="buscarCliente" type="text" autocomplete="off"
-                                    placeholder="Buscar cliente o institución"
+                                    placeholder="{{ $tipoVenta === 'CREDITO' ? 'Buscar institución' : 'Buscar cliente natural' }}"
                                     class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
 
+                                @if ($tipoVenta === 'CONTADO')
                                 <button type="button" wire:click="usarConsumidorFinal"
                                     class="inline-flex h-11 shrink-0 items-center justify-center rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] hover:bg-[#F8FAFC]">
                                     Final
                                 </button>
+                                @endif
                             </div>
 
                             @if ($mostrarClientes)
@@ -1474,16 +1653,43 @@ new class extends Component
             </div>
             @endif
 
-            <div class="md:col-span-2 rounded-xl bg-[#F8FBFF] px-4 py-3 text-sm text-[#1A2B42]">
-                Recibido equivalente:
-                <strong>C$ {{ number_format($this->totalPagadoCordobas(), 0, '.', ',') }}</strong>
+            <div
+                class="md:col-span-2 grid grid-cols-1 gap-2 rounded-xl bg-[#F8FBFF] px-4 py-3 text-sm text-[#1A2B42] md:grid-cols-3">
+                <div>
+                    <span class="block text-xs text-[#5F6B7A]">Recibido C$</span>
+                    <strong>C$ {{ $pagoCordobas !== '' ? $pagoCordobas : '0' }}</strong>
+                </div>
+
+                <div>
+                    <span class="block text-xs text-[#5F6B7A]">Recibido US$</span>
+                    <strong>US$ {{ $pagoDolares !== '' ? $pagoDolares : '0' }}</strong>
+                </div>
+
+                <div>
+                    <span class="block text-xs text-[#5F6B7A]">Cambio entregado</span>
+                    <strong>C$ {{ number_format($this->cambioEntregadoCordobas(), 0, '.', ',') }}</strong>
+                </div>
             </div>
             @endif
 
             @if ($tipoVenta === 'CREDITO')
             <div class="md:col-span-2 rounded-xl border border-[#B7D6F2] bg-[#EAF4FD] px-4 py-4 text-sm text-[#1A2B42]">
-                No se registrará pago, abono ni firma desde facturación. La deuda queda pendiente para gestionarse desde
-                el módulo de crédito.
+                Se aplicará automáticamente el saldo a favor disponible del cliente crédito. Si cubre todo el total, el
+                crédito quedará cancelado.
+            </div>
+
+            <div>
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Saldo a favor</label>
+                <div class="flex h-11 items-center rounded-xl bg-[#F0F3F7] px-3 text-sm font-semibold text-[#1A2B42]">
+                    C$ {{ number_format($saldoFavorClienteCredito, 0, '.', ',') }}
+                </div>
+            </div>
+
+            <div>
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Aplicado</label>
+                <div class="flex h-11 items-center rounded-xl bg-[#EAF2FB] px-3 text-sm font-semibold text-[#0B6FE4]">
+                    C$ {{ number_format($this->saldoFavorAplicable(), 0, '.', ',') }}
+                </div>
             </div>
 
             <div>
@@ -1504,7 +1710,14 @@ new class extends Component
 
                     Subtotal: <strong>C$ {{ number_format($this->subtotalVenta(), 0, '.', ',') }}</strong><br>
                     Descuentos: <strong>C$ {{ number_format($this->descuentoVenta(), 0, '.', ',') }}</strong><br>
-                    Total a guardar: <strong>C$ {{ number_format($this->totalVenta(), 0, '.', ',') }}</strong>
+                    Total venta: <strong>C$ {{ number_format($this->totalVenta(), 0, '.', ',') }}</strong>
+
+                    @if ($tipoVenta === 'CREDITO')
+                    <br>
+                    Saldo a favor aplicado: <strong>C$ {{ number_format($this->saldoFavorAplicable(), 0, '.', ',')
+                        }}</strong><br>
+                    Saldo pendiente: <strong>C$ {{ number_format($this->saldoCredito(), 0, '.', ',') }}</strong>
+                    @endif
 
                     @if ($tipoVenta === 'CONTADO')
                     <br>
