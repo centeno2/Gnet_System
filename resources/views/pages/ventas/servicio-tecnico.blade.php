@@ -1,9 +1,36 @@
 <?php
 
 use Livewire\Component;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+
+use App\Models\Cliente;
+use App\Models\Trabajador;
+use App\Models\Producto;
+use App\Models\ProductoSerie;
+use App\Models\Servicio;
+use App\Models\ServicioTecnico;
+use App\Models\ServicioTecnicoChecklist;
+use App\Models\ServicioTecnicoProducto;
+use App\Models\MovimientoInventario;
+use App\Models\Usuario;
+use App\Models\Venta;
+
 new class extends Component
 {
+    private const MONEDA_CORDOBA = 'NIO';
+    private const MONEDA_DOLAR = 'USD';
+
+    private const PAGO_EFECTIVO = 'EFECTIVO';
+    private const PAGO_TRANSFERENCIA = 'TRANSFERENCIA';
+    private const PAGO_TARJETA = 'TARJETA';
+
+    private const TIPO_CONTADO = 'CONTADO';
+    private const TIPO_CREDITO = 'CREDITO';
+
+    private const ESTADO_CREDITO_PENDIENTE = 'PENDIENTE';
+    private const ESTADO_CREDITO_CANCELADO = 'CANCELADO';
+
     public array $clientes = [];
     public array $tecnicos = [];
     public array $productosDisponibles = [];
@@ -14,10 +41,10 @@ new class extends Component
     public ?int $servicioTecnicoIdSeleccionado = null;
     public ?array $mensaje = null;
 
-    public bool $modalProducto = false;
     public bool $modalPendientes = false;
-
     public string $filtroPendientes = '';
+
+    public string $tipoOperacion = self::TIPO_CONTADO;
 
     public ?int $clienteId = null;
     public string $telefonoCliente = '';
@@ -29,9 +56,17 @@ new class extends Component
     public string $problemaReportado = '';
     public string $detalleDescriptivo = '';
     public string $estadoServicio = 'RECIBIDO';
-    public float|string $costoEstimado = 0;
+    public $costoEstimado = 0;
     public ?string $fechaEstimadaEntrega = null;
     public string $observacionTecnica = '';
+
+    public string $tipoCambio = '36.50';
+    public string $tipoPagoCordobas = self::PAGO_EFECTIVO;
+    public string $tipoPagoDolares = self::PAGO_EFECTIVO;
+    public string $pagoCordobas = '0';
+    public string $pagoDolares = '0';
+    public string $referenciaCordobas = '';
+    public string $referenciaDolares = '';
 
     public array $checklist = [
         'enciende' => false,
@@ -49,10 +84,41 @@ new class extends Component
         'observacion_checklist' => '',
     ];
 
+    public array $checklistItems = [
+        'enciende' => 'Enciende',
+        'lleva_cargador' => 'Lleva cargador',
+        'lleva_bateria' => 'Lleva batería',
+        'pantalla_sana' => 'Pantalla sana',
+        'teclado_completo' => 'Teclado completo',
+        'touchpad_funcional' => 'Touchpad funcional',
+        'tiene_golpes_visibles' => 'Golpes visibles',
+        'tiene_humedad' => 'Humedad',
+        'tiene_sello_roto' => 'Sello roto',
+        'lleva_cable_poder' => 'Cable de poder',
+        'lleva_cartucho_toner' => 'Cartucho / tóner',
+        'lleva_mouse_accesorios' => 'Mouse / accesorios',
+    ];
+
+    public array $tiposEquipo = [
+        ['id' => 'Computadora', 'name' => 'Computadora'],
+        ['id' => 'Laptop', 'name' => 'Laptop'],
+        ['id' => 'Impresora', 'name' => 'Impresora'],
+        ['id' => 'Otro', 'name' => 'Otro'],
+    ];
+
+    public array $estadosServicio = [
+        ['id' => 'RECIBIDO', 'name' => 'Recibido'],
+        ['id' => 'EN_REVISION', 'name' => 'En revisión'],
+        ['id' => 'PENDIENTE_REPUESTO', 'name' => 'Pendiente repuesto'],
+        ['id' => 'REPARADO', 'name' => 'Reparado'],
+        ['id' => 'ENTREGADO', 'name' => 'Entregado'],
+        ['id' => 'CANCELADO', 'name' => 'Cancelado'],
+    ];
+
     public ?int $productoId = null;
     public ?int $productoSerieId = null;
-    public float|string $productoCantidad = 1;
-    public float|string $productoPrecio = 0;
+    public $productoCantidad = 1;
+    public $productoPrecio = 0;
     public bool $productoTieneSeries = false;
 
     public array $headers = [
@@ -71,83 +137,199 @@ new class extends Component
         $this->cargarPendientes();
     }
 
+    public function updatedPagoCordobas($value): void
+    {
+        $this->pagoCordobas = $this->formatearMonto((string) $value);
+    }
+
+    public function updatedPagoDolares($value): void
+    {
+        $this->pagoDolares = $this->formatearDecimal((string) $value);
+    }
+
+    public function updatedTipoCambio($value): void
+    {
+        $this->tipoCambio = $this->formatearDecimal((string) $value);
+    }
+
+    public function updatedTipoPagoCordobas(): void
+    {
+        if (! $this->pagoRequiereReferencia($this->tipoPagoCordobas)) {
+            $this->referenciaCordobas = '';
+        }
+    }
+
+    public function updatedTipoPagoDolares(): void
+    {
+        if (! $this->pagoRequiereReferencia($this->tipoPagoDolares)) {
+            $this->referenciaDolares = '';
+        }
+    }
+
+    public function cambiarTipoOperacion(string $tipo): void
+    {
+        if (! in_array($tipo, [self::TIPO_CONTADO, self::TIPO_CREDITO], true)) {
+            return;
+        }
+
+        $this->tipoOperacion = $tipo;
+        $this->limpiarCobroServicio();
+
+        if ($tipo === self::TIPO_CREDITO && $this->clienteId && ! $this->clienteEsInstitucion((int) $this->clienteId)) {
+            $this->clienteId = null;
+            $this->telefonoCliente = '';
+        }
+
+        $this->cargarCombos();
+    }
+
     public function cargarCombos(): void
     {
-        $this->clientes = DB::table('cliente as c')
-            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'c.Id_Persona')
-            ->where('c.Estado', 1)
-            ->selectRaw("c.Id_Cliente as id, TRIM(CONCAT(COALESCE(c.Institucion, ''), CASE WHEN c.Institucion IS NOT NULL AND c.Institucion <> '' THEN ' - ' ELSE '' END, COALESCE(p.Primer_Nombre, ''), ' ', COALESCE(p.Segundo_Nombre, ''), ' ', COALESCE(p.Primer_Apellido, ''), ' ', COALESCE(p.Segundo_Apellido, ''), ' | Tel: ', COALESCE(p.Telefono, ''))) as name")
-            ->orderBy('name')
-            ->get()
-            ->map(fn ($item) => [
-                'id' => (int) $item->id,
-                'name' => trim(preg_replace('/\s+/', ' ', $item->name)),
-            ])
-            ->toArray();
-
-        $this->tecnicos = DB::table('trabajador as t')
-            ->join('persona as p', 'p.Id_Persona', '=', 't.Id_Persona')
-            ->leftJoin('cargo as cg', 'cg.Id_Cargo', '=', 't.Id_Cargo')
-            ->where('t.Estado', 1)
-            ->selectRaw("t.Id_Trabajador as id, TRIM(CONCAT(p.Primer_Nombre, ' ', COALESCE(p.Segundo_Nombre, ''), ' ', p.Primer_Apellido, ' ', COALESCE(p.Segundo_Apellido, ''), ' - ', COALESCE(cg.Cargo_Asignado, 'Trabajador'))) as name")
-            ->orderBy('name')
-            ->get()
-            ->map(fn ($item) => [
-                'id' => (int) $item->id,
-                'name' => trim(preg_replace('/\s+/', ' ', $item->name)),
-            ])
-            ->toArray();
-
-        $this->productosDisponibles = DB::table('producto as p')
-            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'p.Id_Marca')
-            ->leftJoin('producto_serie as ps', function ($join) {
-                $join->on('ps.Id_Producto', '=', 'p.Id_Producto')
-                    ->where('ps.Estado', '=', 'DISPONIBLE');
+        $this->clientes = Cliente::query()
+            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'cliente.Id_Persona')
+            ->where('cliente.Estado', 1)
+            ->when($this->tipoOperacion === self::TIPO_CREDITO, function ($query) {
+                $query->where('cliente.Tipo_Cliente', Cliente::TIPO_INSTITUCION);
             })
-            ->where('p.Estado', 1)
-            ->where('p.Stock_Actual', '>', 0)
-            ->groupBy('p.Id_Producto', 'p.Nombre_Producto', 'p.Modelo', 'p.Precio_Venta', 'p.Stock_Actual', 'm.Nombre_Marca')
-            ->orderBy('p.Nombre_Producto')
-            ->selectRaw("p.Id_Producto as id, CONCAT(COALESCE(m.Nombre_Marca, ''), CASE WHEN m.Nombre_Marca IS NULL OR m.Nombre_Marca = '' THEN '' ELSE ' ' END, p.Nombre_Producto, ' ', COALESCE(p.Modelo, ''), ' - Stock: ', p.Stock_Actual, CASE WHEN COUNT(ps.id_producto_serie) > 0 THEN CONCAT(' | Series: ', COUNT(ps.id_producto_serie)) ELSE '' END) as name, p.Precio_Venta as precio, COUNT(ps.id_producto_serie) as series_disponibles")
+            ->select([
+                'cliente.Id_Cliente as id',
+                'cliente.Institucion',
+                'cliente.Tipo_Cliente',
+                'p.Primer_Nombre',
+                'p.Segundo_Nombre',
+                'p.Primer_Apellido',
+                'p.Segundo_Apellido',
+                'p.Telefono',
+            ])
+            ->orderBy('cliente.Institucion')
+            ->orderBy('p.Primer_Nombre')
             ->get()
             ->map(fn ($item) => [
                 'id' => (int) $item->id,
-                'name' => trim(preg_replace('/\s+/', ' ', $item->name)),
-                'precio' => (float) $item->precio,
-                'series_disponibles' => (int) $item->series_disponibles,
+                'name' => $this->limpiarTexto(
+                    trim(
+                        ($item->Institucion ? $item->Institucion . ' - ' : '') .
+                        trim(
+                            ($item->Primer_Nombre ?? '') . ' ' .
+                            ($item->Segundo_Nombre ?? '') . ' ' .
+                            ($item->Primer_Apellido ?? '') . ' ' .
+                            ($item->Segundo_Apellido ?? '')
+                        ) .
+                        ' | Tel: ' . ($item->Telefono ?? '')
+                    )
+                ),
             ])
+            ->toArray();
+
+        $this->tecnicos = Trabajador::query()
+            ->join('persona as p', 'p.Id_Persona', '=', 'trabajador.Id_Persona')
+            ->leftJoin('cargo as cg', 'cg.Id_Cargo', '=', 'trabajador.Id_Cargo')
+            ->where('trabajador.Estado', 1)
+            ->select([
+                'trabajador.Id_Trabajador as id',
+                'p.Primer_Nombre',
+                'p.Segundo_Nombre',
+                'p.Primer_Apellido',
+                'p.Segundo_Apellido',
+                'cg.Cargo_Asignado',
+            ])
+            ->orderBy('p.Primer_Nombre')
+            ->orderBy('p.Primer_Apellido')
+            ->get()
+            ->map(fn ($item) => [
+                'id' => (int) $item->id,
+                'name' => $this->limpiarTexto(
+                    trim(
+                        ($item->Primer_Nombre ?? '') . ' ' .
+                        ($item->Segundo_Nombre ?? '') . ' ' .
+                        ($item->Primer_Apellido ?? '') . ' ' .
+                        ($item->Segundo_Apellido ?? '')
+                    ) . ' - ' . ($item->Cargo_Asignado ?: 'Trabajador')
+                ),
+            ])
+            ->toArray();
+
+        $seriesDisponiblesPorProducto = ProductoSerie::query()
+            ->where('Estado', 'DISPONIBLE')
+            ->get(['Id_Producto'])
+            ->groupBy('Id_Producto')
+            ->map(fn ($items) => $items->count());
+
+        $this->productosDisponibles = Producto::query()
+            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
+            ->where('producto.Estado', 1)
+            ->where('producto.Stock_Actual', '>', 0)
+            ->select([
+                'producto.Id_Producto as id',
+                'producto.Nombre_Producto',
+                'producto.Modelo',
+                'producto.Precio_Venta as precio',
+                'producto.Stock_Actual',
+                'm.Nombre_Marca',
+            ])
+            ->orderBy('producto.Nombre_Producto')
+            ->get()
+            ->map(function ($item) use ($seriesDisponiblesPorProducto) {
+                $seriesDisponibles = (int) ($seriesDisponiblesPorProducto[$item->id] ?? 0);
+
+                $nombre = $this->limpiarTexto(
+                    trim(
+                        ($item->Nombre_Marca ? $item->Nombre_Marca . ' ' : '') .
+                        $item->Nombre_Producto . ' ' .
+                        ($item->Modelo ?? '')
+                    )
+                );
+
+                return [
+                    'id' => (int) $item->id,
+                    'name' => $nombre .
+                        ' - Stock: ' . (int) $item->Stock_Actual .
+                        ($seriesDisponibles > 0 ? ' | Series: ' . $seriesDisponibles : ''),
+                    'precio' => (float) $item->precio,
+                    'series_disponibles' => $seriesDisponibles,
+                ];
+            })
             ->toArray();
     }
 
     public function cargarPendientes(): void
     {
-        $query = DB::table('servicio_tecnico as st')
-            ->leftJoin('cliente as c', 'c.Id_Cliente', '=', 'st.Id_Cliente')
+        $query = ServicioTecnico::query()
+            ->leftJoin('cliente as c', 'c.Id_Cliente', '=', 'servicio_tecnico.Id_Cliente')
             ->leftJoin('persona as pc', 'pc.Id_Persona', '=', 'c.Id_Persona')
-            ->leftJoin('trabajador as t', 't.Id_Trabajador', '=', 'st.Id_Trabajador')
+            ->leftJoin('trabajador as t', 't.Id_Trabajador', '=', 'servicio_tecnico.Id_Trabajador')
             ->leftJoin('persona as pt', 'pt.Id_Persona', '=', 't.Id_Persona')
-            ->whereNotIn('st.Estado_Servicio', ['ENTREGADO', 'CANCELADO'])
-            ->selectRaw("st.Id_Servicio_Tecnico as id,
-                st.Numero_Orden as numero,
-                st.Fecha_Ingreso as fecha,
-                st.Tipo_Equipo as equipo,
-                st.Marca as marca,
-                st.Modelo as modelo,
-                st.Estado_Servicio as estado,
-                st.Total_Servicio as total,
-                TRIM(CONCAT(COALESCE(c.Institucion, ''), CASE WHEN c.Institucion IS NOT NULL AND c.Institucion <> '' THEN ' - ' ELSE '' END, COALESCE(pc.Primer_Nombre, ''), ' ', COALESCE(pc.Segundo_Nombre, ''), ' ', COALESCE(pc.Primer_Apellido, ''), ' ', COALESCE(pc.Segundo_Apellido, ''))) as cliente,
-                TRIM(CONCAT(COALESCE(pt.Primer_Nombre, ''), ' ', COALESCE(pt.Primer_Apellido, ''))) as tecnico")
-            ->orderByDesc('st.Fecha_Ingreso')
+            ->whereNotIn('servicio_tecnico.Estado_Servicio', ['ENTREGADO', 'CANCELADO'])
+            ->select([
+                'servicio_tecnico.Id_Servicio_Tecnico as id',
+                'servicio_tecnico.Numero_Orden as numero',
+                'servicio_tecnico.Fecha_Ingreso as fecha',
+                'servicio_tecnico.Tipo_Equipo as equipo',
+                'servicio_tecnico.Marca as marca',
+                'servicio_tecnico.Modelo as modelo',
+                'servicio_tecnico.Estado_Servicio as estado',
+                'servicio_tecnico.Total_Servicio as total',
+                'servicio_tecnico.Monto_Pagado as pagado',
+                'servicio_tecnico.Saldo_Pendiente as saldo',
+                'c.Institucion as cliente_institucion',
+                'pc.Primer_Nombre as cliente_primer_nombre',
+                'pc.Segundo_Nombre as cliente_segundo_nombre',
+                'pc.Primer_Apellido as cliente_primer_apellido',
+                'pc.Segundo_Apellido as cliente_segundo_apellido',
+                'pt.Primer_Nombre as tecnico_primer_nombre',
+                'pt.Primer_Apellido as tecnico_primer_apellido',
+            ])
+            ->orderByDesc('servicio_tecnico.Fecha_Ingreso')
             ->limit(25);
 
         $filtro = trim($this->filtroPendientes);
 
         if ($filtro !== '') {
             $query->where(function ($q) use ($filtro) {
-                $q->where('st.Numero_Orden', 'like', '%' . $filtro . '%')
-                    ->orWhere('st.Tipo_Equipo', 'like', '%' . $filtro . '%')
-                    ->orWhere('st.Marca', 'like', '%' . $filtro . '%')
-                    ->orWhere('st.Modelo', 'like', '%' . $filtro . '%')
+                $q->where('servicio_tecnico.Numero_Orden', 'like', '%' . $filtro . '%')
+                    ->orWhere('servicio_tecnico.Tipo_Equipo', 'like', '%' . $filtro . '%')
+                    ->orWhere('servicio_tecnico.Marca', 'like', '%' . $filtro . '%')
+                    ->orWhere('servicio_tecnico.Modelo', 'like', '%' . $filtro . '%')
                     ->orWhere('pc.Primer_Nombre', 'like', '%' . $filtro . '%')
                     ->orWhere('pc.Primer_Apellido', 'like', '%' . $filtro . '%')
                     ->orWhere('c.Institucion', 'like', '%' . $filtro . '%');
@@ -156,22 +338,44 @@ new class extends Component
 
         $this->serviciosPendientes = $query
             ->get()
-            ->map(fn ($item) => [
-                'id' => (int) $item->id,
-                'numero' => $item->numero,
-                'fecha' => $item->fecha,
-                'cliente' => trim(preg_replace('/\s+/', ' ', $item->cliente ?: 'Cliente no especificado')),
-                'equipo' => trim(($item->equipo ?? '') . ' ' . ($item->marca ?? '') . ' ' . ($item->modelo ?? '')),
-                'tecnico' => trim($item->tecnico ?: 'Sin técnico'),
-                'estado' => $item->estado,
-                'total' => (float) $item->total,
-            ])
+            ->map(function ($item) {
+                $cliente = $this->limpiarTexto(
+                    trim(
+                        ($item->cliente_institucion ? $item->cliente_institucion . ' - ' : '') .
+                        ($item->cliente_primer_nombre ?? '') . ' ' .
+                        ($item->cliente_segundo_nombre ?? '') . ' ' .
+                        ($item->cliente_primer_apellido ?? '') . ' ' .
+                        ($item->cliente_segundo_apellido ?? '')
+                    )
+                );
+
+                $tecnico = $this->limpiarTexto(
+                    trim(
+                        ($item->tecnico_primer_nombre ?? '') . ' ' .
+                        ($item->tecnico_primer_apellido ?? '')
+                    )
+                );
+
+                return [
+                    'id' => (int) $item->id,
+                    'numero' => $item->numero,
+                    'fecha' => $item->fecha,
+                    'cliente' => $cliente ?: 'Cliente no especificado',
+                    'equipo' => $this->limpiarTexto(
+                        trim(($item->equipo ?? '') . ' ' . ($item->marca ?? '') . ' ' . ($item->modelo ?? ''))
+                    ),
+                    'tecnico' => $tecnico ?: 'Sin técnico',
+                    'estado' => $item->estado,
+                    'total' => (float) $item->total,
+                    'pagado' => (float) ($item->pagado ?? 0),
+                    'saldo' => (float) ($item->saldo ?? $item->total),
+                ];
+            })
             ->toArray();
     }
 
     public function abrirPendientes(): void
     {
-        $this->filtroPendientes = '';
         $this->cargarPendientes();
         $this->modalPendientes = true;
     }
@@ -183,7 +387,7 @@ new class extends Component
 
     public function cargarPendiente(int $id, bool $cerrarModal = true): void
     {
-        $servicio = DB::table('servicio_tecnico')
+        $servicio = ServicioTecnico::query()
             ->where('Id_Servicio_Tecnico', $id)
             ->first();
 
@@ -205,6 +409,16 @@ new class extends Component
         $this->costoEstimado = (float) $servicio->Costo_Estimado;
         $this->fechaEstimadaEntrega = $servicio->Fecha_Estimada_Entrega;
         $this->observacionTecnica = (string) ($servicio->Observacion_Tecnica ?? '');
+        $tipoVentaGuardada = $servicio->Id_Venta
+            ? DB::table('venta')->where('Id_Venta', $servicio->Id_Venta)->value('Tipo_Venta')
+            : null;
+
+        $this->tipoOperacion = $tipoVentaGuardada === self::TIPO_CREDITO
+            ? self::TIPO_CREDITO
+            : self::TIPO_CONTADO;
+        $this->cargarCombos();
+        $this->tipoCambio = number_format((float) ($servicio->Tipo_Cambio ?? 36.50), 2, '.', '');
+        $this->limpiarCobroServicio();
 
         $this->updatedClienteId($this->clienteId);
         $this->cargarChecklist((int) $servicio->Id_Servicio_Tecnico);
@@ -216,7 +430,7 @@ new class extends Component
             $this->modalPendientes = false;
         }
 
-        $this->mostrarMensaje('success', 'Pendiente cargado', 'Ya podés revisar, actualizar estado o agregar más repuestos.');
+        $this->mostrarMensaje('success', 'Pendiente cargado', 'Ya podés revisar, actualizar estado o agregar repuestos.');
     }
 
     public function nuevoIngreso(): void
@@ -233,18 +447,12 @@ new class extends Component
             return;
         }
 
-        $telefono = DB::table('cliente as c')
-            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'c.Id_Persona')
-            ->where('c.Id_Cliente', $value)
+        $telefono = Cliente::query()
+            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'cliente.Id_Persona')
+            ->where('cliente.Id_Cliente', $value)
             ->value('p.Telefono');
 
         $this->telefonoCliente = (string) ($telefono ?? '');
-    }
-
-    public function abrirProducto(): void
-    {
-        $this->resetProductoForm();
-        $this->modalProducto = true;
     }
 
     public function updatedProductoId($value): void
@@ -259,7 +467,7 @@ new class extends Component
             return;
         }
 
-        $producto = DB::table('producto')
+        $producto = Producto::query()
             ->where('Id_Producto', $value)
             ->first();
 
@@ -275,7 +483,7 @@ new class extends Component
             ->values()
             ->all();
 
-        $query = DB::table('producto_serie')
+        $query = ProductoSerie::query()
             ->where('Id_Producto', $value)
             ->where('Estado', 'DISPONIBLE');
 
@@ -285,18 +493,16 @@ new class extends Component
 
         $this->seriesDisponibles = $query
             ->orderBy('Numero_Serie')
-            ->get(['id_producto_serie as id', 'Numero_Serie as name'])
+            ->get(['id_producto_serie', 'Numero_Serie'])
             ->map(fn ($item) => [
-                'id' => (int) $item->id,
-                'name' => $item->name,
+                'id' => (int) $item->id_producto_serie,
+                'name' => $item->Numero_Serie,
             ])
             ->toArray();
 
-        $totalSeriesDelProducto = DB::table('producto_serie')
+        $this->productoTieneSeries = ProductoSerie::query()
             ->where('Id_Producto', $value)
-            ->count();
-
-        $this->productoTieneSeries = $totalSeriesDelProducto > 0;
+            ->exists();
 
         if ($this->productoTieneSeries) {
             $this->productoCantidad = 1;
@@ -314,10 +520,13 @@ new class extends Component
             'productoCantidad.min' => 'La cantidad debe ser mayor a cero.',
         ]);
 
-        $producto = DB::table('producto as p')
-            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'p.Id_Marca')
-            ->where('p.Id_Producto', $this->productoId)
-            ->select('p.*', 'm.Nombre_Marca')
+        $producto = Producto::query()
+            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
+            ->where('producto.Id_Producto', $this->productoId)
+            ->select([
+                'producto.*',
+                'm.Nombre_Marca',
+            ])
             ->first();
 
         if (!$producto || (int) $producto->Estado !== 1 || (int) $producto->Stock_Actual <= 0) {
@@ -334,7 +543,7 @@ new class extends Component
                 return;
             }
 
-            $serie = DB::table('producto_serie')
+            $serie = ProductoSerie::query()
                 ->where('id_producto_serie', $this->productoSerieId)
                 ->where('Id_Producto', $this->productoId)
                 ->where('Estado', 'DISPONIBLE')
@@ -373,7 +582,13 @@ new class extends Component
             'producto_id' => (int) $producto->Id_Producto,
             'producto_serie_id' => $serie?->id_producto_serie ? (int) $serie->id_producto_serie : null,
             'codigo' => (string) $producto->Id_Producto,
-            'descripcion' => trim(preg_replace('/\s+/', ' ', ($producto->Nombre_Marca ? $producto->Nombre_Marca . ' ' : '') . $producto->Nombre_Producto . ' ' . ($producto->Modelo ?? ''))),
+            'descripcion' => $this->limpiarTexto(
+                trim(
+                    ($producto->Nombre_Marca ? $producto->Nombre_Marca . ' ' : '') .
+                    $producto->Nombre_Producto . ' ' .
+                    ($producto->Modelo ?? '')
+                )
+            ),
             'serie' => $serie->Numero_Serie ?? 'N/A',
             'cantidad' => $cantidad,
             'precio' => $precio,
@@ -381,9 +596,9 @@ new class extends Component
             'acciones' => '',
         ];
 
-        $this->modalProducto = false;
         $this->resetProductoForm();
         $this->cargarCombos();
+        $this->mostrarMensaje('success', 'Producto agregado', 'El repuesto quedó listo para guardarse con el servicio.');
     }
 
     public function quitarProducto(string $tmpId): void
@@ -391,11 +606,15 @@ new class extends Component
         $producto = collect($this->productos)->firstWhere('tmp_id', $tmpId);
 
         if ($producto && !empty($producto['ya_guardado'])) {
-            $this->mostrarMensaje('error', 'No permitido', 'Este producto ya fue descontado del inventario. Para revertirlo hay que hacer una devolución/ajuste de inventario.');
+            $this->mostrarMensaje('error', 'No permitido', 'Este producto ya fue descontado del inventario. Para revertirlo hay que hacer una devolución o ajuste de inventario.');
             return;
         }
 
-        $this->productos = array_values(array_filter($this->productos, fn ($item) => $item['tmp_id'] !== $tmpId));
+        $this->productos = array_values(array_filter(
+            $this->productos,
+            fn ($item) => $item['tmp_id'] !== $tmpId
+        ));
+
         $this->cargarCombos();
     }
 
@@ -421,38 +640,95 @@ new class extends Component
             'problemaReportado.required' => 'Ingrese el problema reportado.',
         ]);
 
+        if ($this->tipoOperacion === self::TIPO_CREDITO && ! $this->clienteEsInstitucion((int) $this->clienteId)) {
+            $this->mostrarMensaje('error', 'Cliente no permitido', 'El crédito solo se puede registrar a clientes institucionales.');
+            return;
+        }
+
+        if ($this->limpiarMonto($this->pagoCordobas) > 0 && $this->pagoRequiereReferencia($this->tipoPagoCordobas) && trim($this->referenciaCordobas) === '') {
+            $this->mostrarMensaje('error', 'Referencia requerida', 'Ingrese la referencia del pago en córdobas.');
+            return;
+        }
+
+        if ($this->limpiarDecimal($this->pagoDolares) > 0 && $this->pagoRequiereReferencia($this->tipoPagoDolares) && trim($this->referenciaDolares) === '') {
+            $this->mostrarMensaje('error', 'Referencia requerida', 'Ingrese la referencia del pago en dólares.');
+            return;
+        }
+
         try {
             if ($this->servicioTecnicoIdSeleccionado) {
                 $this->actualizarServicioTecnico();
+
                 $id = $this->servicioTecnicoIdSeleccionado;
+
                 $this->cargarCombos();
                 $this->cargarPendientes();
                 $this->cargarPendiente($id, false);
+
                 $this->mostrarMensaje('success', 'Servicio actualizado', 'El servicio técnico se actualizó correctamente.');
                 return;
             }
 
             $id = $this->crearServicioTecnico();
+
             $this->limpiarFormulario();
             $this->cargarCombos();
             $this->cargarPendientes();
+
             $this->mostrarMensaje('success', 'Ingreso guardado', 'El servicio técnico se registró correctamente. Orden #' . $id . '.');
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             report($e);
             $this->mostrarMensaje('error', 'No se pudo guardar', $e->getMessage());
         }
+    }
+
+    public function estadoNombre(?string $estado): string
+    {
+        return match ($estado) {
+            'RECIBIDO' => 'Recibido',
+            'EN_REVISION' => 'En revisión',
+            'PENDIENTE_REPUESTO' => 'Pendiente repuesto',
+            'REPARADO' => 'Reparado',
+            'ENTREGADO' => 'Entregado',
+            'CANCELADO' => 'Cancelado',
+            default => str_replace('_', ' ', (string) $estado),
+        };
     }
 
     private function crearServicioTecnico(): int
     {
         return DB::transaction(function () {
             $usuarioId = $this->usuarioActualId();
-            $numeroOrden = $this->generarNumeroUnico('ST', 'servicio_tecnico', 'Numero_Orden');
-            $totalRepuestos = round((float) collect($this->productos)->sum('subtotal'), 2);
-            $totalServicio = round($totalRepuestos + (float) $this->costoEstimado, 2);
+            $numeroOrden = $this->generarNumeroUnico('ST', ServicioTecnico::class, 'Numero_Orden');
+
+            $totalRepuestos = round(collect($this->productos)
+                ->sum(fn ($item) => $this->numeroSeguro($item['subtotal'] ?? 0)), 2);
+            $totalServicio = round($totalRepuestos + $this->numeroSeguro($this->costoEstimado), 2);
             $servicioId = $this->servicioPorTipo('TECNICO');
 
-            $servicioTecnicoId = DB::table('servicio_tecnico')->insertGetId([
+            $clienteCredito = null;
+            $credito = null;
+
+            if ($this->tipoOperacion === self::TIPO_CREDITO) {
+                $clienteCredito = $this->obtenerClienteCreditoActivo((int) $this->clienteId);
+                $credito = $this->calcularCreditoConSaldoFavor($clienteCredito, $totalServicio);
+
+                $cobro = [
+                    'pagado_total' => $credito['abono_inicial_total'],
+                    'saldo_pendiente' => $credito['saldo_pendiente_credito'],
+                    'cambio_entregado' => $credito['cambio_entregado'],
+                    'pago_cordobas' => $credito['pago_cordobas_recibido'],
+                    'pago_dolares' => $credito['pago_dolares_recibido'],
+                    'equivalente_dolares' => $credito['equivalente_dolares_recibido'],
+                ];
+            } else {
+                $cobro = $this->calcularCobroServicio($totalServicio, 0);
+            }
+
+            $ventaId = $this->crearVentaServicioTecnico($usuarioId, $totalServicio, $cobro);
+
+            $servicioTecnico = $this->crearModelo(ServicioTecnico::class, [
+                'Id_Venta' => $ventaId,
                 'Numero_Orden' => $numeroOrden,
                 'Fecha_Ingreso' => now(),
                 'Id_Cliente' => $this->clienteId,
@@ -466,20 +742,38 @@ new class extends Component
                 'Problema_Reportado' => $this->problemaReportado,
                 'Detalle_Descriptivo' => $this->detalleDescriptivo ?: null,
                 'Estado_Servicio' => $this->estadoServicio,
-                'Costo_Estimado' => (float) $this->costoEstimado,
+                'Costo_Estimado' => $this->numeroSeguro($this->costoEstimado),
                 'Fecha_Estimada_Entrega' => $this->fechaEstimadaEntrega ?: null,
                 'Observacion_Tecnica' => $this->observacionTecnica ?: null,
                 'Total_Repuestos' => $totalRepuestos,
                 'Total_Servicio' => $totalServicio,
+                'Tipo_Venta' => $this->tipoOperacion,
+                'Tipo_Cambio' => $this->tasaCambio(),
+                'Monto_Pagado' => $cobro['pagado_total'],
+                'Saldo_Pendiente' => $cobro['saldo_pendiente'],
+                'Cambio_Entregado_Cordobas' => $cobro['cambio_entregado'],
             ]);
 
-            DB::table('servicio_tecnico_checklist')->insert($this->datosChecklist($servicioTecnicoId));
+            $servicioTecnicoId = (int) $servicioTecnico->Id_Servicio_Tecnico;
+
+            $this->registrarDetalleVentaServicioTecnico($ventaId, $servicioId, $numeroOrden);
+
+            if ($this->tipoOperacion === self::TIPO_CREDITO) {
+                $this->registrarCreditoServicioTecnico($ventaId, $clienteCredito, $credito, $numeroOrden);
+            } else {
+                $this->registrarPagosServicioTecnico($servicioTecnicoId, $ventaId, $cobro);
+            }
+
+            $this->crearModelo(
+                ServicioTecnicoChecklist::class,
+                $this->datosChecklist($servicioTecnicoId)
+            );
 
             foreach ($this->productos as $item) {
                 $this->registrarProductoServicio($servicioTecnicoId, $item);
             }
 
-            return (int) $servicioTecnicoId;
+            return $servicioTecnicoId;
         }, 3);
     }
 
@@ -488,7 +782,7 @@ new class extends Component
         DB::transaction(function () {
             $servicioTecnicoId = (int) $this->servicioTecnicoIdSeleccionado;
 
-            $servicio = DB::table('servicio_tecnico')
+            $servicio = ServicioTecnico::query()
                 ->where('Id_Servicio_Tecnico', $servicioTecnicoId)
                 ->lockForUpdate()
                 ->first();
@@ -497,32 +791,83 @@ new class extends Component
                 throw new RuntimeException('El servicio técnico seleccionado ya no existe.');
             }
 
-            $totalRepuestos = round((float) collect($this->productos)->sum('subtotal'), 2);
-            $totalServicio = round($totalRepuestos + (float) $this->costoEstimado, 2);
+            $totalRepuestos = round(collect($this->productos)
+                ->sum(fn ($item) => $this->numeroSeguro($item['subtotal'] ?? 0)), 2);
+            $totalServicio = round($totalRepuestos + $this->numeroSeguro($this->costoEstimado), 2);
+            $servicioId = (int) ($servicio->Id_Servicio ?: $this->servicioPorTipo('TECNICO'));
+            $usuarioId = $this->usuarioActualId();
+            $ventaId = $servicio->Id_Venta ? (int) $servicio->Id_Venta : null;
 
-            DB::table('servicio_tecnico')
-                ->where('Id_Servicio_Tecnico', $servicioTecnicoId)
-                ->update([
-                    'Id_Cliente' => $this->clienteId,
-                    'Id_Trabajador' => $this->tecnicoId,
-                    'Tipo_Equipo' => $this->tipoEquipo,
-                    'Marca' => $this->marca ?: null,
-                    'Modelo' => $this->modelo ?: null,
-                    'Numero_Serie' => $this->numeroSerie ?: null,
-                    'Problema_Reportado' => $this->problemaReportado,
-                    'Detalle_Descriptivo' => $this->detalleDescriptivo ?: null,
-                    'Estado_Servicio' => $this->estadoServicio,
-                    'Costo_Estimado' => (float) $this->costoEstimado,
-                    'Fecha_Estimada_Entrega' => $this->fechaEstimadaEntrega ?: null,
-                    'Observacion_Tecnica' => $this->observacionTecnica ?: null,
-                    'Total_Repuestos' => $totalRepuestos,
-                    'Total_Servicio' => $totalServicio,
-                ]);
+            if (!$ventaId) {
+                $cobroInicial = $this->tipoOperacion === self::TIPO_CREDITO
+                    ? ['pagado_total' => 0, 'saldo_pendiente' => $totalServicio, 'cambio_entregado' => 0]
+                    : $this->calcularCobroServicio($totalServicio, 0);
 
-            DB::table('servicio_tecnico_checklist')->updateOrInsert(
-                ['Id_Servicio_Tecnico' => $servicioTecnicoId],
-                $this->datosChecklist($servicioTecnicoId)
-            );
+                $ventaId = $this->crearVentaServicioTecnico($usuarioId, $totalServicio, $cobroInicial);
+            }
+
+            $creditoExistente = DB::table('credito')
+                ->where('Id_Venta', $ventaId)
+                ->lockForUpdate()
+                ->first();
+
+            if ($creditoExistente && $this->tipoOperacion === self::TIPO_CONTADO) {
+                throw new RuntimeException('Este servicio ya está registrado al crédito. Los abonos deben gestionarse desde el módulo de crédito.');
+            }
+
+            if ($this->tipoOperacion === self::TIPO_CREDITO) {
+                if ($creditoExistente) {
+                    $cobro = $this->actualizarCreditoServicioTecnicoExistente($creditoExistente, $totalServicio);
+                } else {
+                    $clienteCredito = $this->obtenerClienteCreditoActivo((int) $this->clienteId);
+                    $credito = $this->calcularCreditoConSaldoFavor($clienteCredito, $totalServicio);
+                    $this->registrarCreditoServicioTecnico($ventaId, $clienteCredito, $credito, (string) $servicio->Numero_Orden);
+
+                    $cobro = [
+                        'pagado_total' => $credito['abono_inicial_total'],
+                        'saldo_pendiente' => $credito['saldo_pendiente_credito'],
+                        'cambio_entregado' => $credito['cambio_entregado'],
+                    ];
+                }
+            } else {
+                $montoPagadoAnterior = round((float) ($servicio->Monto_Pagado ?? 0), 2);
+                $cobro = $this->calcularCobroServicio($totalServicio, $montoPagadoAnterior);
+                $this->registrarPagosServicioTecnico($servicioTecnicoId, $ventaId, $cobro);
+            }
+
+            $this->actualizarVentaServicioTecnico($ventaId, $usuarioId, $totalServicio, $cobro);
+
+            $servicio->forceFill([
+                'Id_Venta' => $ventaId,
+                'Id_Cliente' => $this->clienteId,
+                'Id_Trabajador' => $this->tecnicoId,
+                'Tipo_Equipo' => $this->tipoEquipo,
+                'Marca' => $this->marca ?: null,
+                'Modelo' => $this->modelo ?: null,
+                'Numero_Serie' => $this->numeroSerie ?: null,
+                'Problema_Reportado' => $this->problemaReportado,
+                'Detalle_Descriptivo' => $this->detalleDescriptivo ?: null,
+                'Estado_Servicio' => $this->estadoServicio,
+                'Costo_Estimado' => $this->numeroSeguro($this->costoEstimado),
+                'Fecha_Estimada_Entrega' => $this->fechaEstimadaEntrega ?: null,
+                'Observacion_Tecnica' => $this->observacionTecnica ?: null,
+                'Total_Repuestos' => $totalRepuestos,
+                'Total_Servicio' => $totalServicio,
+                'Tipo_Venta' => $this->tipoOperacion,
+                'Tipo_Cambio' => $this->tasaCambio(),
+                'Monto_Pagado' => $cobro['pagado_total'],
+                'Saldo_Pendiente' => $cobro['saldo_pendiente'],
+                'Cambio_Entregado_Cordobas' => $this->tipoOperacion === self::TIPO_CONTADO
+                    ? round((float) ($servicio->Cambio_Entregado_Cordobas ?? 0) + $cobro['cambio_entregado'], 2)
+                    : round((float) ($servicio->Cambio_Entregado_Cordobas ?? 0) + ($cobro['cambio_entregado'] ?? 0), 2),
+            ])->save();
+
+            $this->registrarDetalleVentaServicioTecnico($ventaId, $servicioId, (string) $servicio->Numero_Orden);
+
+            $checklist = ServicioTecnicoChecklist::query()
+                ->firstOrNew(['Id_Servicio_Tecnico' => $servicioTecnicoId]);
+
+            $checklist->forceFill($this->datosChecklist($servicioTecnicoId))->save();
 
             foreach ($this->productos as $item) {
                 if (!empty($item['ya_guardado'])) {
@@ -538,7 +883,7 @@ new class extends Component
     {
         $this->descontarInventario($item, 'USADO_SERVICIO', 'SALIDA_SERVICIO_TECNICO');
 
-        DB::table('servicio_tecnico_producto')->insert([
+        $this->crearModelo(ServicioTecnicoProducto::class, [
             'Id_Servicio_Tecnico' => $servicioTecnicoId,
             'Id_Producto' => $item['producto_id'],
             'Id_Producto_Serie' => $item['producto_serie_id'],
@@ -551,7 +896,7 @@ new class extends Component
 
     private function cargarChecklist(int $servicioTecnicoId): void
     {
-        $check = DB::table('servicio_tecnico_checklist')
+        $check = ServicioTecnicoChecklist::query()
             ->where('Id_Servicio_Tecnico', $servicioTecnicoId)
             ->first();
 
@@ -574,13 +919,24 @@ new class extends Component
 
     private function cargarProductosDelServicio(int $servicioTecnicoId): void
     {
-        $this->productos = DB::table('servicio_tecnico_producto as stp')
-            ->join('producto as p', 'p.Id_Producto', '=', 'stp.Id_Producto')
+        $this->productos = ServicioTecnicoProducto::query()
+            ->join('producto as p', 'p.Id_Producto', '=', 'servicio_tecnico_producto.Id_Producto')
             ->leftJoin('marca as m', 'm.Id_Marca', '=', 'p.Id_Marca')
-            ->leftJoin('producto_serie as ps', 'ps.id_producto_serie', '=', 'stp.Id_Producto_Serie')
-            ->where('stp.Id_Servicio_Tecnico', $servicioTecnicoId)
-            ->select('stp.*', 'p.Nombre_Producto', 'p.Modelo', 'm.Nombre_Marca', 'ps.Numero_Serie')
-            ->orderBy('stp.Id_Servicio_Tecnico_Producto')
+            ->leftJoin('producto_serie as ps', 'ps.id_producto_serie', '=', 'servicio_tecnico_producto.Id_Producto_Serie')
+            ->where('servicio_tecnico_producto.Id_Servicio_Tecnico', $servicioTecnicoId)
+            ->select([
+                'servicio_tecnico_producto.Id_Servicio_Tecnico_Producto',
+                'servicio_tecnico_producto.Id_Producto',
+                'servicio_tecnico_producto.Id_Producto_Serie',
+                'servicio_tecnico_producto.Cantidad',
+                'servicio_tecnico_producto.Precio_Unitario',
+                'servicio_tecnico_producto.Subtotal',
+                'p.Nombre_Producto',
+                'p.Modelo',
+                'm.Nombre_Marca',
+                'ps.Numero_Serie',
+            ])
+            ->orderBy('servicio_tecnico_producto.Id_Servicio_Tecnico_Producto')
             ->get()
             ->map(fn ($item) => [
                 'tmp_id' => 'guardado_' . $item->Id_Servicio_Tecnico_Producto,
@@ -589,7 +945,13 @@ new class extends Component
                 'producto_id' => (int) $item->Id_Producto,
                 'producto_serie_id' => $item->Id_Producto_Serie ? (int) $item->Id_Producto_Serie : null,
                 'codigo' => (string) $item->Id_Producto,
-                'descripcion' => trim(preg_replace('/\s+/', ' ', ($item->Nombre_Marca ? $item->Nombre_Marca . ' ' : '') . $item->Nombre_Producto . ' ' . ($item->Modelo ?? ''))),
+                'descripcion' => $this->limpiarTexto(
+                    trim(
+                        ($item->Nombre_Marca ? $item->Nombre_Marca . ' ' : '') .
+                        $item->Nombre_Producto . ' ' .
+                        ($item->Modelo ?? '')
+                    )
+                ),
                 'serie' => $item->Numero_Serie ?? 'N/A',
                 'cantidad' => (float) $item->Cantidad,
                 'precio' => (float) $item->Precio_Unitario,
@@ -627,7 +989,13 @@ new class extends Component
         $this->productoPrecio = 0;
         $this->productoTieneSeries = false;
         $this->seriesDisponibles = [];
-        $this->resetErrorBag(['productoId', 'productoSerieId', 'productoCantidad', 'productoPrecio']);
+
+        $this->resetErrorBag([
+            'productoId',
+            'productoSerieId',
+            'productoCantidad',
+            'productoPrecio',
+        ]);
     }
 
     private function limpiarFormulario(): void
@@ -647,23 +1015,518 @@ new class extends Component
         $this->fechaEstimadaEntrega = null;
         $this->observacionTecnica = '';
         $this->productos = [];
+        $this->tipoOperacion = self::TIPO_CONTADO;
+        $this->tipoCambio = '36.50';
+        $this->limpiarCobroServicio();
+
         $this->resetProductoForm();
-        $this->checklist = [
-            'enciende' => false,
-            'lleva_cargador' => false,
-            'lleva_bateria' => false,
-            'pantalla_sana' => false,
-            'teclado_completo' => false,
-            'touchpad_funcional' => false,
-            'tiene_golpes_visibles' => false,
-            'tiene_humedad' => false,
-            'tiene_sello_roto' => false,
-            'lleva_cable_poder' => false,
-            'lleva_cartucho_toner' => false,
-            'lleva_mouse_accesorios' => false,
-            'observacion_checklist' => '',
-        ];
+
+        foreach (array_keys($this->checklistItems) as $key) {
+            $this->checklist[$key] = false;
+        }
+
+        $this->checklist['observacion_checklist'] = '';
         $this->resetErrorBag();
+    }
+
+    public function totalServicioActual(): float
+    {
+        $costoEstimado = $this->numeroSeguro($this->costoEstimado);
+
+        $totalRepuestos = collect($this->productos)
+            ->sum(fn ($item) => $this->numeroSeguro($item['subtotal'] ?? 0));
+
+        return round($costoEstimado + $totalRepuestos, 2);
+    }
+
+    public function totalPagadoCordobas(): float
+    {
+        return round($this->limpiarMonto($this->pagoCordobas) + ($this->limpiarDecimal($this->pagoDolares) * $this->tasaCambio()), 2);
+    }
+
+    public function cambioServicio(): float
+    {
+        $base = $this->tipoOperacion === self::TIPO_CREDITO
+            ? max($this->totalServicioActual() - $this->saldoFavorAplicadoServicio(), 0)
+            : $this->totalServicioActual();
+
+        return round(max($this->totalPagadoCordobas() - $base, 0), 2);
+    }
+
+    public function saldoServicio(): float
+    {
+        if ($this->tipoOperacion === self::TIPO_CREDITO) {
+            return $this->saldoCreditoServicio();
+        }
+
+        return round(max($this->totalServicioActual() - $this->totalPagadoCordobas(), 0), 2);
+    }
+
+    private function calcularCobroServicio(float $totalServicio, float $montoPagadoAnterior): array
+    {
+        $pagoCordobas = round($this->limpiarMonto($this->pagoCordobas), 2);
+        $pagoDolares = round($this->limpiarDecimal($this->pagoDolares), 2);
+        $equivalenteDolares = round($pagoDolares * $this->tasaCambio(), 2);
+        $recibidoEquivalente = round($pagoCordobas + $equivalenteDolares, 2);
+        $pendienteAnterior = round(max($totalServicio - $montoPagadoAnterior, 0), 2);
+        $aplicado = round(min($recibidoEquivalente, $pendienteAnterior), 2);
+        $cambioEntregado = round(max($recibidoEquivalente - $pendienteAnterior, 0), 2);
+        $pagadoTotal = round(min($montoPagadoAnterior + $aplicado, $totalServicio), 2);
+
+        return [
+            'pago_cordobas' => $pagoCordobas,
+            'pago_dolares' => $pagoDolares,
+            'equivalente_dolares' => $equivalenteDolares,
+            'recibido_equivalente' => $recibidoEquivalente,
+            'aplicado' => $aplicado,
+            'pagado_total' => $pagadoTotal,
+            'saldo_pendiente' => round(max($totalServicio - $pagadoTotal, 0), 2),
+            'cambio_entregado' => $cambioEntregado,
+        ];
+    }
+
+    private function registrarPagosServicioTecnico(int $servicioTecnicoId, int $ventaId, array $cobro): void
+    {
+        if (($cobro['pago_cordobas'] ?? 0) > 0) {
+            DB::table('pago_venta')->insert([
+                'Id_Venta' => $ventaId,
+                'Fecha_Pago' => now(),
+                'Moneda' => 0,
+                'Tipo_Pago' => $this->tipoPagoCordobas,
+                'Numero_Referencia' => $this->pagoRequiereReferencia($this->tipoPagoCordobas)
+                    ? trim($this->referenciaCordobas)
+                    : null,
+                'Monto' => $cobro['pago_cordobas'],
+                'Tipo_Cambio' => 1,
+                'Monto_Equivalente_Cordobas' => $cobro['pago_cordobas'],
+            ]);
+        }
+
+        if (($cobro['pago_dolares'] ?? 0) > 0) {
+            DB::table('pago_venta')->insert([
+                'Id_Venta' => $ventaId,
+                'Fecha_Pago' => now(),
+                'Moneda' => 1,
+                'Tipo_Pago' => $this->tipoPagoDolares,
+                'Numero_Referencia' => $this->pagoRequiereReferencia($this->tipoPagoDolares)
+                    ? trim($this->referenciaDolares)
+                    : null,
+                'Monto' => $cobro['pago_dolares'],
+                'Tipo_Cambio' => $this->tasaCambio(),
+                'Monto_Equivalente_Cordobas' => $cobro['equivalente_dolares'],
+            ]);
+        }
+    }
+
+    public function saldoFavorDisponible(): float
+    {
+        if (! $this->clienteId || $this->tipoOperacion !== self::TIPO_CREDITO) {
+            return 0;
+        }
+
+        return round((float) DB::table('cliente_credito')
+            ->where('Id_Cliente', $this->clienteId)
+            ->where('Estado', 'ACTIVO')
+            ->value('Saldo_Actual'), 2);
+    }
+
+    public function saldoFavorAplicadoServicio(): float
+    {
+        return round(min($this->saldoFavorDisponible(), $this->totalServicioActual()), 2);
+    }
+
+    public function abonoInicialServicio(): float
+    {
+        if ($this->tipoOperacion !== self::TIPO_CREDITO) {
+            return $this->totalPagadoCordobas();
+        }
+
+        return round(min(
+            $this->totalPagadoCordobas(),
+            max($this->totalServicioActual() - $this->saldoFavorAplicadoServicio(), 0)
+        ), 2);
+    }
+
+    public function saldoCreditoServicio(): float
+    {
+        return round(max(
+            $this->totalServicioActual()
+            - $this->saldoFavorAplicadoServicio()
+            - $this->abonoInicialServicio(),
+            0
+        ), 2);
+    }
+
+    private function clienteEsInstitucion(int $clienteId): bool
+    {
+        return Cliente::query()
+            ->where('Id_Cliente', $clienteId)
+            ->where('Estado', 1)
+            ->where('Tipo_Cliente', Cliente::TIPO_INSTITUCION)
+            ->exists();
+    }
+
+    private function obtenerClienteCreditoActivo(int $clienteId): object
+    {
+        if (! $this->clienteEsInstitucion($clienteId)) {
+            throw new RuntimeException('El crédito solo se puede registrar a clientes institucionales.');
+        }
+
+        $clienteCredito = DB::table('cliente_credito')
+            ->where('Id_Cliente', $clienteId)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $clienteCredito) {
+            $idClienteCredito = DB::table('cliente_credito')->insertGetId([
+                'Id_Cliente' => $clienteId,
+                'Saldo_Actual' => 0,
+                'Estado' => 'ACTIVO',
+                'Fecha_Registro' => now(),
+            ]);
+
+            $clienteCredito = DB::table('cliente_credito')
+                ->where('Id_Cliente_Credito', $idClienteCredito)
+                ->lockForUpdate()
+                ->first();
+        }
+
+        if (($clienteCredito->Estado ?? '') !== 'ACTIVO') {
+            throw new RuntimeException('La cuenta de crédito de esta institución no está activa.');
+        }
+
+        return $clienteCredito;
+    }
+
+    private function calcularCreditoConSaldoFavor(object $clienteCredito, float $total): array
+    {
+        $saldoAnteriorFavor = round((float) ($clienteCredito->Saldo_Actual ?? 0), 2);
+        $saldoFavorAplicado = round(min($saldoAnteriorFavor, $total), 2);
+        $saldoDespuesFavor = round(max($saldoAnteriorFavor - $saldoFavorAplicado, 0), 2);
+        $pendienteDespuesFavor = round(max($total - $saldoFavorAplicado, 0), 2);
+
+        $pagoCordobas = round($this->limpiarMonto($this->pagoCordobas), 2);
+        $pagoDolares = round($this->limpiarDecimal($this->pagoDolares), 2);
+        $equivalenteDolares = round($pagoDolares * $this->tasaCambio(), 2);
+        $recibidoEquivalente = round($pagoCordobas + $equivalenteDolares, 2);
+        $abonoPagoAplicado = round(min($recibidoEquivalente, $pendienteDespuesFavor), 2);
+        $cambioEntregado = round(max($recibidoEquivalente - $pendienteDespuesFavor, 0), 2);
+
+        $pendienteAplicar = $abonoPagoAplicado;
+        $abonoCordobas = round(min($pagoCordobas, $pendienteAplicar), 2);
+        $pendienteAplicar = round(max($pendienteAplicar - $abonoCordobas, 0), 2);
+        $abonoDolaresEquivalente = round(min($equivalenteDolares, $pendienteAplicar), 2);
+        $abonoDolares = $abonoDolaresEquivalente > 0
+            ? round($abonoDolaresEquivalente / $this->tasaCambio(), 2)
+            : 0.00;
+
+        $abonoInicialTotal = round($saldoFavorAplicado + $abonoPagoAplicado, 2);
+        $saldoPendienteCredito = round(max($total - $abonoInicialTotal, 0), 2);
+
+        return [
+            'id_cliente_credito' => (int) $clienteCredito->Id_Cliente_Credito,
+            'id_cliente' => (int) $clienteCredito->Id_Cliente,
+            'saldo_anterior_favor' => $saldoAnteriorFavor,
+            'saldo_favor_aplicado' => $saldoFavorAplicado,
+            'saldo_despues_favor' => $saldoDespuesFavor,
+            'pago_cordobas_recibido' => $pagoCordobas,
+            'pago_dolares_recibido' => $pagoDolares,
+            'equivalente_dolares_recibido' => $equivalenteDolares,
+            'abono_pago_aplicado' => $abonoPagoAplicado,
+            'abono_cordobas' => $abonoCordobas,
+            'abono_dolares' => $abonoDolares,
+            'abono_dolares_equivalente' => $abonoDolaresEquivalente,
+            'abono_inicial_total' => $abonoInicialTotal,
+            'saldo_pendiente_credito' => $saldoPendienteCredito,
+            'cambio_entregado' => $cambioEntregado,
+            'estado_credito' => $saldoPendienteCredito <= 0
+                ? self::ESTADO_CREDITO_CANCELADO
+                : self::ESTADO_CREDITO_PENDIENTE,
+        ];
+    }
+
+    private function registrarCreditoServicioTecnico(
+        int $ventaId,
+        object $clienteCredito,
+        array $credito,
+        string $numeroOrden
+    ): int {
+        $creditoId = DB::table('credito')->insertGetId([
+            'Id_Cliente_Credito' => $credito['id_cliente_credito'],
+            'Id_Venta' => $ventaId,
+            'Fecha_Credito' => now()->toDateString(),
+            'Abono_Inicial' => $credito['abono_inicial_total'],
+            'Saldo_Actual' => $credito['saldo_pendiente_credito'],
+            'Firma_Recibido' => null,
+            'Estado' => $credito['estado_credito'],
+        ]);
+
+        if ($credito['saldo_favor_aplicado'] > 0) {
+            DB::table('cliente_credito')
+                ->where('Id_Cliente_Credito', $credito['id_cliente_credito'])
+                ->update([
+                    'Saldo_Actual' => $credito['saldo_despues_favor'],
+                ]);
+
+            DB::table('cliente_credito_movimiento')->insert([
+                'Id_Cliente_Credito' => $credito['id_cliente_credito'],
+                'Id_Cliente' => $credito['id_cliente'],
+                'Id_Venta' => $ventaId,
+                'Id_Credito' => $creditoId,
+                'Tipo_Movimiento' => 'CARGO',
+                'Monto' => $credito['saldo_favor_aplicado'],
+                'Saldo_Anterior' => $credito['saldo_anterior_favor'],
+                'Saldo_Despues' => $credito['saldo_despues_favor'],
+                'Fecha_Movimiento' => now(),
+                'Observacion' => 'Saldo a favor aplicado al servicio técnico ' . $numeroOrden,
+            ]);
+        }
+
+        $this->registrarAbonosCreditoIniciales($creditoId, $credito, 'Anticipo registrado desde servicio técnico ' . $numeroOrden);
+
+        return (int) $creditoId;
+    }
+
+    private function registrarAbonosCreditoIniciales(int $creditoId, array $credito, string $observacion): void
+    {
+        if (($credito['abono_cordobas'] ?? 0) > 0) {
+            DB::table('abono_credito')->insert([
+                'Id_Credito' => $creditoId,
+                'Fecha_Abono' => now(),
+                'Moneda' => self::MONEDA_CORDOBA,
+                'Monto' => $credito['abono_cordobas'],
+                'Numero_Transferencia' => $this->pagoRequiereReferencia($this->tipoPagoCordobas)
+                    ? trim($this->referenciaCordobas)
+                    : null,
+                'Observacion' => $observacion . '. Método: ' . $this->tipoPagoCordobas,
+                'Tipo_Cambio' => 1,
+                'Monto_Equivalente_Cordobas' => $credito['abono_cordobas'],
+            ]);
+        }
+
+        if (($credito['abono_dolares'] ?? 0) > 0) {
+            DB::table('abono_credito')->insert([
+                'Id_Credito' => $creditoId,
+                'Fecha_Abono' => now(),
+                'Moneda' => self::MONEDA_DOLAR,
+                'Monto' => $credito['abono_dolares'],
+                'Numero_Transferencia' => $this->pagoRequiereReferencia($this->tipoPagoDolares)
+                    ? trim($this->referenciaDolares)
+                    : null,
+                'Observacion' => $observacion . '. Método: ' . $this->tipoPagoDolares,
+                'Tipo_Cambio' => $this->tasaCambio(),
+                'Monto_Equivalente_Cordobas' => $credito['abono_dolares_equivalente'],
+            ]);
+        }
+    }
+
+    private function actualizarCreditoServicioTecnicoExistente(object $credito, float $totalServicio): array
+    {
+        $abonosPosteriores = round((float) DB::table('abono_credito')
+            ->where('Id_Credito', $credito->Id_Credito)
+            ->sum('Monto_Equivalente_Cordobas'), 2);
+
+        $pagadoTotal = round((float) ($credito->Abono_Inicial ?? 0) + $abonosPosteriores, 2);
+        $saldoPendiente = round(max($totalServicio - $pagadoTotal, 0), 2);
+
+        DB::table('credito')
+            ->where('Id_Credito', $credito->Id_Credito)
+            ->update([
+                'Saldo_Actual' => $saldoPendiente,
+                'Estado' => $saldoPendiente <= 0
+                    ? self::ESTADO_CREDITO_CANCELADO
+                    : self::ESTADO_CREDITO_PENDIENTE,
+            ]);
+
+        return [
+            'pagado_total' => min($pagadoTotal, $totalServicio),
+            'saldo_pendiente' => $saldoPendiente,
+            'cambio_entregado' => 0,
+        ];
+    }
+
+    private function crearVentaServicioTecnico(int $usuarioId, float $totalServicio, array $cobro): int
+    {
+        $venta = $this->crearModelo(Venta::class, [
+            'Numero_Factura' => $this->generarNumeroFactura(),
+            'Fecha_venta' => now(),
+            'Id_Cliente' => $this->clienteId,
+            'Id_Usuario' => $usuarioId,
+            'Tipo_Venta' => $this->tipoOperacion,
+            'Estado' => Venta::ESTADO_ACTIVA ?? 1,
+            'Descuento' => 0,
+            'Total' => $totalServicio,
+            'Tipo_Cambio' => $this->tasaCambio(),
+            'Cambio_Entregado_Cordobas' => $cobro['cambio_entregado'] ?? 0,
+        ]);
+
+        return (int) $venta->Id_Venta;
+    }
+
+    private function actualizarVentaServicioTecnico(int $ventaId, int $usuarioId, float $totalServicio, array $cobro): void
+    {
+        DB::table('venta')
+            ->where('Id_Venta', $ventaId)
+            ->update([
+                'Id_Cliente' => $this->clienteId,
+                'Id_Usuario' => $usuarioId,
+                'Tipo_Venta' => $this->tipoOperacion,
+                'Estado' => Venta::ESTADO_ACTIVA ?? 1,
+                'Descuento' => 0,
+                'Total' => $totalServicio,
+                'Tipo_Cambio' => $this->tasaCambio(),
+                'Cambio_Entregado_Cordobas' => DB::raw('COALESCE(Cambio_Entregado_Cordobas, 0) + ' . (float) ($cobro['cambio_entregado'] ?? 0)),
+            ]);
+    }
+
+    private function registrarDetalleVentaServicioTecnico(int $ventaId, int $servicioId, string $numeroOrden): void
+    {
+        DB::table('detalle_venta')->where('Id_Venta', $ventaId)->delete();
+
+        if ($this->numeroSeguro($this->costoEstimado) > 0) {
+            DB::table('detalle_venta')->insert([
+                'Id_Venta' => $ventaId,
+                'Tipo_Detalle' => 'SERVICIO',
+                'Id_Producto' => null,
+                'Id_Producto_serie' => null,
+                'Id_Servicio' => $servicioId,
+                'Id_Tarifa_Copia' => null,
+                'Nombre_Formato' => null,
+                'Formato_Copia' => null,
+                'Lados_Copia' => null,
+                'Cantidad' => 1,
+                'Precio_Unitario' => round($this->numeroSeguro($this->costoEstimado), 2),
+                'Subtotal' => round($this->numeroSeguro($this->costoEstimado), 2),
+                'Descuento' => 0,
+                'Observacion' => 'Mano de obra servicio técnico ' . $numeroOrden,
+            ]);
+        }
+
+        foreach ($this->productos as $item) {
+            DB::table('detalle_venta')->insert([
+                'Id_Venta' => $ventaId,
+                'Tipo_Detalle' => 'PRODUCTO',
+                'Id_Producto' => $item['producto_id'],
+                'Id_Producto_serie' => $item['producto_serie_id'],
+                'Id_Servicio' => null,
+                'Id_Tarifa_Copia' => null,
+                'Nombre_Formato' => null,
+                'Formato_Copia' => null,
+                'Lados_Copia' => null,
+                'Cantidad' => $item['cantidad'],
+                'Precio_Unitario' => $item['precio'],
+                'Subtotal' => $item['subtotal'],
+                'Descuento' => 0,
+                'Observacion' => 'Repuesto usado en servicio técnico ' . $numeroOrden,
+            ]);
+        }
+    }
+
+    private function generarNumeroFactura(): string
+    {
+        do {
+            $numero = 'F-' . now()->format('Ymd-His') . '-' . random_int(100, 999);
+        } while (Venta::query()->where('Numero_Factura', $numero)->exists());
+
+        return $numero;
+    }
+
+    private function limpiarCobroServicio(): void
+    {
+        $this->tipoPagoCordobas = self::PAGO_EFECTIVO;
+        $this->tipoPagoDolares = self::PAGO_EFECTIVO;
+        $this->pagoCordobas = '0';
+        $this->pagoDolares = '0';
+        $this->referenciaCordobas = '';
+        $this->referenciaDolares = '';
+    }
+
+    private function numeroSeguro(mixed $valor): float
+    {
+        if (is_null($valor)) {
+            return 0.00;
+        }
+
+        if (is_int($valor) || is_float($valor)) {
+            return round((float) $valor, 2);
+        }
+
+        if (is_string($valor)) {
+            $valor = trim($valor);
+
+            if ($valor === '') {
+                return 0.00;
+            }
+
+            $valor = str_replace(',', '', $valor);
+            $valor = preg_replace('/[^\d.]/', '', $valor);
+
+            return $valor === '' ? 0.00 : round((float) $valor, 2);
+        }
+
+        return 0.00;
+    }
+
+    private function limpiarMonto(?string $valor): float
+    {
+        $valor = str_replace(',', '', $valor ?? '');
+        $limpio = preg_replace('/[^\d.]/', '', $valor);
+
+        return $limpio === '' ? 0 : (float) $limpio;
+    }
+
+    private function limpiarDecimal(?string $valor): float
+    {
+        $valor = str_replace(',', '.', $valor ?? '');
+        $limpio = preg_replace('/[^\d.]/', '', $valor);
+
+        return $limpio === '' ? 0 : (float) $limpio;
+    }
+
+    private function formatearMonto(?string $valor): string
+    {
+        $limpio = preg_replace('/[^\d]/', '', $valor ?? '');
+
+        if ($limpio === '') {
+            return '';
+        }
+
+        return number_format((int) $limpio, 0, '.', ',');
+    }
+
+    private function formatearDecimal(?string $valor): string
+    {
+        $valor = str_replace(',', '.', $valor ?? '');
+        $valor = preg_replace('/[^\d.]/', '', $valor);
+
+        if ($valor === '') {
+            return '';
+        }
+
+        $partes = explode('.', $valor, 2);
+        $entero = $partes[0] === '' ? '0' : $partes[0];
+        $decimal = $partes[1] ?? '';
+
+        if ($decimal !== '') {
+            return $entero . '.' . substr($decimal, 0, 2);
+        }
+
+        return $entero;
+    }
+
+    public function tasaCambio(): float
+    {
+        $tasa = $this->limpiarDecimal($this->tipoCambio);
+
+        return $tasa > 0 ? $tasa : 1;
+    }
+
+    private function pagoRequiereReferencia(string $tipoPago): bool
+    {
+        return in_array($tipoPago, [
+            self::PAGO_TRANSFERENCIA,
+            self::PAGO_TARJETA,
+        ], true);
     }
 
     private function usuarioActualId(): int
@@ -675,7 +1538,9 @@ new class extends Component
             ?? auth()->id();
 
         if (!$id) {
-            $id = DB::table('usuario')->where('Estado', 1)->value('Id_Usuario');
+            $id = Usuario::query()
+                ->where('Estado', 1)
+                ->value('Id_Usuario');
         }
 
         if (!$id) {
@@ -687,7 +1552,7 @@ new class extends Component
 
     private function servicioPorTipo(string $tipo): int
     {
-        $id = DB::table('servicio')
+        $id = Servicio::query()
             ->where('Tipo_Servicio', $tipo)
             ->where('Estado', 1)
             ->value('Id_Servicio');
@@ -711,7 +1576,7 @@ new class extends Component
             ],
         };
 
-        return (int) DB::table('servicio')->insertGetId(array_merge($datos, [
+        $servicio = $this->crearModelo(Servicio::class, array_merge($datos, [
             'Precio_Base' => 0,
             'Requiere_Contrato' => 0,
             'Requiere_Anticipo' => 0,
@@ -720,20 +1585,27 @@ new class extends Component
             'Estado' => 1,
             'Permite_Credito' => 1,
         ]));
+
+        return (int) $servicio->Id_Servicio;
     }
 
-    private function generarNumeroUnico(string $prefijo, string $tabla, string $columna): string
+    private function generarNumeroUnico(string $prefijo, string $modelo, string $columna): string
     {
         do {
-            $numero = $prefijo . '-' . now()->format('Ymd') . '-' . str_pad((string) random_int(1, 9999), 4, '0', STR_PAD_LEFT);
-        } while (DB::table($tabla)->where($columna, $numero)->exists());
+            $numero = $prefijo . '-' . now()->format('Ymd') . '-' . str_pad(
+                (string) random_int(1, 9999),
+                4,
+                '0',
+                STR_PAD_LEFT
+            );
+        } while ($modelo::query()->where($columna, $numero)->exists());
 
         return $numero;
     }
 
     private function descontarInventario(array $item, string $estadoSerie, string $tipoMovimiento): void
     {
-        $producto = DB::table('producto')
+        $producto = Producto::query()
             ->where('Id_Producto', $item['producto_id'])
             ->lockForUpdate()
             ->first();
@@ -753,7 +1625,7 @@ new class extends Component
         }
 
         if ($item['producto_serie_id']) {
-            $serie = DB::table('producto_serie')
+            $serie = ProductoSerie::query()
                 ->where('id_producto_serie', $item['producto_serie_id'])
                 ->lockForUpdate()
                 ->first();
@@ -762,19 +1634,15 @@ new class extends Component
                 throw new RuntimeException('La serie ya no está disponible: ' . $item['serie']);
             }
 
-            DB::table('producto_serie')
-                ->where('id_producto_serie', $item['producto_serie_id'])
-                ->update([
-                    'Estado' => $estadoSerie,
-                    'Observacion' => 'Usado en servicio técnico',
-                ]);
+            $serie->forceFill([
+                'Estado' => $estadoSerie,
+                'Observacion' => 'Usado en servicio técnico',
+            ])->save();
         }
 
-        DB::table('producto')
-            ->where('Id_Producto', $item['producto_id'])
-            ->update(['Stock_Actual' => DB::raw('Stock_Actual - ' . $cantidad)]);
+        $producto->decrement('Stock_Actual', $cantidad);
 
-        DB::table('movimiento_inventario')->insert([
+        $this->crearModelo(MovimientoInventario::class, [
             'Id_Producto' => $item['producto_id'],
             'Id_Producto_Serie' => $item['producto_serie_id'],
             'Fecha_Movimiento' => now(),
@@ -782,6 +1650,22 @@ new class extends Component
             'Cantidad' => $cantidad,
             'Motivo_Movimiento' => 1,
         ]);
+    }
+
+    private function crearModelo(string $modelo, array $datos): Model
+    {
+        /** @var Model $instancia */
+        $instancia = new $modelo();
+
+        $instancia->forceFill($datos);
+        $instancia->save();
+
+        return $instancia;
+    }
+
+    private function limpiarTexto(?string $texto): string
+    {
+        return trim(preg_replace('/\s+/', ' ', (string) $texto));
     }
 
     private function mostrarMensaje(string $tipo, string $titulo, string $descripcion): void
@@ -795,348 +1679,550 @@ new class extends Component
 };
 ?>
 
-<div
-    class="flex h-[calc(100vh-3rem)] min-h-0 w-full flex-col gap-4 overflow-y-auto bg-[#F0F3F7] px-4 py-4 md:px-6 md:py-5">
-    <div class="flex shrink-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-            <h1 class="text-2xl font-bold text-[#1A2B42]">Servicio técnico</h1>
-            <p class="mt-1 text-sm text-[#5F6B7A]">
-                Registro de ingreso, revisión y control del equipo.
-            </p>
-            @if($servicioTecnicoIdSeleccionado)
-            <p class="mt-1 inline-flex rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-semibold text-[#0B6FE4]">
-                Editando servicio técnico #{{ $servicioTecnicoIdSeleccionado }}
-            </p>
-            @endif
+<div class="h-[calc(100vh-3rem)] min-h-0 overflow-hidden bg-[#F0F3F7]">
+    <div class="flex h-full min-h-0 flex-col gap-4 px-4 py-4 md:px-6">
+
+        <div
+            class="sticky top-0 z-20 -mx-4 -mt-4 border-b border-[#D7E4F3] bg-[#F0F3F7]/95 px-4 py-4 backdrop-blur md:-mx-6 md:px-6">
+            <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <h1 class="text-2xl font-black tracking-tight text-[#1A2B42]">Servicio técnico</h1>
+
+                        @if($servicioTecnicoIdSeleccionado)
+                        <span class="rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-bold text-[#0B6FE4]">
+                            Editando #{{ $servicioTecnicoIdSeleccionado }}
+                        </span>
+                        @else
+                        <span
+                            class="rounded-full bg-white px-3 py-1 text-xs font-bold text-[#5F6B7A] ring-1 ring-[#D7E4F3]">
+                            Nuevo ingreso
+                        </span>
+                        @endif
+                    </div>
+
+                    <p class="mt-1 text-sm text-[#5F6B7A]">
+                        Registro, diagnóstico, checklist y repuestos en una sola pantalla.
+                    </p>
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" wire:click="cambiarTipoOperacion('CONTADO')"
+                        class="{{ $tipoOperacion === 'CONTADO' ? 'bg-[#0B6FE4] text-white shadow-sm' : 'bg-white text-[#1A2B42]' }} inline-flex h-10 items-center justify-center rounded-xl border border-[#D7E4F3] px-4 text-sm font-bold transition hover:bg-[#F7F9FC]">
+                        Contado
+                    </button>
+
+                    <button type="button" wire:click="cambiarTipoOperacion('CREDITO')"
+                        class="{{ $tipoOperacion === 'CREDITO' ? 'bg-[#0B6FE4] text-white shadow-sm' : 'bg-white text-[#1A2B42]' }} inline-flex h-10 items-center justify-center rounded-xl border border-[#D7E4F3] px-4 text-sm font-bold transition hover:bg-[#F7F9FC]">
+                        Crédito
+                    </button>
+
+                    <x-button icon="o-document-plus" label="Nuevo" wire:click="nuevoIngreso"
+                        class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-bold text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]" />
+                </div>
+            </div>
         </div>
 
-        <div class="flex flex-wrap gap-2">
-            <x-button label="Nuevo ingreso" wire:click="nuevoIngreso"
-                class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]" />
+        @if($mensaje)
+        <div
+            class="fixed right-5 top-5 z-50 w-[min(420px,calc(100vw-2rem))] rounded-2xl border px-4 py-3 shadow-xl {{ $mensaje['tipo'] === 'success' ? 'border-[#B7E4C7] bg-[#ECFDF3] text-[#166534]' : 'border-[#F5C2C7] bg-[#FEF2F2] text-[#991B1B]' }}">
+            <div class="flex items-start justify-between gap-3">
+                <div>
+                    <p class="font-black">{{ $mensaje['titulo'] }}</p>
+                    <p class="text-sm">{{ $mensaje['descripcion'] }}</p>
+                </div>
 
-            <x-button label="Buscar pendientes" wire:click="abrirPendientes"
-                class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]" />
+                <button type="button" wire:click="$set('mensaje', null)"
+                    class="rounded-lg px-2 text-sm font-black opacity-70 hover:bg-white/60 hover:opacity-100">
+                    X
+                </button>
+            </div>
+        </div>
+        @endif
 
-            <x-button label="{{ $servicioTecnicoIdSeleccionado ? 'Actualizar ingreso' : 'Guardar ingreso' }}"
-                wire:click="guardar" spinner="guardar"
-                class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]" />
+        <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-12">
+            <div class="min-h-0 overflow-y-auto pr-0 xl:col-span-8 xl:pr-1">
+                <div class="space-y-4">
+
+                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                        <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <h2 class="text-lg font-black text-[#1A2B42]">Datos del equipo</h2>
+                                <p class="text-sm text-[#5F6B7A]">Información principal para recibir el equipo.</p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#EAF2FB] px-4 py-2 text-right">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#0B6FE4]">Total estimado</p>
+                                <p class="text-xl font-black text-[#1A2B42]">
+                                    C$ {{ number_format($this->totalServicioActual(), 2) }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                            <div class="xl:col-span-2">
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">{{ $tipoOperacion ===
+                                    'CREDITO' ? 'Institución' : 'Cliente' }}</label>
+                                <x-select wire:model.live="clienteId" :options="$clientes" option-value="id"
+                                    option-label="name"
+                                    placeholder="{{ $tipoOperacion === 'CREDITO' ? 'Seleccione institución' : 'Seleccione cliente' }}"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                @error('clienteId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Teléfono</label>
+                                <x-input wire:model="telefonoCliente" readonly
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Técnico</label>
+                                <x-select wire:model="tecnicoId" :options="$tecnicos" option-value="id"
+                                    option-label="name" placeholder="Seleccione técnico"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                @error('tecnicoId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Tipo</label>
+                                <x-select wire:model="tipoEquipo" :options="$tiposEquipo" option-value="id"
+                                    option-label="name" placeholder="Seleccione"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                @error('tipoEquipo') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Marca</label>
+                                <x-input wire:model="marca"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Modelo</label>
+                                <x-input wire:model="modelo"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div class="xl:col-span-2">
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Serie del equipo
+                                    recibido</label>
+                                <x-input wire:model="numeroSerie"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Estado</label>
+                                <x-select wire:model="estadoServicio" :options="$estadosServicio" option-value="id"
+                                    option-label="name"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Costo estimado</label>
+                                <x-input wire:model.live="costoEstimado" type="number" step="0.01" prefix="C$"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Fecha estimada</label>
+                                <x-input wire:model="fechaEstimadaEntrega" type="date"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div class="md:col-span-2 xl:col-span-4">
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Problema reportado</label>
+                                <x-textarea wire:model="problemaReportado" rows="2"
+                                    class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                @error('problemaReportado') <span class="text-xs text-red-600">{{ $message }}</span>
+                                @enderror
+                            </div>
+                        </div>
+                    </x-card>
+
+                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                        <div class="mb-4">
+                            <h2 class="text-lg font-black text-[#1A2B42]">Estado físico del equipo</h2>
+                            <p class="text-sm text-[#5F6B7A]">Checklist rápido de recepción.</p>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+                            @foreach($checklistItems as $key => $label)
+                            <label
+                                class="flex cursor-pointer items-center gap-3 rounded-2xl border border-[#2E8BC0] bg-[#F7F9FC] px-4 py-3 text-sm font-bold text-[#1A2B42] transition hover:bg-[#EAF2FB]">
+                                <x-checkbox wire:model.live="checklist.{{ $key }}"
+                                    class="checkbox-sm border-2 border-[#2E8BC0] bg-white text-white checked:border-[#0B6FE4] checked:bg-[#0B6FE4] checked:[--chkbg:#0B6FE4] checked:[--chkfg:white]" />
+
+                                <span class="leading-tight">
+                                    {{ $label }}
+                                </span>
+                            </label>
+                            @endforeach
+                        </div>
+
+
+                    </x-card>
+
+                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                        <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <h2 class="text-lg font-black text-[#1A2B42]">Repuestos / insumos</h2>
+                                <p class="text-sm text-[#5F6B7A]">
+                                    Agregá repuestos directo aquí. Sin modal. Menos clics, menos sufrimiento
+                                    administrativo.
+                                </p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#EAF2FB] px-4 py-2 text-right">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#0B6FE4]">Repuestos</p>
+                                <p class="text-xl font-black text-[#1A2B42]">
+                                    C$ {{ number_format(collect($productos)->sum('subtotal'), 2) }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="mb-4 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3"
+                            wire:keydown.enter.prevent="agregarProducto">
+                            <div class="grid grid-cols-1 gap-3 md:grid-cols-12">
+                                <div class="md:col-span-5">
+                                    <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Producto</label>
+                                    <x-select wire:model.live="productoId" :options="$productosDisponibles"
+                                        option-value="id" option-label="name" placeholder="Seleccione producto"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    @error('productoId') <span class="text-xs text-red-600">{{ $message }}</span>
+                                    @enderror
+                                </div>
+
+                                @if($productoTieneSeries)
+                                <div class="md:col-span-3">
+                                    <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Serie</label>
+                                    <x-select wire:model="productoSerieId" :options="$seriesDisponibles"
+                                        option-value="id" option-label="name" placeholder="Seleccione serie"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    @error('productoSerieId') <span class="text-xs text-red-600">{{ $message }}</span>
+                                    @enderror
+                                </div>
+                                @else
+                                <div class="md:col-span-2">
+                                    <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Cantidad</label>
+                                    <x-input wire:model="productoCantidad" type="number" step="0.01"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    @error('productoCantidad') <span class="text-xs text-red-600">{{ $message }}</span>
+                                    @enderror
+                                </div>
+                                @endif
+
+                                <div class="{{ $productoTieneSeries ? 'md:col-span-2' : 'md:col-span-2' }}">
+                                    <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Precio</label>
+                                    <x-input wire:model="productoPrecio" type="number" step="0.01" prefix="C$"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    @error('productoPrecio') <span class="text-xs text-red-600">{{ $message }}</span>
+                                    @enderror
+                                </div>
+
+                                <div
+                                    class="{{ $productoTieneSeries ? 'md:col-span-2' : 'md:col-span-3' }} flex items-end">
+                                    <x-button icon="o-plus" label="Agregar" wire:click="agregarProducto"
+                                        class="h-10 min-h-10 w-full rounded-xl border-0 bg-[#2E8BC0] text-sm font-bold text-white hover:bg-[#0B6FE4]" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="overflow-hidden rounded-2xl border border-[#D7E4F3]">
+                            <x-table :headers="$headers" :rows="$productos"
+                                class="[&_thead_th]:bg-[#2E8BC0] [&_thead_th]:font-bold [&_thead_th]:text-white [&_tbody_tr:hover]:bg-[#F7F9FC]">
+                                @scope('cell_cantidad', $row)
+                                {{ number_format((float) $row['cantidad'], 2) }}
+                                @endscope
+
+                                @scope('cell_precio', $row)
+                                C$ {{ number_format((float) $row['precio'], 2) }}
+                                @endscope
+
+                                @scope('cell_subtotal', $row)
+                                C$ {{ number_format((float) $row['subtotal'], 2) }}
+                                @endscope
+
+                                @scope('cell_acciones', $row)
+                                @if(!empty($row['ya_guardado']))
+                                <span class="rounded-full bg-[#EAF2FB] px-2 py-1 text-xs font-bold text-[#0B6FE4]">
+                                    Guardado
+                                </span>
+                                @else
+                                <x-button icon="o-trash" wire:click="quitarProducto('{{ $row['tmp_id'] }}')"
+                                    class="btn-ghost btn-sm text-red-600 hover:bg-red-50" />
+                                @endif
+                                @endscope
+                            </x-table>
+                        </div>
+                    </x-card>
+                </div>
+            </div>
+
+            <div class="min-h-0 overflow-y-auto xl:col-span-4">
+                <div class="space-y-4">
+
+                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                        <div class="mb-3 flex items-start justify-between gap-3">
+                            <div>
+                                <h2 class="text-lg font-black text-[#1A2B42]">Pendientes rápidos</h2>
+                                <p class="text-sm text-[#5F6B7A]">Buscá y cargá sin abrir otra ventana.</p>
+                            </div>
+
+                            <span class="rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-black text-[#0B6FE4]">
+                                {{ count($serviciosPendientes) }}
+                            </span>
+                        </div>
+
+                        <x-input wire:model.live.debounce.350ms="filtroPendientes" icon="o-magnifying-glass"
+                            placeholder="Orden, cliente, equipo..."
+                            class="mb-3 h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+
+                        <div class="space-y-2">
+                            @forelse(array_slice($serviciosPendientes, 0, 7) as $item)
+                            <button type="button" wire:click="cargarPendiente({{ $item['id'] }}, false)"
+                                class="w-full rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3 text-left transition hover:border-[#2E8BC0] hover:bg-[#EAF2FB]">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0">
+                                        <p class="truncate text-sm font-black text-[#1A2B42]">
+                                            {{ $item['numero'] }}
+                                        </p>
+
+                                        <p class="truncate text-xs font-semibold text-[#5F6B7A]">
+                                            {{ $item['cliente'] }}
+                                        </p>
+                                    </div>
+
+                                    <span
+                                        class="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] font-black text-[#0B6FE4] ring-1 ring-[#D7E4F3]">
+                                        {{ $this->estadoNombre($item['estado']) }}
+                                    </span>
+                                </div>
+
+                                <div class="mt-2 flex items-center justify-between gap-3">
+                                    <p class="truncate text-xs text-[#5F6B7A]">{{ $item['equipo'] }}</p>
+                                    <p class="shrink-0 text-xs font-black text-[#1A2B42]">
+                                        C$ {{ number_format((float) ($item['saldo'] ?? $item['total']), 2) }}
+                                    </p>
+                                </div>
+                            </button>
+                            @empty
+                            <div
+                                class="rounded-2xl border border-dashed border-[#D7E4F3] bg-[#F7F9FC] px-4 py-8 text-center">
+                                <p class="text-sm font-bold text-[#1A2B42]">Sin pendientes</p>
+                                <p class="text-xs text-[#5F6B7A]">No hay resultados con ese filtro.</p>
+                            </div>
+                            @endforelse
+                        </div>
+
+                        <x-button icon="o-folder-open" label="Abrir listado completo" wire:click="abrirPendientes"
+                            class="mt-3 h-10 min-h-10 w-full rounded-xl border border-[#D7E4F3] bg-white text-sm font-bold text-[#1A2B42] hover:bg-[#F7F9FC]" />
+                    </x-card>
+
+                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                        <h2 class="text-lg font-black text-[#1A2B42]">Resumen</h2>
+                        <p class="mb-3 text-sm text-[#5F6B7A]">Vista rápida antes de guardar.</p>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="rounded-2xl bg-[#F7F9FC] p-3">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">Estado</p>
+                                <p class="mt-1 text-sm font-black text-[#1A2B42]">
+                                    {{ $this->estadoNombre($estadoServicio) }}
+                                </p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#F7F9FC] p-3">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">Repuestos</p>
+                                <p class="mt-1 text-sm font-black text-[#1A2B42]">
+                                    {{ count($productos) }}
+                                </p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#F7F9FC] p-3">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">Mano de obra</p>
+                                <p class="mt-1 text-sm font-black text-[#1A2B42]">
+                                    C$ {{ number_format((float) $costoEstimado, 2) }}
+                                </p>
+                            </div>
+
+                            <div class="rounded-2xl bg-[#F7F9FC] p-3">
+                                <p class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">Insumos</p>
+                                <p class="mt-1 text-sm font-black text-[#1A2B42]">
+                                    C$ {{ number_format(collect($productos)->sum('subtotal'), 2) }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="mt-3 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3">
+                            <div class="mb-3 flex items-center justify-between gap-2">
+                                <div>
+                                    <h3 class="text-sm font-black text-[#1A2B42]">Pago recibido</h3>
+                                    <p class="text-xs text-[#5F6B7A]">Guarda C$ y US$ separados; el cambio queda en C$.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 gap-2">
+                                <div>
+                                    <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Tipo cambio</label>
+                                    <x-input wire:model.live.debounce.250ms="tipoCambio" type="text" inputmode="decimal"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Tipo C$</label>
+                                        <select wire:model.live="tipoPagoCordobas"
+                                            class="h-10 w-full rounded-xl border-0 bg-white px-3 text-sm text-[#1A2B42]">
+                                            <option value="EFECTIVO">Efectivo</option>
+                                            <option value="TRANSFERENCIA">Transferencia</option>
+                                            <option value="TARJETA">Tarjeta</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Pago C$</label>
+                                        <x-input wire:model.live.debounce.250ms="pagoCordobas" type="text"
+                                            inputmode="numeric"
+                                            class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    </div>
+                                </div>
+
+                                @if(in_array($tipoPagoCordobas, ['TRANSFERENCIA', 'TARJETA'], true))
+                                <x-input wire:model.live.debounce.250ms="referenciaCordobas" type="text"
+                                    placeholder="Referencia C$"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                @endif
+
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Tipo US$</label>
+                                        <select wire:model.live="tipoPagoDolares"
+                                            class="h-10 w-full rounded-xl border-0 bg-white px-3 text-sm text-[#1A2B42]">
+                                            <option value="EFECTIVO">Efectivo</option>
+                                            <option value="TRANSFERENCIA">Transferencia</option>
+                                            <option value="TARJETA">Tarjeta</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Pago US$</label>
+                                        <x-input wire:model.live.debounce.250ms="pagoDolares" type="text"
+                                            inputmode="decimal"
+                                            class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    </div>
+                                </div>
+
+                                @if(in_array($tipoPagoDolares, ['TRANSFERENCIA', 'TARJETA'], true))
+                                <x-input wire:model.live.debounce.250ms="referenciaDolares" type="text"
+                                    placeholder="Referencia US$"
+                                    class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                @endif
+
+                                <div class="grid grid-cols-3 gap-2 text-xs">
+                                    <div class="rounded-xl bg-white p-2">
+                                        <span class="block text-[#5F6B7A]">Recibido</span>
+                                        <strong class="text-[#1A2B42]">C$ {{ number_format($this->totalPagadoCordobas(),
+                                            2) }}</strong>
+                                    </div>
+                                    <div class="rounded-xl bg-white p-2">
+                                        <span class="block text-[#5F6B7A]">Saldo</span>
+                                        <strong class="text-[#1A2B42]">C$ {{ number_format($this->saldoServicio(), 2)
+                                            }}</strong>
+                                    </div>
+                                    <div class="rounded-xl bg-white p-2">
+                                        <span class="block text-[#5F6B7A]">Cambio</span>
+                                        <strong class="text-[#1A2B42]">C$ {{ number_format($this->cambioServicio(), 2)
+                                            }}</strong>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        @if($tipoOperacion === 'CREDITO')
+                        <div class="mt-3 rounded-2xl border border-[#B7D6F2] bg-[#EAF4FD] p-3">
+                            <h3 class="text-sm font-black text-[#1A2B42]">Crédito institucional</h3>
+                            <p class="text-xs text-[#5F6B7A]">Solo instituciones. Se aplica el saldo a favor disponible
+                                y el restante queda en crédito.</p>
+
+                            <div class="mt-3 grid grid-cols-3 gap-2 text-xs">
+                                <div class="rounded-xl bg-white p-2">
+                                    <span class="block text-[#5F6B7A]">Saldo a favor</span>
+                                    <strong class="text-[#1A2B42]">C$ {{ number_format($this->saldoFavorDisponible(), 2)
+                                        }}</strong>
+                                </div>
+                                <div class="rounded-xl bg-white p-2">
+                                    <span class="block text-[#5F6B7A]">Aplicado</span>
+                                    <strong class="text-[#1A2B42]">C$ {{
+                                        number_format($this->saldoFavorAplicadoServicio(), 2) }}</strong>
+                                </div>
+                                <div class="rounded-xl bg-white p-2">
+                                    <span class="block text-[#5F6B7A]">Nuevo crédito</span>
+                                    <strong class="text-[#1A2B42]">C$ {{ number_format($this->saldoCreditoServicio(), 2)
+                                        }}</strong>
+                                </div>
+                            </div>
+                        </div>
+                        @endif
+
+                        <div class="mt-3 rounded-2xl bg-[#2E8BC0] p-4 text-white">
+                            <p class="text-xs font-bold uppercase tracking-wide text-white/80">Total general</p>
+                            <p class="text-2xl font-black">
+                                C$ {{ number_format($this->totalServicioActual(), 2) }}
+                            </p>
+                        </div>
+
+                        <x-button icon="o-check"
+                            label="{{ $servicioTecnicoIdSeleccionado ? ($tipoOperacion === 'CREDITO' ? 'Actualizar crédito' : 'Actualizar servicio') : ($tipoOperacion === 'CREDITO' ? 'Guardar crédito' : 'Guardar ingreso') }}"
+                            wire:click="guardar" spinner="guardar"
+                            class="mt-3 h-11 min-h-11 w-full rounded-xl border-0 bg-[#2E8BC0] text-sm font-black text-white hover:bg-[#0B6FE4]" />
+                    </x-card>
+                </div>
+            </div>
         </div>
     </div>
 
-    @if($mensaje)
-    <div
-        class="rounded-2xl border px-4 py-3 shadow-sm {{ $mensaje['tipo'] === 'success' ? 'border-[#B7E4C7] bg-[#ECFDF3] text-[#166534]' : 'border-[#F5C2C7] bg-[#FEF2F2] text-[#991B1B]' }}">
-        <div class="flex items-start justify-between gap-3">
-            <div>
-                <p class="font-bold">{{ $mensaje['titulo'] }}</p>
-                <p class="text-sm">{{ $mensaje['descripcion'] }}</p>
-            </div>
-            <button type="button" wire:click="$set('mensaje', null)"
-                class="text-sm font-bold opacity-70 hover:opacity-100">X</button>
-        </div>
-    </div>
-    @endif
-
-    <div class="grid grid-cols-1 gap-4 xl:grid-cols-4">
-        <x-card class="xl:col-span-3 rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-            <div class="mb-4">
-                <h2 class="text-xl font-bold text-[#1A2B42]">Ingreso del equipo</h2>
-                <p class="text-sm text-[#5F6B7A]">Seleccione datos reales del cliente y del técnico receptor.</p>
-            </div>
-
-            <div class="grid grid-cols-1 gap-x-4 gap-y-3 md:grid-cols-2 xl:grid-cols-4">
-                <div class="xl:col-span-2">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Cliente</label>
-                    <x-select wire:model.live="clienteId" :options="$clientes" option-value="id" option-label="name"
-                        placeholder="Seleccione cliente"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                    @error('clienteId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Teléfono</label>
-                    <x-input wire:model="telefonoCliente" readonly
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo de equipo</label>
-                    <x-select wire:model="tipoEquipo" :options="[
-                            ['id' => 'Computadora', 'name' => 'Computadora'],
-                            ['id' => 'Laptop', 'name' => 'Laptop'],
-                            ['id' => 'Impresora', 'name' => 'Impresora'],
-                            ['id' => 'Otro', 'name' => 'Otro']
-                        ]" option-value="id" option-label="name" placeholder="Seleccione"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                    @error('tipoEquipo') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Técnico receptor</label>
-                    <x-select wire:model="tecnicoId" :options="$tecnicos" option-value="id" option-label="name"
-                        placeholder="Seleccione técnico"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                    @error('tecnicoId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Marca</label>
-                    <x-input wire:model="marca"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Modelo</label>
-                    <x-input wire:model="modelo"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div class="xl:col-span-2">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Número de serie del equipo
-                        recibido</label>
-                    <x-input wire:model="numeroSerie"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div class="xl:col-span-4">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Problema reportado</label>
-                    <x-textarea wire:model="problemaReportado" rows="3"
-                        class="w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                    @error('problemaReportado') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-                </div>
-
-                <div class="xl:col-span-4">
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Detalle descriptivo / diagnóstico
-                        inicial</label>
-                    <x-textarea wire:model="detalleDescriptivo" rows="2"
-                        class="w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-            </div>
-        </x-card>
-
-        <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-            <div class="mb-4">
-                <h2 class="text-xl font-bold text-[#1A2B42]">Seguimiento</h2>
-                <p class="text-sm text-[#5F6B7A]">Control del servicio.</p>
-            </div>
-
-            <div class="space-y-3">
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Estado</label>
-                    <x-select wire:model="estadoServicio" :options="[
-                            ['id' => 'RECIBIDO', 'name' => 'Recibido'],
-                            ['id' => 'EN_REVISION', 'name' => 'En revisión'],
-                            ['id' => 'PENDIENTE_REPUESTO', 'name' => 'Pendiente repuesto'],
-                            ['id' => 'REPARADO', 'name' => 'Reparado'],
-                            ['id' => 'ENTREGADO', 'name' => 'Entregado'],
-                            ['id' => 'CANCELADO', 'name' => 'Cancelado']
-                        ]" option-value="id" option-label="name"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Costo estimado</label>
-                    <x-input wire:model.live="costoEstimado" type="number" step="0.01" prefix="C$"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Fecha estimada</label>
-                    <x-input wire:model="fechaEstimadaEntrega" type="date"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div>
-                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Observación técnica</label>
-                    <x-textarea wire:model="observacionTecnica" rows="2"
-                        class="w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                </div>
-
-                <div class="rounded-xl bg-[#EAF2FB] px-4 py-3 text-[#0B6FE4]">
-                    <span class="block text-xs font-semibold">Total estimado</span>
-                    <span class="text-lg font-bold">C$ {{ number_format((float) $costoEstimado +
-                        collect($productos)->sum('subtotal'), 2) }}</span>
-                </div>
-            </div>
-        </x-card>
-    </div>
-
-    <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-        <div class="mb-4">
-            <h2 class="text-xl font-bold text-[#1A2B42]">Estado del equipo al ingresar</h2>
-            <p class="text-sm text-[#5F6B7A]">Marque las condiciones visibles del equipo.</p>
-        </div>
-
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.enciende" /> Enciende
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.lleva_cargador" /> Lleva cargador
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.lleva_bateria" /> Lleva batería
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.pantalla_sana" /> Pantalla en buen estado
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.teclado_completo" /> Teclado completo
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.touchpad_funcional" /> Touchpad funcional
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.tiene_golpes_visibles" /> Tiene golpes visibles
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.tiene_humedad" /> Tiene humedad
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.tiene_sello_roto" /> Tiene sello roto
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.lleva_cable_poder" /> Lleva cable de poder
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.lleva_cartucho_toner" /> Lleva cartucho / tóner
-            </label>
-            <label class="flex items-center gap-3 rounded-xl bg-[#F0F3F7] px-4 py-3 text-sm font-medium text-[#1A2B42]">
-                <x-checkbox wire:model="checklist.lleva_mouse_accesorios" /> Lleva mouse / accesorios
-            </label>
-        </div>
-
-        <div class="mt-3">
-            <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Observación del checklist</label>
-            <x-textarea wire:model="checklist.observacion_checklist" rows="2"
-                class="w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-        </div>
-    </x-card>
-
-    <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-        <div class="mb-3 flex shrink-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-                <h2 class="text-xl font-bold text-[#1A2B42]">Repuestos / insumos</h2>
-                <p class="text-sm text-[#5F6B7A]">
-                    Solo se permiten productos con stock disponible. Las series vendidas o ya usadas no aparecen.
-                </p>
-            </div>
-            <x-button label="Agregar producto" wire:click="abrirProducto"
-                class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]" />
-        </div>
-
-        <div class="overflow-hidden rounded-xl border border-[#D7E4F3]">
-            <x-table :headers="$headers" :rows="$productos"
-                class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0]">
-                @scope('cell_cantidad', $row)
-                {{ number_format((float) $row['cantidad'], 2) }}
-                @endscope
-
-                @scope('cell_precio', $row)
-                C$ {{ number_format((float) $row['precio'], 2) }}
-                @endscope
-
-                @scope('cell_subtotal', $row)
-                C$ {{ number_format((float) $row['subtotal'], 2) }}
-                @endscope
-
-                @scope('cell_acciones', $row)
-                @if(!empty($row['ya_guardado']))
-                <span class="rounded-full bg-[#EAF2FB] px-2 py-1 text-xs font-semibold text-[#0B6FE4]">Guardado</span>
-                @else
-                <x-button icon="o-trash" wire:click="quitarProducto('{{ $row['tmp_id'] }}')"
-                    class="btn-ghost btn-sm text-red-600" />
-                @endif
-                @endscope
-            </x-table>
-        </div>
-    </x-card>
-
-    <x-modal wire:model="modalProducto" title="Agregar repuesto / insumo" separator>
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div class="md:col-span-2">
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Producto</label>
-                <x-select wire:model.live="productoId" :options="$productosDisponibles" option-value="id"
-                    option-label="name" placeholder="Seleccione producto"
-                    class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                @error('productoId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-            </div>
-
-            @if($productoTieneSeries)
-            <div class="md:col-span-2">
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Serie disponible</label>
-                <x-select wire:model="productoSerieId" :options="$seriesDisponibles" option-value="id"
-                    option-label="name" placeholder="Seleccione serie"
-                    class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                @error('productoSerieId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-            </div>
-            @else
-            <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Cantidad</label>
-                <x-input wire:model="productoCantidad" type="number" step="0.01"
-                    class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                @error('productoCantidad') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-            </div>
-            @endif
-
-            <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Precio</label>
-                <x-input wire:model="productoPrecio" type="number" step="0.01" prefix="C$"
-                    class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                @error('productoPrecio') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
-            </div>
-        </div>
-
-        <x-slot:actions>
-            <x-button label="Cancelar" wire:click="$set('modalProducto', false)"
-                class="border border-[#D7E4F3] bg-white text-[#1A2B42]" />
-            <x-button label="Agregar" wire:click="agregarProducto"
-                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" />
-        </x-slot:actions>
-    </x-modal>
-
-    <x-modal wire:model="modalPendientes" title="Buscar servicios pendientes" separator class="backdrop-blur">
+    <x-modal wire:model="modalPendientes" title="Servicios técnicos pendientes" separator class="backdrop-blur">
         <div class="space-y-3">
-            <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Buscar por orden, cliente, equipo, marca
-                    o modelo</label>
-                <x-input wire:model.live.debounce.400ms="filtroPendientes"
-                    placeholder="Ej: ST-20260506, Heyner, Laptop, Asus..."
-                    class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
-            </div>
+            <x-input wire:model.live.debounce.350ms="filtroPendientes" icon="o-magnifying-glass"
+                placeholder="Buscar por orden, cliente, equipo, marca o modelo..."
+                class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
 
-            <div class="max-h-[60vh] overflow-auto rounded-xl border border-[#D7E4F3]">
-                <table class="w-full min-w-[780px] text-left text-sm">
-                    <thead class="bg-[#2E8BC0] text-white">
+            <div class="max-h-[60vh] overflow-auto rounded-2xl border border-[#D7E4F3]">
+                <table class="w-full min-w-190 text-left text-sm">
+                    <thead class="sticky top-0 z-10 bg-[#2E8BC0] text-white">
                         <tr>
-                            <th class="px-3 py-2 font-semibold">Orden</th>
-                            <th class="px-3 py-2 font-semibold">Cliente</th>
-                            <th class="px-3 py-2 font-semibold">Equipo</th>
-                            <th class="px-3 py-2 font-semibold">Estado</th>
-                            <th class="px-3 py-2 font-semibold">Total</th>
-                            <th class="px-3 py-2 font-semibold text-center">Acción</th>
+                            <th class="px-3 py-2 font-bold">Orden</th>
+                            <th class="px-3 py-2 font-bold">Cliente</th>
+                            <th class="px-3 py-2 font-bold">Equipo</th>
+                            <th class="px-3 py-2 font-bold">Estado</th>
+                            <th class="px-3 py-2 font-bold">Saldo</th>
+                            <th class="px-3 py-2 text-center font-bold">Acción</th>
                         </tr>
                     </thead>
+
                     <tbody class="divide-y divide-[#D7E4F3] bg-white text-[#1A2B42]">
                         @forelse($serviciosPendientes as $item)
-                        <tr class="hover:bg-[#F0F3F7]">
-                            <td class="px-3 py-2 font-semibold">{{ $item['numero'] }}</td>
+                        <tr class="hover:bg-[#F7F9FC]">
+                            <td class="px-3 py-2 font-black">{{ $item['numero'] }}</td>
                             <td class="px-3 py-2">{{ $item['cliente'] }}</td>
                             <td class="px-3 py-2">{{ $item['equipo'] }}</td>
                             <td class="px-3 py-2">
-                                <span class="rounded-full bg-[#EAF2FB] px-2 py-1 text-xs font-semibold text-[#0B6FE4]">
-                                    {{ str_replace('_', ' ', $item['estado']) }}
+                                <span class="rounded-full bg-[#EAF2FB] px-2 py-1 text-xs font-black text-[#0B6FE4]">
+                                    {{ $this->estadoNombre($item['estado']) }}
                                 </span>
                             </td>
-                            <td class="px-3 py-2">C$ {{ number_format((float) $item['total'], 2) }}</td>
+                            <td class="px-3 py-2 font-bold">C$ {{ number_format((float) ($item['saldo'] ??
+                                $item['total']), 2) }}</td>
                             <td class="px-3 py-2 text-center">
-                                <x-button label="Cargar" wire:click="cargarPendiente({{ $item['id'] }})"
-                                    class="h-8 min-h-8 border-0 bg-[#2E8BC0] px-3 text-xs text-white hover:bg-[#0B6FE4]" />
+                                <x-button icon="o-arrow-down-tray" label="Cargar"
+                                    wire:click="cargarPendiente({{ $item['id'] }})"
+                                    class="h-8 min-h-8 rounded-xl border-0 bg-[#2E8BC0] px-3 text-xs font-bold text-white hover:bg-[#0B6FE4]" />
                             </td>
                         </tr>
                         @empty
                         <tr>
-                            <td colspan="6" class="px-3 py-6 text-center text-[#5F6B7A]">
+                            <td colspan="6" class="px-3 py-8 text-center text-[#5F6B7A]">
                                 No hay servicios pendientes con ese filtro.
                             </td>
                         </tr>
@@ -1148,7 +2234,7 @@ new class extends Component
 
         <x-slot:actions>
             <x-button label="Cerrar" wire:click="$set('modalPendientes', false)"
-                class="border border-[#D7E4F3] bg-white text-[#1A2B42]" />
+                class="rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42]" />
         </x-slot:actions>
     </x-modal>
 </div>

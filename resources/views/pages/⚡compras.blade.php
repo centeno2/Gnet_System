@@ -13,9 +13,12 @@ use App\Models\CuentaBancaria;
 use Carbon\Carbon;
 use Illuminate\Validation\Rule;
 use Livewire\Component;
+use Livewire\WithPagination;
 
 new class extends Component
 {
+    use WithPagination;
+
     public string $buscarProveedor = '';
     public string $proveedorNombre = '';
     public $idProveedor = '';
@@ -65,6 +68,7 @@ new class extends Component
     public string $cantidad = '1';
     public string $precioCompra = '0';
     public string $precioVenta = '0';
+    public string $garantiaProveedor = '';
     public string $seriesTexto = '';
 
     public bool $editandoDetalle = false;
@@ -75,6 +79,9 @@ new class extends Component
     public array $categoriasTemporales = [];
     public array $marcasTemporales = [];
     public array $detalles = [];
+
+    public ?int $compraEditandoId = null;
+    public string $buscarCompraRealizada = '';
 
     public string $toastMensaje = '';
     public string $toastTipo = 'success';
@@ -180,6 +187,81 @@ new class extends Component
     public function updatedIdCuentaBancaria(): void
     {
         $this->cargarDatosCuentaSeleccionada();
+    }
+
+    public function updatedBuscarCompraRealizada(): void
+    {
+        $this->resetPage('comprasPage');
+    }
+
+    public function comprasRealizadas()
+    {
+        $busqueda = trim($this->buscarCompraRealizada);
+        $compraTable = (new Compra())->getTable();
+        $detalleTable = (new DetalleCompra())->getTable();
+
+        $query = Compra::query()
+            ->select("{$compraTable}.*")
+            ->selectSub(
+                DetalleCompra::query()
+                    ->selectRaw('COUNT(*)')
+                    ->whereColumn("{$detalleTable}.Id_Compra", "{$compraTable}.Id_Compra"),
+                'detalles_count'
+            );
+
+        if ($busqueda !== '') {
+            $proveedorTable = (new Proveedor())->getTable();
+
+            $query
+                ->leftJoin("{$proveedorTable} as proveedor_busqueda", "{$compraTable}.Id_Proveedor", '=', 'proveedor_busqueda.Id_Proveedor')
+                ->leftJoin('persona as persona_busqueda', 'proveedor_busqueda.Id_Persona', '=', 'persona_busqueda.Id_Persona')
+                ->where(function ($q) use ($busqueda, $compraTable) {
+                    $q->where("{$compraTable}.Numero_Compra", 'like', "%{$busqueda}%")
+                        ->orWhere("{$compraTable}.Numero_Referencia_Transferencia", 'like', "%{$busqueda}%")
+                        ->orWhere('persona_busqueda.Primer_Nombre', 'like', "%{$busqueda}%")
+                        ->orWhere('persona_busqueda.Segundo_Nombre', 'like', "%{$busqueda}%")
+                        ->orWhere('persona_busqueda.Primer_Apellido', 'like', "%{$busqueda}%")
+                        ->orWhere('persona_busqueda.Segundo_Apellido', 'like', "%{$busqueda}%");
+                });
+        }
+
+        return $query
+            ->orderByDesc("{$compraTable}.Fecha_Compra")
+            ->orderByDesc("{$compraTable}.Id_Compra")
+            ->paginate(5, ['*'], 'comprasPage');
+    }
+
+    public function nombreProveedorPorId(?int $idProveedor): string
+    {
+        if (! $idProveedor) {
+            return 'Sin proveedor';
+        }
+
+        $proveedor = Proveedor::query()
+            ->leftJoin('persona as pe', 'proveedor.Id_Persona', '=', 'pe.Id_Persona')
+            ->select(
+                'proveedor.Id_Proveedor',
+                'proveedor.Codigo_RUC',
+                'pe.Primer_Nombre',
+                'pe.Segundo_Nombre',
+                'pe.Primer_Apellido',
+                'pe.Segundo_Apellido'
+            )
+            ->where('proveedor.Id_Proveedor', $idProveedor)
+            ->first();
+
+        if (! $proveedor) {
+            return 'Proveedor no encontrado';
+        }
+
+        $nombre = trim(
+            ($proveedor->Primer_Nombre ?? '') . ' ' .
+            ($proveedor->Segundo_Nombre ?? '') . ' ' .
+            ($proveedor->Primer_Apellido ?? '') . ' ' .
+            ($proveedor->Segundo_Apellido ?? '')
+        );
+
+        return $nombre !== '' ? $nombre : ($proveedor->Codigo_RUC ?: 'Proveedor sin nombre');
     }
 
 
@@ -749,7 +831,24 @@ new class extends Component
             'cantidad' => 'required|integer|min:1',
             'precioCompra' => 'required|numeric|min:0.01',
             'precioVenta' => 'required|numeric|min:0.01',
+            'garantiaProveedor' => 'nullable|integer|min:0|max:240',
             'seriesTexto' => 'nullable|string|max:1000',
+        ];
+
+        $mensajesDetalle = [
+            'cantidad.required' => 'Ingrese la cantidad comprada.',
+            'cantidad.integer' => 'La cantidad debe ser un número entero.',
+            'cantidad.min' => 'La cantidad debe ser al menos 1.',
+            'precioCompra.required' => 'Ingrese el precio de compra.',
+            'precioCompra.numeric' => 'El precio de compra debe ser numérico.',
+            'precioCompra.min' => 'El precio de compra debe ser mayor a 0.',
+            'precioVenta.required' => 'Ingrese el precio de venta.',
+            'precioVenta.numeric' => 'El precio de venta debe ser numérico.',
+            'precioVenta.min' => 'El precio de venta debe ser mayor a 0.',
+            'garantiaProveedor.integer' => 'La garantía del proveedor debe ingresarse en meses completos.',
+            'garantiaProveedor.min' => 'La garantía del proveedor no puede ser negativa.',
+            'garantiaProveedor.max' => 'La garantía del proveedor no puede superar 240 meses.',
+            'seriesTexto.max' => 'El listado de series es demasiado largo.',
         ];
 
         if ($this->modoProducto === 'existente') {
@@ -760,7 +859,7 @@ new class extends Component
 
             $this->validate(array_merge($reglasBase, [
                 'idProducto' => 'required|exists:producto,Id_Producto',
-            ]));
+            ]), $mensajesDetalle);
 
             if ((float) $this->precioCompra > $this->precioVentaActual && (float) $this->precioVenta < (float) $this->precioCompra) {
                 $this->addError('precioVenta', 'El precio de venta debe ser mayor o igual al precio de compra.');
@@ -794,7 +893,7 @@ new class extends Component
                 'nuevoGarantiaNuevo' => 'nullable|integer|min:0',
                 'nuevoGarantiaUsado' => 'nullable|integer|min:0',
                 'nuevoEstado' => 'required|in:0,1',
-            ]));
+            ]), $mensajesDetalle);
 
             if (! $this->existeEnCatalogo($this->nuevoCategoriaSeleccionada, $this->categorias)) {
                 $this->addError('nuevoCategoriaSeleccionada', 'Seleccione una categoría válida.');
@@ -836,6 +935,7 @@ new class extends Component
         $precioCompra = (float) $this->precioCompra;
         $precioVenta = (float) $this->precioVenta;
         $subtotal = $cantidad * $precioCompra;
+        $garantiaProveedor = $this->garantiaProveedor !== '' ? (int) $this->garantiaProveedor : null;
 
         $uid = uniqid('detalle_', true);
 
@@ -860,6 +960,7 @@ new class extends Component
             'cantidad' => $cantidad,
             'precio_compra' => $precioCompra,
             'precio_venta' => $precioVenta,
+            'garantia_proveedor' => $garantiaProveedor,
             'subtotal' => $subtotal,
             'series' => $series,
             'actualizar_precio_venta' => $this->modoProducto === 'nuevo' || $precioVenta > $this->precioVentaActual,
@@ -972,6 +1073,7 @@ new class extends Component
         }
 
         $this->cantidad = (string) $detalle['cantidad'];
+        $this->garantiaProveedor = $detalle['garantia_proveedor'] !== null ? (string) $detalle['garantia_proveedor'] : '';
         $this->seriesTexto = implode(PHP_EOL, $detalle['series'] ?? []);
 
         $this->mostrarToast('Detalle cargado para edición.');
@@ -1052,6 +1154,262 @@ new class extends Component
         }
 
         return (int) $marcasCreadas[$valor];
+    }
+
+    public function editarCompra(int $idCompra): void
+    {
+        if ($this->editandoDetalle) {
+            $this->mostrarToast('Termine o cancele la edición del detalle antes de cargar otra compra.', 'error');
+            return;
+        }
+
+        $compra = Compra::query()->find($idCompra);
+
+        if (! $compra) {
+            $this->mostrarToast('No se encontró la compra seleccionada.', 'error');
+            return;
+        }
+
+        $this->cancelarCompra(false);
+        $this->resetErrorBag();
+        $this->resetValidation();
+
+        $this->compraEditandoId = (int) $compra->Id_Compra;
+        $this->seleccionarProveedor((int) $compra->Id_Proveedor);
+
+        $this->numeroCompra = (string) $compra->Numero_Compra;
+        $this->fechaCompra = Carbon::parse($compra->Fecha_Compra)->toDateString();
+        $this->tipoCompra = (string) $compra->Tipo_Compra;
+        $this->fechaLimiteCredito = $compra->Fecha_Limite_Credito
+            ? Carbon::parse($compra->Fecha_Limite_Credito)->toDateString()
+            : '';
+        $this->medioPago = (string) $compra->Medio_Pago;
+        $this->idCuentaBancaria = $compra->Id_Cuenta_Bancaria ? (string) $compra->Id_Cuenta_Bancaria : '';
+        $this->numeroReferenciaTransferencia = (string) ($compra->Numero_Referencia_Transferencia ?? '');
+        $this->observacion = (string) ($compra->Observacion ?? '');
+        $this->retencion = (string) ((float) ($compra->Retencion ?? 0));
+        $this->iva = (string) ((float) ($compra->Iva ?? 0));
+        $this->cargarDatosCuentaSeleccionada();
+
+        $detallesDb = DetalleCompra::query()
+            ->where('Id_Compra', $compra->Id_Compra)
+            ->get();
+
+        foreach ($detallesDb as $indice => $detalleDb) {
+            $producto = Producto::query()
+                ->with(['categoria', 'marca'])
+                ->find($detalleDb->Id_Producto);
+
+            if (! $producto) {
+                $this->cancelarCompra(false);
+                $this->mostrarToast('No se puede editar esta compra porque uno de sus productos ya no existe.', 'error');
+                return;
+            }
+
+            $this->detalles[] = [
+                'uid' => 'compra_' . $compra->Id_Compra . '_detalle_' . $indice,
+                'modo' => 'existente',
+                'producto_id' => (int) $producto->Id_Producto,
+                'nombre_producto' => $producto->Nombre_Producto,
+                'modelo' => $producto->Modelo ?: 'Sin modelo',
+                'categoria_valor' => null,
+                'categoria' => $producto->categoria?->Nombre_Categoria ?: 'Sin categoría',
+                'marca_valor' => null,
+                'marca' => $producto->marca?->Nombre_Marca ?: 'Sin marca',
+                'stock_minimo' => null,
+                'garantia_nuevo' => null,
+                'garantia_usado' => null,
+                'estado' => 1,
+                'cantidad' => (int) $detalleDb->Cantidad,
+                'precio_compra' => (float) $detalleDb->Precio_Compra,
+                'precio_venta' => (float) $producto->Precio_Venta,
+                'garantia_proveedor' => $detalleDb->Meses_Garantia_Proveedor !== null
+                    ? (int) $detalleDb->Meses_Garantia_Proveedor
+                    : null,
+                'subtotal' => (float) $detalleDb->Subtotal,
+                'series' => [],
+                'actualizar_precio_venta' => false,
+            ];
+        }
+
+        $this->mostrarToast('Compra cargada para edición. Al guardar se aplicarán las mismas validaciones.');
+    }
+
+    protected function datosEncabezadoCompra(int $idUsuario): array
+    {
+        return [
+            'Numero_Compra' => trim($this->numeroCompra),
+            'Fecha_Compra' => Carbon::parse($this->fechaCompra)->startOfDay(),
+            'Id_Proveedor' => (int) $this->idProveedor,
+            'Id_Usuario' => (int) $idUsuario,
+            'Tipo_Compra' => $this->tipoCompra,
+            'Fecha_Limite_Credito' => $this->tipoCompra === 'CREDITO'
+                ? Carbon::parse($this->fechaLimiteCredito)->toDateString()
+                : null,
+            'Medio_Pago' => $this->medioPago,
+            'Id_Cuenta_Bancaria' => $this->medioPago === 'TRANSFERENCIA'
+                ? (int) $this->idCuentaBancaria
+                : null,
+            'Numero_Referencia_Transferencia' => $this->medioPago === 'TRANSFERENCIA'
+                ? trim($this->numeroReferenciaTransferencia)
+                : null,
+            'Total' => $this->totalGeneral(),
+            'Observacion' => trim($this->observacion) !== '' ? trim($this->observacion) : null,
+            'Retencion' => (float) $this->retencion,
+            'Iva' => (float) $this->iva,
+            'Id_producto' => null,
+        ];
+    }
+
+    protected function guardarDetallesEnCompra(Compra $compra, array &$categoriasCreadas, array &$marcasCreadas, array &$cantidadesNuevas, ?int &$primerProductoId): void
+    {
+        foreach ($this->detalles as $detalle) {
+            if ($detalle['modo'] === 'nuevo') {
+                $categoriaId = $this->resolverCategoriaId($detalle['categoria_valor'], $categoriasCreadas);
+                $marcaId = $this->resolverMarcaId($detalle['marca_valor'], $marcasCreadas);
+
+                $producto = Producto::query()->create([
+                    'Id_Categoria' => $categoriaId,
+                    'Id_Marca' => $marcaId,
+                    'Nombre_Producto' => $detalle['nombre_producto'],
+                    'Modelo' => $detalle['modelo'],
+                    'Stock_Actual' => 0,
+                    'Stock_Minimo' => $detalle['stock_minimo'],
+                    'Precio_Venta' => $detalle['precio_venta'],
+                    'Fecha_Vencimiento' => now(),
+                    'Meses_Garantia_Nuevo' => $detalle['garantia_nuevo'],
+                    'Meses_Garantia_Usado' => $detalle['garantia_usado'],
+                    'Estado' => $detalle['estado'],
+                ]);
+            } else {
+                $producto = Producto::query()->findOrFail((int) $detalle['producto_id']);
+
+                if ($detalle['actualizar_precio_venta']) {
+                    $producto->Precio_Venta = $detalle['precio_venta'];
+                    $producto->save();
+                }
+            }
+
+            if ($primerProductoId === null) {
+                $primerProductoId = $producto->Id_Producto;
+            }
+
+            $cantidadesNuevas[$producto->Id_Producto] = ($cantidadesNuevas[$producto->Id_Producto] ?? 0) + (int) $detalle['cantidad'];
+
+            foreach ($detalle['series'] as $serie) {
+                ProductoSerie::query()->create([
+                    'Id_Producto' => $producto->Id_Producto,
+                    'Numero_Serie' => $serie,
+                    'Fecha_Ingreso' => now(),
+                    'Estado' => ProductoSerie::ESTADO_DISPONIBLE,
+                    'Observacion' => null,
+                ]);
+            }
+
+            DetalleCompra::query()->create([
+                'Id_Compra' => $compra->Id_Compra,
+                'Id_Producto' => $producto->Id_Producto,
+                'Cantidad' => $detalle['cantidad'],
+                'Precio_Compra' => $detalle['precio_compra'],
+                'Meses_Garantia_Proveedor' => $detalle['garantia_proveedor'],
+                'Subtotal' => $detalle['subtotal'],
+            ]);
+        }
+    }
+
+    protected function ajustarStockPorDiferencia(array $cantidadesAnteriores, array $cantidadesNuevas): void
+    {
+        $productosIds = array_unique(array_merge(array_keys($cantidadesAnteriores), array_keys($cantidadesNuevas)));
+
+        foreach ($productosIds as $productoId) {
+            $anterior = (int) ($cantidadesAnteriores[$productoId] ?? 0);
+            $nuevo = (int) ($cantidadesNuevas[$productoId] ?? 0);
+            $diferencia = $nuevo - $anterior;
+
+            if ($diferencia === 0) {
+                continue;
+            }
+
+            $producto = Producto::query()
+                ->where('Id_Producto', (int) $productoId)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $producto) {
+                throw new \RuntimeException('No se encontró uno de los productos relacionados a la compra.');
+            }
+
+            if ($diferencia < 0 && (int) $producto->Stock_Actual < abs($diferencia)) {
+                throw new \RuntimeException('No se puede reducir la compra del producto "' . $producto->Nombre_Producto . '" porque el stock actual no alcanza para revertir esa cantidad.');
+            }
+
+            if ($diferencia > 0) {
+                $producto->increment('Stock_Actual', $diferencia);
+            } else {
+                $producto->decrement('Stock_Actual', abs($diferencia));
+            }
+        }
+    }
+
+    protected function crearCompraNueva(int $idUsuario): void
+    {
+        Compra::query()->getConnection()->transaction(function () use ($idUsuario) {
+            $categoriasCreadas = [];
+            $marcasCreadas = [];
+            $cantidadesNuevas = [];
+            $primerProductoId = null;
+
+            $compra = Compra::query()->create($this->datosEncabezadoCompra($idUsuario));
+
+            $this->guardarDetallesEnCompra($compra, $categoriasCreadas, $marcasCreadas, $cantidadesNuevas, $primerProductoId);
+            $this->ajustarStockPorDiferencia([], $cantidadesNuevas);
+
+            $compra->Id_producto = $primerProductoId;
+            $compra->save();
+        });
+    }
+
+    protected function actualizarCompraExistente(int $idUsuario): void
+    {
+        Compra::query()->getConnection()->transaction(function () use ($idUsuario) {
+            $compra = Compra::query()
+                ->where('Id_Compra', $this->compraEditandoId)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $compra) {
+                throw new \RuntimeException('No se encontró la compra que intenta actualizar.');
+            }
+
+            $detallesActuales = DetalleCompra::query()
+                ->where('Id_Compra', $compra->Id_Compra)
+                ->lockForUpdate()
+                ->get(['Id_Producto', 'Cantidad']);
+
+            $cantidadesAnteriores = $detallesActuales
+                ->groupBy('Id_Producto')
+                ->map(fn ($items) => (int) $items->sum('Cantidad'))
+                ->toArray();
+
+            $compra->fill($this->datosEncabezadoCompra($idUsuario));
+            $compra->save();
+
+            DetalleCompra::query()
+                ->where('Id_Compra', $compra->Id_Compra)
+                ->delete();
+
+            $categoriasCreadas = [];
+            $marcasCreadas = [];
+            $cantidadesNuevas = [];
+            $primerProductoId = null;
+
+            $this->guardarDetallesEnCompra($compra, $categoriasCreadas, $marcasCreadas, $cantidadesNuevas, $primerProductoId);
+            $this->ajustarStockPorDiferencia($cantidadesAnteriores, $cantidadesNuevas);
+
+            $compra->Id_producto = $primerProductoId;
+            $compra->Total = $this->totalGeneral();
+            $compra->save();
+        });
     }
 
     public function guardarCompra(): void
@@ -1142,92 +1500,17 @@ new class extends Component
         }
 
         try {
-            Compra::query()->getConnection()->transaction(function () use ($idUsuario) {
-                $categoriasCreadas = [];
-                $marcasCreadas = [];
-                $primerProductoId = null;
+            $editandoCompra = $this->compraEditandoId !== null;
 
-                $compra = Compra::query()->create([
-                    'Numero_Compra' => trim($this->numeroCompra),
-                    'Fecha_Compra' => Carbon::parse($this->fechaCompra)->startOfDay(),
-                    'Id_Proveedor' => (int) $this->idProveedor,
-                    'Id_Usuario' => (int) $idUsuario,
-                    'Tipo_Compra' => $this->tipoCompra,
-                    'Fecha_Limite_Credito' => $this->tipoCompra === 'CREDITO'
-                        ? Carbon::parse($this->fechaLimiteCredito)->toDateString()
-                        : null,
-                    'Medio_Pago' => $this->medioPago,
-                    'Id_Cuenta_Bancaria' => $this->medioPago === 'TRANSFERENCIA'
-                        ? (int) $this->idCuentaBancaria
-                        : null,
-                    'Numero_Referencia_Transferencia' => $this->medioPago === 'TRANSFERENCIA'
-                        ? trim($this->numeroReferenciaTransferencia)
-                        : null,
-                    'Total' => $this->totalGeneral(),
-                    'Observacion' => trim($this->observacion) !== '' ? trim($this->observacion) : null,
-                    'Retencion' => (float) $this->retencion,
-                    'Iva' => (float) $this->iva,
-                    'Id_producto' => null,
-                ]);
-
-                foreach ($this->detalles as $detalle) {
-                    if ($detalle['modo'] === 'nuevo') {
-                        $categoriaId = $this->resolverCategoriaId($detalle['categoria_valor'], $categoriasCreadas);
-                        $marcaId = $this->resolverMarcaId($detalle['marca_valor'], $marcasCreadas);
-
-                        $producto = Producto::query()->create([
-                            'Id_Categoria' => $categoriaId,
-                            'Id_Marca' => $marcaId,
-                            'Nombre_Producto' => $detalle['nombre_producto'],
-                            'Modelo' => $detalle['modelo'],
-                            'Stock_Actual' => 0,
-                            'Stock_Minimo' => $detalle['stock_minimo'],
-                            'Precio_Venta' => $detalle['precio_venta'],
-                            'Fecha_Vencimiento' => now(),
-                            'Meses_Garantia_Nuevo' => $detalle['garantia_nuevo'],
-                            'Meses_Garantia_Usado' => $detalle['garantia_usado'],
-                            'Estado' => $detalle['estado'],
-                        ]);
-                    } else {
-                        $producto = Producto::query()->findOrFail((int) $detalle['producto_id']);
-
-                        if ($detalle['actualizar_precio_venta']) {
-                            $producto->Precio_Venta = $detalle['precio_venta'];
-                            $producto->save();
-                        }
-                    }
-
-                    if ($primerProductoId === null) {
-                        $primerProductoId = $producto->Id_Producto;
-                    }
-
-                    $producto->increment('Stock_Actual', (int) $detalle['cantidad']);
-
-                    foreach ($detalle['series'] as $serie) {
-                        ProductoSerie::query()->create([
-                            'Id_Producto' => $producto->Id_Producto,
-                            'Numero_Serie' => $serie,
-                            'Fecha_Ingreso' => now(),
-                            'Estado' => ProductoSerie::ESTADO_DISPONIBLE,
-                            'Observacion' => null,
-                        ]);
-                    }
-
-                    DetalleCompra::query()->create([
-                        'Id_Compra' => $compra->Id_Compra,
-                        'Id_Producto' => $producto->Id_Producto,
-                        'Cantidad' => $detalle['cantidad'],
-                        'Precio_Compra' => $detalle['precio_compra'],
-                        'Subtotal' => $detalle['subtotal'],
-                    ]);
-                }
-
-                $compra->Id_producto = $primerProductoId;
-                $compra->save();
-            });
+            if ($editandoCompra) {
+                $this->actualizarCompraExistente((int) $idUsuario);
+            } else {
+                $this->crearCompraNueva((int) $idUsuario);
+            }
 
             $this->cancelarCompra(false);
-            $this->mostrarToast('Compra guardada correctamente.');
+            $this->resetPage('comprasPage');
+            $this->mostrarToast($editandoCompra ? 'Compra actualizada correctamente.' : 'Compra guardada correctamente.');
         } catch (\Throwable $e) {
             $this->mostrarToast('Error al guardar la compra: ' . $e->getMessage(), 'error');
         }
@@ -1250,6 +1533,9 @@ new class extends Component
 
     public function cancelarCompra(bool $mostrarMensaje = true): void
     {
+        $estabaEditandoCompra = $this->compraEditandoId !== null;
+        $this->compraEditandoId = null;
+
         $this->buscarProveedor = '';
         $this->proveedorNombre = '';
         $this->idProveedor = '';
@@ -1278,7 +1564,7 @@ new class extends Component
         $this->cargarCuentasBancarias();
 
         if ($mostrarMensaje) {
-            $this->mostrarToast('Compra cancelada. No se guardó nada en la base de datos.');
+            $this->mostrarToast($estabaEditandoCompra ? 'Edición de compra cancelada.' : 'Compra cancelada. No se guardó nada en la base de datos.');
         }
     }
 
@@ -1288,6 +1574,7 @@ new class extends Component
         $this->cantidad = '1';
         $this->precioCompra = '0';
         $this->precioVenta = '0';
+        $this->garantiaProveedor = '';
         $this->seriesTexto = '';
 
         $this->editandoDetalle = false;
@@ -1384,7 +1671,7 @@ new class extends Component
                         <div>
                             <h3 class="text-xl font-bold text-[#1A2B42]">Agregar cuenta bancaria</h3>
                             <p class="text-sm text-[#5F6B7A]">
-                                Esta cuenta quedará disponible de inmediato para compras por transferencia.
+                                Esta cuenta quedará disponible para compras por transferencia.
                             </p>
                         </div>
                         <button type="button" wire:click="cerrarModalCuentaBancaria" class="text-2xl leading-none text-[#5F6B7A] hover:text-[#1A2B42]">
@@ -1436,9 +1723,6 @@ new class extends Component
                                 placeholder="Ej: 1234567890123456 o 3456"
                                 class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
                             />
-                            <p class="mt-1 text-xs text-[#5F6B7A]">
-                                Por seguridad, el sistema solo guardará los últimos 4 dígitos.
-                            </p>
                             @error('nuevoUltimosDigitos')
                                 <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                             @enderror
@@ -1477,11 +1761,6 @@ new class extends Component
                                 <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                             @enderror
                         </div>
-
-                        <div class="rounded-xl border border-[#D7E4F3] bg-[#F7F9FC] px-4 py-3 text-sm text-[#5F6B7A]">
-                            <p class="font-semibold text-[#1A2B42]">Importante</p>
-                            <p>No se guarda el número completo de la cuenta, CVV, PIN, contraseña bancaria ni tokens. Solo los últimos 4 dígitos y los datos necesarios para identificar la cuenta usada por la tienda.</p>
-                        </div>
                     </div>
 
                     <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -1504,6 +1783,14 @@ new class extends Component
             </div>
         @endif
 
+        <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_330px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
+            <div class="flex min-w-0 flex-col gap-4">
+                @if ($compraEditandoId)
+                    <div class="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-800 shadow-sm">
+                        Está editando la compra #{{ $numeroCompra }}. Puede modificar datos y detalles; al guardar se usan las mismas validaciones del registro normal.
+                    </div>
+                @endif
+
         <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
             <div class="mb-4">
                 <h2 class="text-xl font-bold text-[#1A2B42]">Datos generales de la compra</h2>
@@ -1515,7 +1802,7 @@ new class extends Component
             <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
                 <div class="relative lg:col-span-4">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Proveedor <span class="text-red-600">*</span>
+                        Proveedor
                     </label>
 
                     <x-input
@@ -1559,7 +1846,7 @@ new class extends Component
 
                 <div class="lg:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Número de factura <span class="text-red-600">*</span>
+                        Número de factura
                     </label>
                     <x-input
                         wire:model.defer="numeroCompra"
@@ -1575,7 +1862,7 @@ new class extends Component
 
                 <div class="lg:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Fecha <span class="text-red-600">*</span>
+                        Fecha
                     </label>
                     <x-input
                         wire:model.defer="fechaCompra"
@@ -1590,7 +1877,7 @@ new class extends Component
 
                 <div class="lg:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Tipo de pago <span class="text-red-600">*</span>
+                        Tipo de pago
                     </label>
                     <select
                         wire:model.live="tipoCompra"
@@ -1608,7 +1895,7 @@ new class extends Component
                 @if ($tipoCompra === 'CREDITO')
                     <div class="lg:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Fecha límite de pago <span class="text-red-600">*</span>
+                            Fecha límite de pago
                         </label>
                         <x-input
                             wire:model.defer="fechaLimiteCredito"
@@ -1624,7 +1911,7 @@ new class extends Component
 
                 <div class="lg:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Medio de pago <span class="text-red-600">*</span>
+                        Medio de pago
                     </label>
                     <select
                         wire:model.live="medioPago"
@@ -1642,7 +1929,7 @@ new class extends Component
                 @if ($medioPago === 'TRANSFERENCIA')
                     <div class="lg:col-span-3">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Cuenta destino <span class="text-red-600">*</span>
+                            Cuenta destino
                         </label>
                         <div class="flex gap-2">
                             <select
@@ -1652,7 +1939,7 @@ new class extends Component
                                 <option value="">{{ count($cuentasBancarias) > 0 ? 'Seleccione una cuenta' : 'No hay cuentas registradas' }}</option>
                                 @foreach ($cuentasBancarias as $cuenta)
                                     <option value="{{ $cuenta['id'] }}">
-                                        Últimos {{ $cuenta['ultimos_digitos'] }} · {{ $cuenta['banco'] }} · {{ $cuenta['titular'] }}
+                                         {{ $cuenta['ultimos_digitos'] }} · {{ $cuenta['titular'] }}
                                     </option>
                                 @endforeach
                             </select>
@@ -1703,7 +1990,7 @@ new class extends Component
 
                     <div class="lg:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Referencia <span class="text-red-600">*</span>
+                            Referencia
                         </label>
                         <x-input
                             wire:model.defer="numeroReferenciaTransferencia"
@@ -1803,7 +2090,7 @@ new class extends Component
                 <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
                     <div class="relative xl:col-span-4">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Buscar producto <span class="text-red-600">*</span>
+                            Buscar producto
                         </label>
 
                         <x-input
@@ -1883,7 +2170,7 @@ new class extends Component
                 <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
                     <div class="xl:col-span-3">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Nombre del producto <span class="text-red-600">*</span>
+                            Nombre del producto
                         </label>
                         <x-input
                             wire:model.defer="nuevoNombreProducto"
@@ -1899,7 +2186,7 @@ new class extends Component
 
                     <div class="xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Modelo <span class="text-red-600">*</span>
+                            Modelo
                         </label>
                         <x-input
                             wire:model.defer="nuevoModelo"
@@ -1916,7 +2203,7 @@ new class extends Component
                     <div class="xl:col-span-3">
                         <div class="flex items-center justify-between gap-2">
                             <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                                Categoría <span class="text-red-600">*</span>
+                                Categoría
                             </label>
                             <button type="button" wire:click="$toggle('mostrarNuevaCategoria')" class="text-xs font-semibold text-[#0B6FE4]">
                                 + Nueva
@@ -1961,7 +2248,7 @@ new class extends Component
                     <div class="xl:col-span-3">
                         <div class="flex items-center justify-between gap-2">
                             <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                                Marca <span class="text-red-600">*</span>
+                                Marca
                             </label>
                             <button type="button" wire:click="$toggle('mostrarNuevaMarca')" class="text-xs font-semibold text-[#0B6FE4]">
                                 + Nueva
@@ -2005,7 +2292,7 @@ new class extends Component
 
                     <div class="xl:col-span-1">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Stock mín. <span class="text-red-600">*</span>
+                            Stock mín.
                         </label>
                         <x-input
                             wire:model.defer="nuevoStockMinimo"
@@ -2048,7 +2335,7 @@ new class extends Component
 
                     <div class="xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                            Estado <span class="text-red-600">*</span>
+                            Estado
                         </label>
                         <select
                             wire:model.defer="nuevoEstado"
@@ -2067,7 +2354,7 @@ new class extends Component
             <div class="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-12">
                 <div class="xl:col-span-1">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Cantidad <span class="text-red-600">*</span>
+                        Cantidad
                     </label>
                     <x-input
                         wire:model.defer="cantidad"
@@ -2082,7 +2369,7 @@ new class extends Component
 
                 <div class="xl:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Precio compra <span class="text-red-600">*</span>
+                        Precio compra
                     </label>
                     <x-input
                         wire:model.live.debounce.250ms="precioCompra"
@@ -2098,7 +2385,7 @@ new class extends Component
 
                 <div class="xl:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Precio venta <span class="text-red-600">*</span>
+                        Precio venta
                         @if ($modoProducto === 'existente' && ! $precioVentaEditable)
                             <span class="text-xs font-normal text-[#5F6B7A]">👁️</span>
                         @endif
@@ -2116,7 +2403,26 @@ new class extends Component
                     @enderror
                 </div>
 
-                <div class="xl:col-span-7">
+                <div class="xl:col-span-2">
+                    <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
+                        Garantía proveedor
+                    </label>
+                    <x-input
+                        wire:model.defer="garantiaProveedor"
+                        type="number"
+                        min="0"
+                        max="240"
+                        step="1"
+                        placeholder="Meses"
+                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                    />
+                    @error('garantiaProveedor')
+                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
+                    @enderror
+
+                </div>
+
+                <div class="xl:col-span-5">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                         Número de serie
                         <span class="text-xs font-normal text-[#5F6B7A]">
@@ -2126,7 +2432,7 @@ new class extends Component
                     <textarea
                         wire:model.defer="seriesTexto"
                         rows="2"
-                        placeholder="Opcional. Si ingresa series, debe escribir una por cada unidad. Ej: SN001, SN002"
+                        placeholder="Debe escribir una por cada unidad. Ej: SN001, SN002"
                         class="w-full rounded-lg border-0 bg-[#F0F3F7] px-3 py-2 text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
                     ></textarea>
                     @error('seriesTexto')
@@ -2142,7 +2448,9 @@ new class extends Component
                         type="button"
                         wire:click="cancelarEdicionDetalle"
                         class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]"
-                    />
+                    />                        <span class="text-xs font-normal text-[#5F6B7A]">
+                            Opcional
+                        </span>
 
                     <x-button
                         label="Actualizar detalle"
@@ -2201,7 +2509,7 @@ new class extends Component
 
             <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-white">
                 <div class="max-h-[430px] overflow-x-auto overflow-y-auto">
-                    <table class="min-w-[1250px] w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
+                    <table class="min-w-[1350px] w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
                         <thead class="sticky top-0 z-10">
                             <tr>
                                 <th class="rounded-tl-xl bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">Tipo</th>
@@ -2211,6 +2519,7 @@ new class extends Component
                                 <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Cantidad</th>
                                 <th class="bg-[#2E8BC0] px-3 py-3 text-right font-semibold text-white">P. compra</th>
                                 <th class="bg-[#2E8BC0] px-3 py-3 text-right font-semibold text-white">P. venta</th>
+                                <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Garantía </th>
                                 <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Series</th>
                                 <th class="bg-[#2E8BC0] px-3 py-3 text-right font-semibold text-white">Subtotal</th>
                                 <th class="rounded-tr-xl bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Acción</th>
@@ -2236,6 +2545,9 @@ new class extends Component
                                     <td class="px-3 py-3 text-center whitespace-nowrap">{{ $detalle['cantidad'] }}</td>
                                     <td class="px-3 py-3 text-right whitespace-nowrap">C$ {{ number_format($detalle['precio_compra'], 2) }}</td>
                                     <td class="px-3 py-3 text-right whitespace-nowrap">C$ {{ number_format($detalle['precio_venta'], 2) }}</td>
+                                    <td class="px-3 py-3 text-center whitespace-nowrap">
+                                        {{ $detalle['garantia_proveedor'] !== null ? $detalle['garantia_proveedor'] . ' mes(es)' : 'Sin garantía' }}
+                                    </td>
                                     <td class="px-3 py-3 text-center whitespace-nowrap">{{ count($detalle['series']) }}</td>
                                     <td class="px-3 py-3 text-right font-semibold whitespace-nowrap">C$ {{ number_format($detalle['subtotal'], 2) }}</td>
 
@@ -2257,7 +2569,7 @@ new class extends Component
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="10" class="px-4 py-8 text-center text-sm text-[#7B8794]">
+                                    <td colspan="11" class="px-4 py-8 text-center text-sm text-[#7B8794]">
                                         Todavía no hay productos agregados a la compra.
                                     </td>
                                 </tr>
@@ -2269,7 +2581,7 @@ new class extends Component
 
             <div class="mt-5 flex flex-wrap justify-end gap-3">
                 <x-button
-                    label="Cancelar compra"
+                    label="{{ $compraEditandoId ? 'Cancelar edición' : 'Cancelar compra' }}"
                     icon="o-x-mark"
                     type="button"
                     wire:click="cancelarCompra"
@@ -2277,7 +2589,7 @@ new class extends Component
                 />
 
                 <x-button
-                    label="Guardar compra"
+                    label="{{ $compraEditandoId ? 'Actualizar compra' : 'Guardar compra' }}"
                     icon="o-check"
                     type="button"
                     wire:click="guardarCompra"
@@ -2285,5 +2597,86 @@ new class extends Component
                 />
             </div>
         </x-card>
+            </div>
+
+            <aside class="xl:sticky xl:top-4 xl:self-start">
+                @php($comprasRealizadas = $this->comprasRealizadas())
+
+                <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
+                    <div class="mb-3">
+                        <h2 class="text-base font-bold text-[#1A2B42]">Compras realizadas</h2>
+                        <p class="text-xs text-[#5F6B7A]">
+                            Corregir compras.
+                        </p>
+                    </div>
+
+                    <x-input
+                        wire:model.live.debounce.300ms="buscarCompraRealizada"
+                        icon="o-magnifying-glass"
+                        type="text"
+                        placeholder="Buscar factura/proveedor"
+                        class="h-9 min-h-9 w-full rounded-lg bg-[#F0F3F7] text-xs text-[#1A2B42] placeholder:text-[#7B8794]"
+                    />
+
+                    <div class="mt-3 flex max-h-[540px] flex-col gap-2 overflow-y-auto pr-1">
+                        @forelse ($comprasRealizadas as $compraRealizada)
+                            <div wire:key="compra-realizada-{{ $compraRealizada->Id_Compra }}" class="rounded-xl border {{ $compraEditandoId === (int) $compraRealizada->Id_Compra ? 'border-[#2E8BC0] bg-[#EAF4FD]' : 'border-[#D7E4F3] bg-white' }} p-3">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0">
+                                        <p class="truncate text-sm font-bold text-[#1A2B42]">
+                                            #{{ $compraRealizada->Numero_Compra }}
+                                        </p>
+                                        <p class="truncate text-xs text-[#5F6B7A]">
+                                            {{ $this->nombreProveedorPorId((int) $compraRealizada->Id_Proveedor) }}
+                                        </p>
+                                    </div>
+
+                                    <span class="shrink-0 rounded-full bg-[#F0F3F7] px-2 py-1 text-[11px] font-semibold text-[#1A2B42]">
+                                        {{ $compraRealizada->Tipo_Compra }}
+                                    </span>
+                                </div>
+
+                                <div class="mt-2 grid grid-cols-2 gap-2 text-xs text-[#5F6B7A]">
+                                    <div>
+                                        <span class="block font-semibold text-[#1A2B42]">
+                                            {{ Carbon::parse($compraRealizada->Fecha_Compra)->format('d/m/Y') }}
+                                        </span>
+                                        Fecha
+                                    </div>
+                                    <div class="text-right">
+                                        <span class="block font-semibold text-[#1A2B42]">
+                                            C$ {{ number_format((float) $compraRealizada->Total, 2) }}
+                                        </span>
+                                        Total
+                                    </div>
+                                </div>
+
+                                <div class="mt-2 flex items-center justify-between gap-2">
+                                    <span class="text-xs text-[#5F6B7A]">
+                                        {{ (int) ($compraRealizada->detalles_count ?? 0) }} producto(s)
+                                    </span>
+
+                                    <x-button
+                                        label="Editar"
+                                        icon="o-pencil-square"
+                                        type="button"
+                                        wire:click="editarCompra({{ $compraRealizada->Id_Compra }})"
+                                        class="h-8 min-h-8 border-0 bg-[#2E8BC0] px-3 text-xs text-white hover:bg-[#0B6FE4]"
+                                    />
+                                </div>
+                            </div>
+                        @empty
+                            <div class="rounded-xl border border-dashed border-[#D7E4F3] px-3 py-6 text-center text-xs text-[#7B8794]">
+                                No hay compras para mostrar.
+                            </div>
+                        @endforelse
+                    </div>
+
+                    <div class="mt-3 text-xs">
+                        <x-pagination :rows="$comprasRealizadas" />
+                    </div>
+                </x-card>
+            </aside>
+        </div>
     </div>
 </div>

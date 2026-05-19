@@ -16,6 +16,7 @@ class ServicioTecnico extends Model
     public $timestamps = false;
 
     protected $fillable = [
+        'Id_Venta',
         'Numero_Orden',
         'Fecha_Ingreso',
         'Id_Cliente',
@@ -34,10 +35,15 @@ class ServicioTecnico extends Model
         'Observacion_Tecnica',
         'Total_Repuestos',
         'Total_Servicio',
+        'Tipo_Cambio',
+        'Monto_Pagado',
+        'Saldo_Pendiente',
+        'Cambio_Entregado_Cordobas',
     ];
 
     protected $casts = [
         'Id_Servicio_Tecnico' => 'integer',
+        'Id_Venta' => 'integer',
         'Fecha_Ingreso' => 'datetime',
         'Id_Cliente' => 'integer',
         'Id_Usuario' => 'integer',
@@ -47,7 +53,16 @@ class ServicioTecnico extends Model
         'Fecha_Estimada_Entrega' => 'date',
         'Total_Repuestos' => 'decimal:2',
         'Total_Servicio' => 'decimal:2',
+        'Tipo_Cambio' => 'decimal:4',
+        'Monto_Pagado' => 'decimal:2',
+        'Saldo_Pendiente' => 'decimal:2',
+        'Cambio_Entregado_Cordobas' => 'decimal:2',
     ];
+
+    public function venta(): BelongsTo
+    {
+        return $this->belongsTo(Venta::class, 'Id_Venta', 'Id_Venta');
+    }
 
     public function cliente(): BelongsTo
     {
