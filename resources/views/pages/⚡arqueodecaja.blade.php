@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\AperturaCaja;
+use App\Models\PagoVenta;
 use App\Models\TasaCambio;
 use App\Models\Usuario;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +25,12 @@ new class extends Component
     public string $monedaEgreso = 'cordoba';
     public string $cantidadEgreso = '';
     public string $motivoEgreso = '';
+
+    public float $totalAbonoCordobas = 0;
+    public float $totalAbonoDolares = 0;
+
+    public float $totalVentaCordobas = 0;
+    public float $totalVentaDolares = 0;
 
     public ?string $mensajeExito = null;
 
@@ -60,6 +67,8 @@ new class extends Component
     {
         $this->cargarTasaCambio();
         $this->cargarAperturaAbierta();
+        $this->cargarAbonosCreditoHoy();
+        $this->cargarPagosVentaHoy();
     }
 
     public function cargarAperturaAbierta(): void
@@ -91,15 +100,49 @@ new class extends Component
         $this->nuevaTasaOficial = $this->tasaOficial;
     }
 
+    public function cargarAbonosCreditoHoy(): void
+    {
+        $inicioDia = now()->startOfDay();
+        $finDia = now()->endOfDay();
+
+        $this->totalAbonoCordobas = (float) DB::table('abono_credito')
+            ->whereBetween('Fecha_Abono', [$inicioDia, $finDia])
+            ->whereRaw('UPPER(Moneda) = ?', ['NIO'])
+            ->sum('Monto');
+
+        $this->totalAbonoDolares = (float) DB::table('abono_credito')
+            ->whereBetween('Fecha_Abono', [$inicioDia, $finDia])
+            ->whereRaw('UPPER(Moneda) = ?', ['USD'])
+            ->sum('Monto');
+    }
+
+    public function cargarPagosVentaHoy(): void
+    {
+        $inicioDia = now()->startOfDay();
+        $finDia = now()->endOfDay();
+
+        $this->totalVentaCordobas = (float) PagoVenta::query()
+            ->whereBetween('Fecha_Pago', [$inicioDia, $finDia])
+            ->where('Moneda', PagoVenta::MONEDA_CORDOBA)
+            ->where('Tipo_Pago', PagoVenta::TIPO_EFECTIVO)
+            ->sum('Monto');
+
+        $this->totalVentaDolares = (float) PagoVenta::query()
+            ->whereBetween('Fecha_Pago', [$inicioDia, $finDia])
+            ->where('Moneda', PagoVenta::MONEDA_DOLAR)
+            ->where('Tipo_Pago', PagoVenta::TIPO_EFECTIVO)
+            ->sum('Monto');
+    }
+
     public function abrirModalCaja(): void
     {
         $this->resetValidation();
         $this->mensajeExito = null;
 
         $existeCajaAbiertaHoy = AperturaCaja::query()
-        ->abierta()
-        ->deHoy()
-        ->exists();
+            ->abierta()
+            ->deHoy()
+            ->exists();
 
         if ($existeCajaAbiertaHoy) {
             $this->cargarAperturaAbierta();
@@ -171,8 +214,7 @@ new class extends Component
                     ->lockForUpdate()
                     ->first();
 
-                if ($aperturaAbiertaHoy) 
-                {
+                if ($aperturaAbiertaHoy) {
                     throw new \RuntimeException('Ya existe una caja abierta para hoy. Debes cerrarla antes de abrir otra.');
                 }
 
@@ -190,7 +232,6 @@ new class extends Component
 
             $this->abrirCajaModal = false;
             $this->mensajeExito = 'Caja abierta correctamente.';
-
         } catch (\RuntimeException $e) {
             $this->abrirCajaModal = false;
             $this->cargarAperturaAbierta();
@@ -280,6 +321,47 @@ new class extends Component
         return $total;
     }
 
+    public function totalEsperadoCordobas(): float
+    {
+        return (float) $this->montoApertura
+            + (float) $this->totalVentaCordobas
+            + (float) $this->totalAbonoCordobas;
+    }
+
+    public function totalEsperadoDolares(): float
+    {
+        return (float) $this->totalVentaDolares
+            + (float) $this->totalAbonoDolares;
+    }
+
+    public function faltanteCordobas(): float
+    {
+        $faltante = $this->totalEsperadoCordobas() - $this->totalCordobas();
+
+        return $faltante > 0 ? $faltante : 0;
+    }
+
+    public function sobranteCordobas(): float
+    {
+        $sobrante = $this->totalCordobas() - $this->totalEsperadoCordobas();
+
+        return $sobrante > 0 ? $sobrante : 0;
+    }
+
+    public function faltanteDolares(): float
+    {
+        $faltante = $this->totalEsperadoDolares() - $this->totalDolares();
+
+        return $faltante > 0 ? $faltante : 0;
+    }
+
+    public function sobranteDolares(): float
+    {
+        $sobrante = $this->totalDolares() - $this->totalEsperadoDolares();
+
+        return $sobrante > 0 ? $sobrante : 0;
+    }
+
     public function totalCajaDisponible(): string
     {
         $total = $this->monedaEgreso === 'dolar'
@@ -287,6 +369,11 @@ new class extends Component
             : $this->totalCordobas();
 
         return number_format($total, 2, '.', ',');
+    }
+
+    public function prefijoMonedaEgreso(): string
+    {
+        return $this->monedaEgreso === 'dolar' ? '$' : 'C$';
     }
 
     public function formatear(float|int|string $valor): string
@@ -297,18 +384,24 @@ new class extends Component
     public function detallesCaja(): array
     {
         return [
-            ['label' => 'Fondo inicial', 'valor' => $this->formatear($this->montoApertura)],
-            ['label' => 'Total ventas', 'valor' => '0.00'],
-            ['label' => 'Total abono C$', 'valor' => '0.00'],
-            ['label' => 'Total abono $', 'valor' => '0.00'],
-            ['label' => 'Total egresos C$', 'valor' => '0.00'],
-            ['label' => 'Total egresos $', 'valor' => '0.00'],
-            ['label' => 'Total en C$', 'valor' => $this->formatear($this->totalCordobas())],
-            ['label' => 'Faltante en C$', 'valor' => '0.00'],
-            ['label' => 'Sobrante en C$', 'valor' => '0.00'],
-            ['label' => 'Total en $', 'valor' => $this->formatear($this->totalDolares())],
-            ['label' => 'Faltante en $', 'valor' => '0.00'],
-            ['label' => 'Sobrante en $', 'valor' => '0.00'],
+            ['label' => 'Fondo inicial', 'valor' => 'C$ ' . $this->formatear($this->montoApertura)],
+
+            ['label' => 'Total ventas C$', 'valor' => 'C$ ' . $this->formatear($this->totalVentaCordobas)],
+            ['label' => 'Total ventas $', 'valor' => '$ ' . $this->formatear($this->totalVentaDolares)],
+
+            ['label' => 'Total abono C$', 'valor' => 'C$ ' . $this->formatear($this->totalAbonoCordobas)],
+            ['label' => 'Total abono $', 'valor' => '$ ' . $this->formatear($this->totalAbonoDolares)],
+
+            ['label' => 'Total egresos C$', 'valor' => 'C$ 0.00'],
+            ['label' => 'Total egresos $', 'valor' => '$ 0.00'],
+
+            ['label' => 'Total en C$', 'valor' => 'C$ ' . $this->formatear($this->totalEsperadoCordobas())],
+            ['label' => 'Faltante en C$', 'valor' => 'C$ ' . $this->formatear($this->faltanteCordobas())],
+            ['label' => 'Sobrante en C$', 'valor' => 'C$ ' . $this->formatear($this->sobranteCordobas())],
+
+            ['label' => 'Total en $', 'valor' => '$ ' . $this->formatear($this->totalEsperadoDolares())],
+            ['label' => 'Faltante en $', 'valor' => '$ ' . $this->formatear($this->faltanteDolares())],
+            ['label' => 'Sobrante en $', 'valor' => '$ ' . $this->formatear($this->sobranteDolares())],
         ];
     }
 };
@@ -421,21 +514,22 @@ new class extends Component
                                 type="number"
                                 min="0"
                                 placeholder="0"
+                                prefix="C$"
                                 wire:model.live="conteoCordobas.{{ $denominacion }}"
                                 class="{{ $inputReadonlyClass }}"
                             />
 
                             <span class="mt-2 block text-sm font-medium text-[#5F6B7A]">
-                                Subtotal: {{ $this->formatear($this->subtotalCordoba($denominacion)) }}
+                                Subtotal: C$ {{ $this->formatear($this->subtotalCordoba($denominacion)) }}
                             </span>
                         </div>
                     @endforeach
                 </div>
 
                 <div class="mt-4 flex items-center justify-between rounded-xl bg-[#EAF2FB] px-4 py-3">
-                    <span class="font-semibold text-[#1A2B42]">Total efectivo C$</span>
+                    <span class="font-semibold text-[#1A2B42]">Efectivo contado C$</span>
                     <span class="text-lg font-bold text-[#0B6FE4]">
-                        {{ $this->formatear($this->totalCordobas()) }}
+                        C$ {{ $this->formatear($this->totalCordobas()) }}
                     </span>
                 </div>
             </div>
@@ -462,21 +556,22 @@ new class extends Component
                                 type="number"
                                 min="0"
                                 placeholder="0"
+                                prefix="$"
                                 wire:model.live="conteoDolares.{{ $denominacion }}"
                                 class="{{ $inputReadonlyClass }}"
                             />
 
                             <span class="mt-2 block text-sm font-medium text-[#5F6B7A]">
-                                Subtotal: {{ $this->formatear($this->subtotalDolar($denominacion)) }}
+                                Subtotal: $ {{ $this->formatear($this->subtotalDolar($denominacion)) }}
                             </span>
                         </div>
                     @endforeach
                 </div>
 
                 <div class="mt-4 flex items-center justify-between rounded-xl bg-[#EAF2FB] px-4 py-3">
-                    <span class="font-semibold text-[#1A2B42]">Total efectivo $</span>
+                    <span class="font-semibold text-[#1A2B42]">Efectivo contado $</span>
                     <span class="text-lg font-bold text-[#0B6FE4]">
-                        {{ $this->formatear($this->totalDolares()) }}
+                        $ {{ $this->formatear($this->totalDolares()) }}
                     </span>
                 </div>
             </div>
@@ -679,12 +774,13 @@ new class extends Component
 
                             <div>
                                 <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                                    Total en caja
+                                    Efectivo contado
                                 </label>
 
                                 <x-input
                                     :value="$this->totalCajaDisponible()"
                                     readonly
+                                    prefix="{{ $this->prefijoMonedaEgreso() }}"
                                     class="{{ $inputReadonlyClass }}"
                                 />
                             </div>
@@ -700,6 +796,7 @@ new class extends Component
                                     min="0.01"
                                     wire:model="cantidadEgreso"
                                     placeholder="0.00"
+                                    prefix="{{ $this->prefijoMonedaEgreso() }}"
                                     class="{{ $inputEditableClass }}"
                                 />
 
