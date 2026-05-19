@@ -19,7 +19,7 @@ class ClienteCredito extends Model
 
     protected $fillable = [
         'Id_Cliente',
-        'Limite_Credito',
+      
         'Saldo_Actual',
         'Estado',
         'Fecha_Registro',
@@ -28,7 +28,7 @@ class ClienteCredito extends Model
     protected $casts = [
         'Id_Cliente_Credito' => 'integer',
         'Id_Cliente' => 'integer',
-        'Limite_Credito' => 'decimal:2',
+       
         'Saldo_Actual' => 'decimal:2',
         'Estado' => 'integer',
         'Fecha_Registro' => 'datetime',

@@ -7,7 +7,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 
@@ -20,7 +19,6 @@
         <x-slot:sidebar drawer="main-drawer" collapsible>
             @include('layouts.partials.sidebar')
         </x-slot:sidebar>
-
 
         <x-slot:content>
             <div class="min-h-screen p-4 md:p-6">
