@@ -23,7 +23,6 @@ class AperturaCaja extends Model
         'Monto_Apertura',
         'Fecha_Apertura',
         'Estado_Apertura',
-        'Numero_Caja'=> 'integer',
     ];
 
     protected $casts = [
@@ -32,7 +31,6 @@ class AperturaCaja extends Model
         'Monto_Apertura' => 'decimal:2',
         'Fecha_Apertura' => 'datetime',
         'Estado_Apertura' => 'integer',
-        'Numero_Caja'=> 'integer',
     ];
 
     public function usuario(): BelongsTo
