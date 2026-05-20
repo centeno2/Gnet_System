@@ -420,7 +420,7 @@ new class extends Component
     </div>
 
     @if ($mostrarToast)
-        <div class="fixed right-5 top-5 z-[999] w-full max-w-sm">
+        <div class="fixed right-5 top-5 z-999 w-full max-w-sm">
             <div
                 class="{{ $toastTipo === 'success'
                     ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#1A2B42]'
@@ -567,7 +567,7 @@ new class extends Component
             no-hover
             show-empty-text
             empty-text="No hay usuarios registrados."
-            class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr]:!bg-white [&_tbody_tr:nth-child(even)]:!bg-[#F8FBFF] [&_tbody_tr:hover]:!bg-[#EAF4FD] [&_tbody_tr]:!text-[#1A2B42]"
+            class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr]:bg-white! [&_tbody_tr:nth-child(even)]:bg-[#F8FBFF]! [&_tbody_tr:hover]:bg-[#EAF4FD]! [&_tbody_tr]:text-[#1A2B42]!"
         >
             @scope('cell_status', $usuario)
                 <span
