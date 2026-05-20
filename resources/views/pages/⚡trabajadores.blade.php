@@ -79,7 +79,7 @@ new class extends Component
 
         if (! $modoEdicion || $cedulaCambio) {
             $cedulaRules[] = 'size:14';
-            $cedulaRules[] = 'regex:/^\d{13}[A-HJ-NPR-TVXY]$/';
+            $cedulaRules[] = 'regex:/^\d{13}[A-ZÑ]$/u';
             $cedulaRules[] = Rule::unique('trabajador', 'Cedula')
                 ->ignore($this->trabajadorEditandoId, 'Id_Trabajador');
 
@@ -177,7 +177,7 @@ new class extends Component
 
             'cedula.required' => 'Debe ingresar la cédula.',
             'cedula.size' => 'La cédula debe tener exactamente 14 caracteres.',
-            'cedula.regex' => 'La cédula debe tener 13 números y una letra mayúscula válida al final. No se permiten las letras I, O, Ñ, Q, U, W, Z.',
+            'cedula.regex' => 'La cédula debe tener 13 números y cualquier letra del abecedario como último carácter.',
             'cedula.unique' => 'Esta cédula ya está registrada en otro trabajador.',
 
             'telefono.required' => 'Debe ingresar el teléfono.',
@@ -229,7 +229,7 @@ new class extends Component
 
     protected function cedulaCambio(): bool
     {
-        return strtoupper(trim($this->cedula)) !== strtoupper(trim($this->cedulaOriginal));
+        return mb_strtoupper(trim($this->cedula), 'UTF-8') !== mb_strtoupper(trim($this->cedulaOriginal), 'UTF-8');
     }
 
     protected function telefonoCambio(): bool
@@ -242,7 +242,7 @@ new class extends Component
 
     public function updatedCedula(): void
     {
-        $this->cedula = strtoupper(trim($this->cedula));
+        $this->cedula = mb_strtoupper(trim($this->cedula), 'UTF-8');
 
         if ($this->modoEdicion() && ! $this->cedulaCambio()) {
             $this->cedulaExiste = false;
@@ -274,7 +274,7 @@ new class extends Component
     {
         $this->nombres = preg_replace('/\s+/', ' ', trim($this->nombres));
         $this->apellidos = preg_replace('/\s+/', ' ', trim($this->apellidos));
-        $this->cedula = strtoupper(trim($this->cedula));
+        $this->cedula = mb_strtoupper(trim($this->cedula), 'UTF-8');
         $this->telefono = preg_replace('/\D+/', '', trim($this->telefono));
         $this->direccion = preg_replace('/\s+/', ' ', trim($this->direccion));
         $this->salario = str_replace(',', '.', trim($this->salario));
@@ -334,9 +334,9 @@ new class extends Component
 
     protected function fechaCedulaValida(string $cedula): bool
     {
-        $cedula = strtoupper(trim($cedula));
+        $cedula = mb_strtoupper(trim($cedula), 'UTF-8');
 
-        if (! preg_match('/^\d{13}[A-HJ-NPR-TVXY]$/', $cedula)) {
+        if (! preg_match('/^\d{13}[A-ZÑ]$/u', $cedula)) {
             return false;
         }
 
@@ -530,7 +530,7 @@ new class extends Component
             ? $this->unirDosColumnas($persona->Primer_Apellido, $persona->Segundo_Apellido)
             : '';
 
-        $this->cedulaOriginal = strtoupper(trim($trabajador->Cedula ?? ''));
+        $this->cedulaOriginal = mb_strtoupper(trim($trabajador->Cedula ?? ''), 'UTF-8');
         $this->telefonoOriginal = preg_replace('/\D+/', '', trim($persona?->Telefono ?? ''));
 
         $this->cedula = $this->cedulaOriginal;
@@ -862,7 +862,7 @@ new class extends Component
                             icon="o-plus"
                             type="button"
                             wire:click="$set('modalCargo', true)"
-                            class="mt-[1px] h-12 min-h-12 rounded-xl border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]"
+                            class="mt-px h-12 min-h-12 rounded-xl border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]"
                         />
                     </div>
 
@@ -1062,4 +1062,4 @@ new class extends Component
             </x-slot:actions>
         </x-form>
     </x-modal>
-</div>
+</div> 

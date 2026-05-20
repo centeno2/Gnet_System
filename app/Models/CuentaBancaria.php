@@ -25,7 +25,6 @@ class CuentaBancaria extends Model
     protected $fillable = [
         'Id_Banco',
         'Nombre_Titular',
-        'Numero_Cuenta',
         'Ultimos_Digitos',
         'Tipo_Cuenta',
         'Moneda',
@@ -35,7 +34,6 @@ class CuentaBancaria extends Model
     protected $casts = [
         'Id_Cuenta_Bancaria' => 'integer',
         'Id_Banco' => 'integer',
-        'Numero_Cuenta' => 'encrypted',
         'Estado' => 'boolean',
     ];
 
@@ -49,17 +47,12 @@ class CuentaBancaria extends Model
         return $this->hasMany(Compra::class, 'Id_Cuenta_Bancaria', 'Id_Cuenta_Bancaria');
     }
 
-    public function numeroEnmascarado(): string
+    public function ultimosDigitosMostrados(): string
     {
-        $limpio = preg_replace('/\D+/', '', (string) $this->Numero_Cuenta);
+        $ultimos = preg_replace('/\D+/', '', (string) $this->Ultimos_Digitos);
 
-        if ($limpio === '') {
-            return '*** **** ****';
-        }
-
-        $primeros = substr($limpio, 0, 3);
-        $ultimos = strlen($limpio) >= 4 ? substr($limpio, -4) : substr($limpio, -2);
-
-        return $primeros . ' **** ' . $ultimos;
+        return $ultimos !== ''
+            ? str_pad(substr($ultimos, -4), 4, '0', STR_PAD_LEFT)
+            : '----';
     }
 }
