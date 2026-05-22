@@ -67,6 +67,8 @@ Route::middleware(['auth', 'cargo: 1,2,3'])->group(function () {
 
     Route::livewire('/main', 'pages::main')->name('main');
     Route::livewire('/ventas/facturacion', 'pages::ventas.facturacion')->name('ventas.facturacion');
+    Route::livewire('/ventas/servicio-tecnico', 'pages::ventas.servicio-tecnico')->name('ventas.servicio-tecnico');
+    Route::livewire('/ventas/instalacion-camaras', 'pages::ventas.instalacion-camaras')->name('ventas.instalacion-camaras');
     Route::livewire('/clientes', 'pages::clientes')->name('clientes');
     Route::livewire('/devoluciones', 'pages::devoluciones')->name('devoluciones');
     Route::livewire('/arqueodecaja', 'pages::arqueodecaja')->name('arqueodecaja');
