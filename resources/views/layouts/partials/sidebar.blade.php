@@ -13,14 +13,14 @@
      */
     $puede = fn (...$cargos) => in_array($cargo, array_map('intval', $cargos), true);
 
-    $puedeVerVentas = $puede(1, 2);
+    $puedeVerVentas = $puede(1, 2, 3);
     $puedeVerCatalogo = $puede(1, 2, 3);
-    $puedeVerGestionTrabajadores = $puede(1, 2);
+    $puedeVerGestionTrabajadores = $puede( 2);
 @endphp
 
 <x-menu activate-by-route active-bg-color="!bg-[#2E8BC0] !text-white font-semibold shadow-sm">
 
-    {{-- Ventas: cargos 1 y 2  --}}
+    {{-- Ventas: cargos 1  2 3  --}}
     @if ($puedeVerVentas)
         <x-menu-sub title="Ventas" icon="o-shopping-cart">
             <x-menu-item 
@@ -53,7 +53,7 @@
     @endif
 
     {{-- Compras: cargos 1 --}}
-    @if ($puede(1))
+    @if ($puede(2))
         <x-menu-item 
             title="Compras" 
             icon="o-shopping-bag" 
@@ -71,7 +71,7 @@
     @endif
 
     {{-- Salidas de inventario: cargos 1  --}}
-    @if ($puede(1 ))
+    @if ($puede(2))
         <x-menu-item 
             title="Salidas de inventario" 
             icon="o-arrow-up-tray" 
@@ -88,7 +88,7 @@
         />
     @endif
 
-    {{-- Gestión de trabajadores: cargos 1  --}}
+    {{-- Gestión de trabajadores: cargos 2  --}}
     @if ($puedeVerGestionTrabajadores)
         <x-menu-sub title="Gestión de trabajadores" icon="o-users">
             <x-menu-item 
@@ -104,7 +104,7 @@
         <x-menu-sub title="Catálogo" icon="o-wrench-screwdriver">
 
             {{-- Proveedores: cargos 1 y 2 --}}
-            @if ($puede(1 ))
+            @if ($puede(2 ))
                 <x-menu-item 
                     title="Proveedores" 
                     icon="o-truck" 
@@ -122,7 +122,7 @@
             @endif
 
             {{-- Usuario: cargos 1 y 2 --}}
-            @if ($puede(1 ))
+            @if ($puede(2 ))
                 <x-menu-item 
                     title="Usuario" 
                     icon="o-user" 
@@ -131,7 +131,7 @@
             @endif
 
             {{-- Trabajadores: cargos 1 y 2 --}}
-            @if ($puede(1, 2))
+            @if ($puede( 2))
                 <x-menu-item 
                     title="Trabajadores" 
                     icon="o-users" 
@@ -161,7 +161,7 @@
     @endif
 
     {{-- Informes: cargos 1 y 2 --}}
-    @if ($puede(1, 2))
+    @if ($puede( 2))
         <x-menu-item 
             title="Informes" 
             icon="o-document-text" 

@@ -33,7 +33,7 @@ Route::middleware('auth')->group(function () {
         ->name('ventas.factura');
 });
 
-Route::middleware(['auth', 'cargo:1'])->group(function () {
+Route::middleware(['auth', 'cargo: 2'])->group(function () {
     Route::livewire('/usersystem', 'pages::usersystem')->name('usersystem');
     Route::livewire('/trabajadores', 'pages::trabajadores')->name('trabajadores');
     Route::livewire('/compras', 'pages::compras')->name('compras');
@@ -52,7 +52,7 @@ Route::middleware(['auth', 'cargo:1'])->group(function () {
    
 });
 
-Routw ::middleware (['auth', 'cargo 1, 2'])->group(function) () {
+Route ::middleware (['auth', 'cargo 1, 2'])->group(function () {
 
     Route::livewire('/trabajadores', 'pages::trabajadores')->name('trabajadores');
     Route::livewire('/planillapago', 'pages::planillapago')->name('planillapago');
@@ -65,7 +65,7 @@ Routw ::middleware (['auth', 'cargo 1, 2'])->group(function) () {
     Route::livewire('/productos', 'pages::productos')->name('productos.index');
     Route::livewire('/productos/listado', 'pages::components.productos.listado')->name('productos.listado');
 
-}
+});
 Route::middleware(['auth', 'cargo: 1,2,3'])->group(function () {
 
     Route::livewire('/main', 'pages::main')->name('main');
