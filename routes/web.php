@@ -51,7 +51,7 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
    
 });
 
-Route::middleware (['auth', 'cargo: 1,2'])->group(function () {
+Route ::middleware (['auth', 'cargo: 1, 2'])->group(function () {
 
     Route::livewire('/trabajadores', 'pages::trabajadores')->name('trabajadores');
     Route::livewire('/planillapago', 'pages::planillapago')->name('planillapago');
