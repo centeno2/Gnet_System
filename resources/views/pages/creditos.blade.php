@@ -3,6 +3,8 @@
 use App\Models\AbonoCredito;
 use App\Models\ClienteCredito;
 use App\Models\Credito;
+use App\Models\TasaCambio;
+use App\Models\Usuario;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -15,7 +17,7 @@ new class extends Component
 {
     use Toast;
 
-    protected const TASA_CAMBIO_FIJA = '36.5000';
+    protected const TASA_CAMBIO_RESPALDO = '36.5000';
 
     public string $valorBusqueda = '';
     public array $sugerenciasCredito = [];
@@ -53,7 +55,7 @@ new class extends Component
     public function mount(): void
     {
         $this->fechaPago = now()->toDateString();
-        $this->tasaCambio = self::TASA_CAMBIO_FIJA;
+        $this->tasaCambio = $this->obtenerTasaCambioDelDia();
 
         $this->metodosPagoOptions = [
             ['id' => 'efectivo', 'name' => 'Efectivo'],
@@ -122,7 +124,7 @@ new class extends Component
 
     public function updatedTasaCambio(): void
     {
-        $this->tasaCambio = self::TASA_CAMBIO_FIJA;
+        $this->tasaCambio = $this->obtenerTasaCambioDelDia();
         $this->calcularSaldoFavorVista();
     }
 
@@ -301,7 +303,7 @@ new class extends Component
         $this->resetErrorBag();
 
         $this->fechaPago = now()->toDateString();
-        $this->tasaCambio = self::TASA_CAMBIO_FIJA;
+        $this->tasaCambio = $this->obtenerTasaCambioDelDia();
 
         $validator = Validator::make(
             [
@@ -363,7 +365,7 @@ new class extends Component
 
         $montoCordobas = $this->normalizarDecimal($datos['abonarCordobas'] ?? 0);
         $montoDolares = $this->normalizarDecimal($datos['abonarDolares'] ?? 0);
-        $tasaCambio = $this->normalizarDecimal(self::TASA_CAMBIO_FIJA);
+        $tasaCambio = $this->normalizarDecimal($this->tasaCambio);
 
         if ($montoCordobas <= 0 && $montoDolares <= 0) {
             $this->addError('abonarCordobas', 'Debe ingresar al menos un monto a abonar.');
@@ -389,6 +391,18 @@ new class extends Component
             return;
         }
 
+        try {
+            $idUsuario = $this->obtenerUsuarioActualId();
+        } catch (ValidationException $e) {
+            $this->notificar(
+                type: 'error',
+                title: 'Usuario no encontrado',
+                description: collect($e->errors())->flatten()->first() ?? 'No se pudo identificar el usuario actual.'
+            );
+
+            return;
+        }
+
         $montoAplicadoTotal = 0.0;
         $saldoFavorGenerado = 0.0;
 
@@ -398,6 +412,7 @@ new class extends Component
                 $montoCordobas,
                 $montoDolares,
                 $tasaCambio,
+                $idUsuario,
                 &$montoAplicadoTotal,
                 &$saldoFavorGenerado
             ) {
@@ -449,6 +464,7 @@ new class extends Component
 
                     $this->crearAbonoCredito(
                         credito: $credito,
+                        idUsuario: $idUsuario,
                         moneda: AbonoCredito::MONEDA_CORDOBA,
                         monto: $aplicadoCordobas,
                         tipoCambio: 1,
@@ -469,6 +485,7 @@ new class extends Component
 
                     $this->crearAbonoCredito(
                         credito: $credito,
+                        idUsuario: $idUsuario,
                         moneda: AbonoCredito::MONEDA_DOLAR,
                         monto: $aplicadoDolares,
                         tipoCambio: $tasaCambio,
@@ -525,6 +542,71 @@ new class extends Component
             title: 'Pago registrado',
             description: $mensaje
         );
+    }
+
+    protected function obtenerTasaCambioDelDia(): string
+    {
+        $tasaHoy = TasaCambio::query()
+            ->whereDate('Fecha_Modificacion', now()->toDateString())
+            ->latest('Fecha_Modificacion')
+            ->first();
+
+        $valor = (float) ($tasaHoy?->Valor_Cambio ?? TasaCambio::valorActual());
+
+        if ($valor <= 0) {
+            $valor = (float) self::TASA_CAMBIO_RESPALDO;
+        }
+
+        return number_format($valor, 4, '.', '');
+    }
+
+    protected function obtenerUsuarioActualId(): int
+    {
+        $usuarioAutenticado = auth()->user();
+
+        $posiblesIds = collect();
+
+        if ($usuarioAutenticado) {
+            $posiblesIds = $posiblesIds->merge([
+                $usuarioAutenticado->Id_Usuario ?? null,
+                method_exists($usuarioAutenticado, 'getAttribute') ? $usuarioAutenticado->getAttribute('Id_Usuario') : null,
+                method_exists($usuarioAutenticado, 'getAttribute') ? $usuarioAutenticado->getAttribute('id_usuario') : null,
+                method_exists($usuarioAutenticado, 'getAttribute') ? $usuarioAutenticado->getAttribute('usuario_id') : null,
+                method_exists($usuarioAutenticado, 'getAuthIdentifier') ? $usuarioAutenticado->getAuthIdentifier() : null,
+                auth()->id(),
+            ]);
+        }
+
+        $posiblesIds = $posiblesIds->merge([
+            session('Id_Usuario'),
+            session('id_usuario'),
+            session('usuario_id'),
+            session('user_id'),
+        ]);
+
+        $posiblesIds = $posiblesIds
+            ->filter(fn ($valor) => filled($valor) && is_numeric($valor))
+            ->map(fn ($valor) => (int) $valor)
+            ->unique()
+            ->values();
+
+        if ($posiblesIds->isEmpty()) {
+            throw ValidationException::withMessages([
+                'Id_Usuario' => 'No hay un usuario autenticado para registrar el abono.',
+            ]);
+        }
+
+        $usuario = Usuario::query()
+            ->whereIn('Id_Usuario', $posiblesIds->all())
+            ->first();
+
+        if (! $usuario) {
+            throw ValidationException::withMessages([
+                'Id_Usuario' => 'El usuario autenticado no está vinculado con la tabla usuario.',
+            ]);
+        }
+
+        return (int) $usuario->Id_Usuario;
     }
 
     protected function resolverClienteCredito(Credito $credito): ?ClienteCredito
@@ -584,6 +666,7 @@ new class extends Component
 
     protected function crearAbonoCredito(
         Credito $credito,
+        int $idUsuario,
         string $moneda,
         float $monto,
         float $tipoCambio,
@@ -597,21 +680,34 @@ new class extends Component
             return;
         }
 
+        $usuarioExiste = Usuario::query()
+            ->whereKey($idUsuario)
+            ->exists();
+
+        if (! $usuarioExiste) {
+            throw ValidationException::withMessages([
+                'Id_Usuario' => 'El usuario que intenta registrar el abono no existe.',
+            ]);
+        }
+
         $textoObservacion = trim(
             'Método: ' . ucfirst($metodoPago) .
             ($observacion ? '. ' . trim($observacion) : '')
         );
 
-        AbonoCredito::query()->create([
-            'Id_Credito' => (int) $credito->Id_Credito,
-            'Fecha_Abono' => $fechaPago,
-            'Moneda' => $moneda,
-            'Monto' => round($monto, 2),
-            'Tipo_Cambio' => round($tipoCambio, 4),
-            'Monto_Equivalente_Cordobas' => round($montoEquivalenteCordobas, 2),
-            'Numero_Transferencia' => filled($referencia) ? trim((string) $referencia) : null,
-            'Observacion' => $textoObservacion,
-        ]);
+        $abono = new AbonoCredito();
+
+        $abono->Id_Credito = (int) $credito->Id_Credito;
+        $abono->Id_Usuario = $idUsuario;
+        $abono->Fecha_Abono = $fechaPago;
+        $abono->Moneda = $moneda;
+        $abono->Monto = round($monto, 2);
+        $abono->Tipo_Cambio = round($tipoCambio, 4);
+        $abono->Monto_Equivalente_Cordobas = round($montoEquivalenteCordobas, 2);
+        $abono->Numero_Transferencia = filled($referencia) ? trim((string) $referencia) : null;
+        $abono->Observacion = $textoObservacion;
+
+        $abono->save();
     }
 
     protected function obtenerAbonosCredito(Credito $credito, bool $bloquear = false)
@@ -838,7 +934,7 @@ new class extends Component
     {
         $this->abonarCordobas = '0.00';
         $this->abonarDolares = '0.00';
-        $this->tasaCambio = self::TASA_CAMBIO_FIJA;
+        $this->tasaCambio = $this->obtenerTasaCambioDelDia();
         $this->referenciaPago = '';
         $this->observacion = '';
         $this->fechaPago = now()->toDateString();
@@ -1015,12 +1111,7 @@ new class extends Component
 
     <div class="grid min-h-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div class="flex min-h-0 flex-col gap-4 overflow-hidden">
-            <x-card
-                title="Buscar crédito"
-                shadow
-                separator
-                class="{{ $cardClass }}"
-            >
+            <x-card title="Buscar crédito" shadow separator class="{{ $cardClass }}">
                 <div class="relative">
                     <x-input
                         label="Cliente, crédito o venta"
@@ -1095,10 +1186,7 @@ new class extends Component
                                 <p class="mt-1 text-base font-black text-[#1A2B42]">C$ {{ $saldoPendiente }}</p>
                             </div>
 
-                            <span
-                                class="{{ $estadoClass }} shrink-0 rounded-full px-2.5 py-1 text-center text-xs font-bold"
-                                title="{{ $estadoCredito }}"
-                            >
+                            <span class="{{ $estadoClass }} shrink-0 rounded-full px-2.5 py-1 text-center text-xs font-bold" title="{{ $estadoCredito }}">
                                 {{ ucfirst(strtolower($estadoCredito)) }}
                             </span>
                         </div>
@@ -1106,12 +1194,7 @@ new class extends Component
                 </div>
             </x-card>
 
-            <x-card
-                title="Detalle del crédito"
-                shadow
-                separator
-                class="flex min-h-0 flex-1 flex-col {{ $cardClass }}"
-            >
+            <x-card title="Detalle del crédito" shadow separator class="flex min-h-0 flex-1 flex-col {{ $cardClass }}">
                 <div class="min-h-[230px] max-h-[360px] overflow-hidden rounded-2xl border border-[#D7E4F3]">
                     <div class="h-full max-h-[360px] overflow-auto overscroll-contain">
                         <x-table
@@ -1121,11 +1204,7 @@ new class extends Component
                             class="min-w-[960px] [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_td]:border-[#D7E4F3] [&_tbody_td]:text-[#1A2B42] [&_tbody_tr:hover]:!bg-[#EAF4FD]"
                         >
                             @scope('cell_estado', $fila)
-                                <span
-                                    class="{{ $fila['estado'] === 'Inicial'
-                                        ? 'bg-blue-100 text-blue-700'
-                                        : 'bg-green-100 text-green-700' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold"
-                                >
+                                <span class="{{ $fila['estado'] === 'Inicial' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">
                                     {{ $fila['estado'] }}
                                 </span>
                             @endscope
@@ -1148,12 +1227,7 @@ new class extends Component
         </div>
 
         <aside class="flex min-h-0 flex-col gap-4 overflow-hidden xl:sticky xl:top-4 xl:max-h-[calc(100vh-5rem)]">
-            <x-card
-                title="Registrar pago"
-                shadow
-                separator
-                class="{{ $cardClass }}"
-            >
+            <x-card title="Registrar pago" shadow separator class="{{ $cardClass }}">
                 <x-form wire:submit="registrarPago" no-separator>
                     <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
                         <x-input
@@ -1203,7 +1277,7 @@ new class extends Component
                         />
 
                         <x-input
-                            label="Tasa fija"
+                            label="Tasa del día"
                             wire:model="tasaCambio"
                             prefix="C$"
                             readonly
@@ -1243,12 +1317,7 @@ new class extends Component
                 </x-form>
             </x-card>
 
-            <x-card
-                title="Saldo a favor"
-                shadow
-                separator
-                class="flex min-h-0 flex-1 flex-col {{ $cardClass }}"
-            >
+            <x-card title="Saldo a favor" shadow separator class="flex min-h-0 flex-1 flex-col {{ $cardClass }}">
                 <div class="grid grid-cols-2 gap-3">
                     <div class="rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
                         <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Clientes</p>

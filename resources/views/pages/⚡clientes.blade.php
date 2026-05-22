@@ -33,6 +33,17 @@ new class extends Component
     public ?int $clienteEditandoId = null;
     public ?int $personaEditandoId = null;
 
+    public string $telefonoOriginal = '';
+
+    public bool $modalConfirmarPersonaExistente = false;
+    public bool $personaExiste = false;
+    public bool $personaYaEsCliente = false;
+
+    public ?int $personaExistenteId = null;
+    public ?string $personaExistenteNombre = null;
+    public ?string $personaExistenteTelefono = null;
+    public ?string $personaExistenteDireccion = null;
+
     public array $headers = [
         ['key' => 'codigo', 'label' => 'Código', 'class' => 'w-24'],
         ['key' => 'full_name', 'label' => 'Nombre / Institución', 'class' => 'min-w-[220px]'],
@@ -72,6 +83,7 @@ new class extends Component
     public function updatedTipoCliente($value): void
     {
         $this->resetValidation();
+        $this->limpiarPersonaEncontrada();
 
         if ((int) $value === Cliente::TIPO_NATURAL) {
             $this->tipoPago = Cliente::TIPO_PAGO_CONTADO;
@@ -90,10 +102,63 @@ new class extends Component
         $this->direccion = '';
     }
 
+    public function updatedTelefono(): void
+    {
+        $this->telefono = $this->limpiarSoloDigitos($this->telefono);
+
+        if (! $this->esNaturalSeleccionado()) {
+            $this->limpiarPersonaEncontrada();
+            return;
+        }
+
+        if ($this->modoEdicion()) {
+            $this->limpiarPersonaEncontrada();
+
+            if (! $this->telefonoCambio()) {
+                $this->resetErrorBag('telefono');
+            }
+
+            return;
+        }
+
+        $this->buscarPersonaPorTelefono();
+    }
+
+    public function updatedTelefonoInstitucion(): void
+    {
+        $this->telefonoInstitucion = $this->limpiarSoloDigitos($this->telefonoInstitucion);
+    }
+
     protected function rules(): array
     {
         $esNatural = (int) $this->tipoCliente === Cliente::TIPO_NATURAL;
         $esInstitucion = (int) $this->tipoCliente === Cliente::TIPO_INSTITUCION;
+        $modoEdicion = $this->modoEdicion();
+        $personaNuevaNatural = $esNatural && ! $this->personaExiste && ! $modoEdicion;
+
+        $telefonoRules = ['nullable'];
+
+        if ($esNatural) {
+            $telefonoRules = [
+                'required',
+                'string',
+                'size:8',
+                'regex:/^[0-9]{8}$/',
+            ];
+
+            if ($modoEdicion) {
+                if ($this->telefonoCambio()) {
+                    if ($this->personaEditandoId) {
+                        $telefonoRules[] = Rule::unique('persona', 'Telefono')
+                            ->ignore($this->personaEditandoId, 'Id_Persona');
+                    } else {
+                        $telefonoRules[] = Rule::unique('persona', 'Telefono');
+                    }
+                }
+            } elseif (! $this->personaExiste) {
+                $telefonoRules[] = Rule::unique('persona', 'Telefono');
+            }
+        }
 
         return [
             'tipoCliente' => [
@@ -111,7 +176,8 @@ new class extends Component
 
             'nombre' => $esNatural
                 ? [
-                    'required',
+                    Rule::requiredIf($personaNuevaNatural || $modoEdicion),
+                    'nullable',
                     'string',
                     'max:80',
                     'regex:/^[\p{L}]+(?:\s+[\p{L}]+)?$/u',
@@ -120,22 +186,15 @@ new class extends Component
 
             'apellido' => $esNatural
                 ? [
-                    'required',
+                    Rule::requiredIf($personaNuevaNatural || $modoEdicion),
+                    'nullable',
                     'string',
                     'max:80',
                     'regex:/^[\p{L}]+(?:\s+[\p{L}]+)?$/u',
                 ]
                 : ['nullable'],
 
-            'telefono' => $esNatural
-                ? [
-                    'required',
-                    'string',
-                    'size:8',
-                    'regex:/^[0-9]{8}$/',
-                    Rule::unique('persona', 'Telefono')->ignore($this->personaEditandoId, 'Id_Persona'),
-                ]
-                : ['nullable'],
+            'telefono' => $telefonoRules,
 
             'direccion' => [
                 'nullable',
@@ -205,7 +264,7 @@ new class extends Component
         'telefono.required' => 'El teléfono es obligatorio.',
         'telefono.regex' => 'Ingrese solo 8 dígitos. Ejemplo: 88887777.',
         'telefono.size' => 'El teléfono debe tener exactamente 8 dígitos.',
-        'telefono.unique' => 'Este teléfono ya está registrado.',
+        'telefono.unique' => 'Este teléfono ya pertenece a otra persona registrada.',
 
         'direccion.max' => 'La dirección no debe superar los 255 caracteres.',
 
@@ -227,36 +286,111 @@ new class extends Component
         'tipoPago.in' => 'El cliente natural solo puede tener pago de contado.',
     ];
 
+    protected function modoEdicion(): bool
+    {
+        return $this->clienteEditandoId !== null;
+    }
+
+    protected function telefonoCambio(): bool
+    {
+        $telefonoActual = $this->limpiarSoloDigitos($this->telefono);
+        $telefonoOriginal = $this->limpiarSoloDigitos($this->telefonoOriginal);
+
+        return $telefonoActual !== $telefonoOriginal;
+    }
+
     public function guardarCliente(): void
     {
         $this->normalizarCampos();
 
-        $this->validate();
-
         if ($this->clienteEditandoId) {
+            $this->validate();
             $this->actualizarCliente();
             return;
         }
 
-        $this->crearCliente();
+        if ($this->esNaturalSeleccionado()) {
+            $this->buscarPersonaPorTelefono();
+        }
+
+        $this->validate();
+
+        if ($this->esNaturalSeleccionado() && $this->personaYaEsCliente) {
+            $this->addError('telefono', 'Esta persona ya está registrada como cliente. Puede editarla desde el listado.');
+
+            $this->error(
+                'Esta persona ya es cliente.',
+                'Busque el registro en el listado para actualizarlo o activarlo.',
+                position: 'toast-top toast-end',
+                timeout: 3500
+            );
+
+            return;
+        }
+
+        if ($this->esNaturalSeleccionado() && $this->personaExiste) {
+            $this->modalConfirmarPersonaExistente = true;
+
+            $this->info(
+                'Persona existente encontrada.',
+                'Confirme para registrarla como cliente sin duplicar datos personales.',
+                position: 'toast-top toast-end',
+                timeout: 3200
+            );
+
+            return;
+        }
+
+        $this->crearCliente(false);
     }
 
-    private function crearCliente(): void
+    public function confirmarRegistroPersonaExistente(): void
+    {
+        $this->normalizarCampos();
+        $this->buscarPersonaPorTelefono();
+
+        $this->validate();
+
+        if (! $this->personaExiste || ! $this->personaExistenteId) {
+            $this->modalConfirmarPersonaExistente = false;
+            $this->addError('telefono', 'No se encontró la persona. Verifique el número de teléfono.');
+            return;
+        }
+
+        if ($this->personaYaEsCliente) {
+            $this->modalConfirmarPersonaExistente = false;
+            $this->addError('telefono', 'Esta persona ya está registrada como cliente.');
+            return;
+        }
+
+        $this->crearCliente(true);
+    }
+
+    public function cerrarModalConfirmacion(): void
+    {
+        $this->modalConfirmarPersonaExistente = false;
+    }
+
+    private function crearCliente(bool $usarPersonaExistente = false): void
     {
         try {
-            DB::transaction(function () {
+            DB::transaction(function () use ($usarPersonaExistente) {
                 if ($this->esNaturalSeleccionado()) {
-                    [$primerNombre, $segundoNombre] = $this->separarEnDosPartes($this->nombre);
-                    [$primerApellido, $segundoApellido] = $this->separarEnDosPartes($this->apellido);
+                    if ($usarPersonaExistente) {
+                        $persona = Persona::query()->findOrFail($this->personaExistenteId);
+                    } else {
+                        [$primerNombre, $segundoNombre] = $this->separarEnDosPartes($this->nombre);
+                        [$primerApellido, $segundoApellido] = $this->separarEnDosPartes($this->apellido);
 
-                    $persona = Persona::query()->create([
-                        'Primer_Nombre' => $primerNombre,
-                        'Segundo_Nombre' => $segundoNombre,
-                        'Primer_Apellido' => $primerApellido,
-                        'Segundo_Apellido' => $segundoApellido,
-                        'Direccion' => $this->direccion,
-                        'Telefono' => $this->telefono,
-                    ]);
+                        $persona = Persona::query()->create([
+                            'Primer_Nombre' => $primerNombre,
+                            'Segundo_Nombre' => $segundoNombre,
+                            'Primer_Apellido' => $primerApellido,
+                            'Segundo_Apellido' => $segundoApellido,
+                            'Direccion' => $this->direccion,
+                            'Telefono' => $this->telefono,
+                        ]);
+                    }
 
                     Cliente::query()->create([
                         'Id_Persona' => $persona->Id_Persona,
@@ -286,6 +420,7 @@ new class extends Component
                 ]);
             });
 
+            $this->modalConfirmarPersonaExistente = false;
             $this->limpiarFormulario();
             $this->cargarClientes();
 
@@ -394,25 +529,27 @@ new class extends Component
 
         $persona = $cliente->persona;
 
+        $this->resetValidation();
+        $this->limpiarPersonaEncontrada();
+
         $this->clienteEditandoId = (int) $cliente->Id_Cliente;
-        $this->personaEditandoId = $persona?->Id_Persona;
+        $this->personaEditandoId = $persona?->Id_Persona ? (int) $persona->Id_Persona : null;
 
         $this->tipoCliente = (int) $cliente->Tipo_Cliente;
         $this->tipoPago = (int) $cliente->Tipo_pago;
         $this->municipio = $cliente->Municipio ?? '';
 
         if ((int) $cliente->Tipo_Cliente === Cliente::TIPO_NATURAL) {
-            $this->nombre = trim(implode(' ', array_filter([
-                $persona?->Primer_Nombre,
-                $persona?->Segundo_Nombre,
-            ])));
+            $this->nombre = $persona
+                ? $this->unirDosColumnas($persona->Primer_Nombre, $persona->Segundo_Nombre)
+                : '';
 
-            $this->apellido = trim(implode(' ', array_filter([
-                $persona?->Primer_Apellido,
-                $persona?->Segundo_Apellido,
-            ])));
+            $this->apellido = $persona
+                ? $this->unirDosColumnas($persona->Primer_Apellido, $persona->Segundo_Apellido)
+                : '';
 
-            $this->telefono = $persona?->Telefono ?? '';
+            $this->telefonoOriginal = $this->limpiarSoloDigitos($persona?->Telefono ?? '');
+            $this->telefono = $this->telefonoOriginal;
             $this->direccion = $persona?->Direccion;
 
             $this->tipoPago = Cliente::TIPO_PAGO_CONTADO;
@@ -425,6 +562,7 @@ new class extends Component
             $this->nombre = '';
             $this->apellido = '';
             $this->telefono = '';
+            $this->telefonoOriginal = '';
             $this->direccion = '';
 
             $this->institucion = $cliente->Institucion;
@@ -496,6 +634,14 @@ new class extends Component
             'direccionInstitucion',
             'clienteEditandoId',
             'personaEditandoId',
+            'telefonoOriginal',
+            'modalConfirmarPersonaExistente',
+            'personaExiste',
+            'personaYaEsCliente',
+            'personaExistenteId',
+            'personaExistenteNombre',
+            'personaExistenteTelefono',
+            'personaExistenteDireccion',
         ]);
 
         $this->tipoCliente = Cliente::TIPO_NATURAL;
@@ -592,6 +738,55 @@ new class extends Component
         $this->apellido = '';
         $this->telefono = '';
         $this->direccion = null;
+        $this->limpiarPersonaEncontrada();
+    }
+
+    private function limpiarPersonaEncontrada(): void
+    {
+        $this->modalConfirmarPersonaExistente = false;
+        $this->personaExiste = false;
+        $this->personaYaEsCliente = false;
+        $this->personaExistenteId = null;
+        $this->personaExistenteNombre = null;
+        $this->personaExistenteTelefono = null;
+        $this->personaExistenteDireccion = null;
+    }
+
+    private function buscarPersonaPorTelefono(): void
+    {
+        $this->limpiarPersonaEncontrada();
+
+        if (! $this->esNaturalSeleccionado()) {
+            return;
+        }
+
+        if ($this->modoEdicion()) {
+            return;
+        }
+
+        if (! preg_match('/^\d{8}$/', $this->telefono)) {
+            return;
+        }
+
+        $persona = Persona::query()
+            ->with('cliente')
+            ->where('Telefono', $this->telefono)
+            ->first();
+
+        if (! $persona) {
+            return;
+        }
+
+        $this->personaExiste = true;
+        $this->personaExistenteId = (int) $persona->Id_Persona;
+        $this->personaExistenteNombre = $this->nombrePersona($persona);
+        $this->personaExistenteTelefono = $persona->Telefono;
+        $this->personaExistenteDireccion = $persona->Direccion;
+        $this->personaYaEsCliente = $persona->cliente !== null;
+
+        $this->nombre = $this->unirDosColumnas($persona->Primer_Nombre, $persona->Segundo_Nombre);
+        $this->apellido = $this->unirDosColumnas($persona->Primer_Apellido, $persona->Segundo_Apellido);
+        $this->direccion = $persona->Direccion;
     }
 
     private function limpiarTextoObligatorio(?string $valor): string
@@ -619,6 +814,23 @@ new class extends Component
             $partes[0] ?? null,
             $partes[1] ?? null,
         ];
+    }
+
+    private function unirDosColumnas(?string $primero, ?string $segundo): string
+    {
+        return preg_replace('/\s+/', ' ', trim(($primero ?? '') . ' ' . ($segundo ?? '')));
+    }
+
+    private function nombrePersona(Persona $persona): string
+    {
+        $nombre = trim(implode(' ', array_filter([
+            $persona->Primer_Nombre,
+            $persona->Segundo_Nombre,
+            $persona->Primer_Apellido,
+            $persona->Segundo_Apellido,
+        ])));
+
+        return $nombre !== '' ? $nombre : 'Sin nombre registrado';
     }
 
     private function esNaturalSeleccionado(): bool
@@ -704,6 +916,28 @@ new class extends Component
             @endif
         </div>
 
+        @if ($personaExiste && ! $personaYaEsCliente && ! $clienteEditandoId && $isNatural)
+            <x-alert
+                icon="o-information-circle"
+                class="border border-blue-200 bg-blue-50 text-blue-800"
+            >
+                Esta persona ya existe en el sistema
+                @if ($personaExistenteNombre)
+                    como <strong>{{ $personaExistenteNombre }}</strong>.
+                @endif
+                Al guardar, se pedirá confirmación para registrarla como cliente sin duplicar sus datos personales.
+            </x-alert>
+        @endif
+
+        @if ($personaYaEsCliente && ! $clienteEditandoId && $isNatural)
+            <x-alert
+                icon="o-exclamation-triangle"
+                class="border border-red-200 bg-red-50 text-red-800"
+            >
+                Esta persona ya está registrada como cliente. Puede cargarla desde el listado para editarla o activarla.
+            </x-alert>
+        @endif
+
         <x-card class="{{ $cardClass }}">
             <x-form wire:submit="guardarCliente" no-separator>
                 <div class="mb-6 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
@@ -745,7 +979,8 @@ new class extends Component
                             wire:model.live.debounce.250ms="nombre"
                             placeholder="Ej: Daniel Antonio"
                             icon="o-user"
-                            class="{{ $fieldClass }}"
+                            class="{{ $personaExiste && ! $clienteEditandoId ? $readonlyClass : $fieldClass }}"
+                            :readonly="$personaExiste && ! $clienteEditandoId"
                         />
 
                         <x-input
@@ -753,18 +988,33 @@ new class extends Component
                             wire:model.live.debounce.250ms="apellido"
                             placeholder="Ej: López Pérez"
                             icon="o-user"
-                            class="{{ $fieldClass }}"
+                            class="{{ $personaExiste && ! $clienteEditandoId ? $readonlyClass : $fieldClass }}"
+                            :readonly="$personaExiste && ! $clienteEditandoId"
                         />
 
-                        <x-input
-                            label="Teléfono"
-                            wire:model.live.debounce.250ms="telefono"
-                            placeholder="Ej: 88887777"
-                            icon="o-phone"
-                            maxlength="8"
-                            inputmode="numeric"
-                            class="{{ $fieldClass }}"
-                        />
+                        <div>
+                            <x-input
+                                label="Teléfono"
+                                wire:model.live.debounce.250ms="telefono"
+                                placeholder="Ej: 88887777"
+                                icon="o-phone"
+                                maxlength="8"
+                                inputmode="numeric"
+                                class="{{ $fieldClass }}"
+                            />
+
+                            @if ($personaExiste && ! $personaYaEsCliente && ! $clienteEditandoId)
+                                <span class="mt-1 block text-sm font-semibold text-blue-700">
+                                    Persona encontrada. Se usará su registro existente.
+                                </span>
+                            @endif
+
+                            @if ($personaYaEsCliente && ! $clienteEditandoId)
+                                <span class="mt-1 block text-sm font-semibold text-red-600">
+                                    Esta persona ya está registrada como cliente.
+                                </span>
+                            @endif
+                        </div>
 
                         <x-input
                             label="Tipo de pago"
@@ -780,7 +1030,8 @@ new class extends Component
                                 wire:model.live.debounce.250ms="direccion"
                                 placeholder="Ingrese la dirección del cliente natural"
                                 rows="3"
-                                class="{{ $fieldClass }}"
+                                class="{{ $personaExiste && ! $clienteEditandoId ? $readonlyClass : $fieldClass }}"
+                                :readonly="$personaExiste && ! $clienteEditandoId"
                             />
                         </div>
                     @endif
@@ -860,6 +1111,7 @@ new class extends Component
                             label="{{ $clienteEditandoId ? 'Actualizar datos' : 'Guardar cliente' }}"
                             icon="o-check-circle"
                             spinner="guardarCliente"
+                            :disabled="$personaYaEsCliente && ! $clienteEditandoId && $isNatural"
                             class="{{ $primaryButtonClass }}"
                         />
                     </div>
@@ -982,5 +1234,59 @@ new class extends Component
                 </div>
             @endif
         </x-card>
+
+        <x-modal
+            wire:model="modalConfirmarPersonaExistente"
+            box-class="rounded-2xl border border-[#D7E4F3] bg-white"
+        >
+            <div class="space-y-4">
+                <div>
+                    <h2 class="text-2xl font-bold text-[#1A2B42]">Persona existente</h2>
+                    <p class="mt-1 text-base text-[#5F6B7A]">
+                        Esta persona ya existe en el sistema. ¿Desea registrarla como cliente natural?
+                    </p>
+                </div>
+
+                <div class="rounded-2xl border border-[#D7E4F3] bg-[#F0F3F7] p-4">
+                    <p class="text-sm font-semibold text-[#5F6B7A]">Persona encontrada</p>
+                    <p class="mt-1 text-lg font-bold text-[#1A2B42]">
+                        {{ $personaExistenteNombre ?? 'Sin nombre registrado' }}
+                    </p>
+                    <p class="mt-1 text-sm text-[#5F6B7A]">
+                        Teléfono: {{ $personaExistenteTelefono ?? $telefono }}
+                    </p>
+                    <p class="mt-1 text-sm text-[#5F6B7A]">
+                        Dirección: {{ $personaExistenteDireccion ?: 'No registrada' }}
+                    </p>
+                    <p class="mt-1 text-sm text-[#5F6B7A]">
+                        Municipio a registrar: {{ $municipio ?: 'Pendiente' }}
+                    </p>
+                </div>
+
+                <x-alert
+                    icon="o-information-circle"
+                    class="border border-blue-200 bg-blue-50 text-blue-800"
+                >
+                    Si confirma, no se creará otra persona. Solo se agregará el registro en cliente relacionado al Id_Persona existente.
+                </x-alert>
+            </div>
+
+            <x-slot:actions>
+                <x-button
+                    label="Cancelar"
+                    type="button"
+                    wire:click="cerrarModalConfirmacion"
+                    class="{{ $secondaryButtonClass }}"
+                />
+
+                <x-button
+                    label="Sí, registrar cliente"
+                    type="button"
+                    wire:click="confirmarRegistroPersonaExistente"
+                    spinner="confirmarRegistroPersonaExistente"
+                    class="{{ $primaryButtonClass }}"
+                />
+            </x-slot:actions>
+        </x-modal>
     </div>
 </div>
