@@ -47,15 +47,11 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
     Route::livewire('/ventas/instalacion-camaras', 'pages::ventas.instalacion-camaras')->name('ventas.instalacion-camaras');
     Route::livewire('/productos', 'pages::productos')->name('productos.index');
     Route::livewire('/productos/listado', 'pages::components.productos.listado')->name('productos.listado');
-   
+
    
 });
 
-<<<<<<< HEAD
-Route::middleware (['auth', 'cargo: 1,2'])->group(function () {
-=======
 Route ::middleware (['auth', 'cargo: 1, 2'])->group(function () {
->>>>>>> b47d97b52f74c352196dfefafd6ab4346025b370
 
     Route::livewire('/trabajadores', 'pages::trabajadores')->name('trabajadores');
     Route::livewire('/planillapago', 'pages::planillapago')->name('planillapago');
