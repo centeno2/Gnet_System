@@ -48,7 +48,6 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
     Route::livewire('/productos', 'pages::productos')->name('productos.index');
     Route::livewire('/productos/listado', 'pages::components.productos.listado')->name('productos.listado');
    
-   
 });
 
 Route::middleware (['auth', 'cargo: 1,2'])->group(function () {

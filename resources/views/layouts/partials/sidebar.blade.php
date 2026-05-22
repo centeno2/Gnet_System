@@ -13,7 +13,7 @@
      */
     $puede = fn (...$cargos) => in_array($cargo, array_map('intval', $cargos), true);
 
-    $puedeVerVentas = $puede(1, 2);
+    $puedeVerVentas = $puede(1, 2, 3);
     $puedeVerCatalogo = $puede(1, 2, 3);
     $puedeVerGestionTrabajadores = $puede(1, 2);
 @endphp
@@ -104,7 +104,7 @@
         <x-menu-sub title="Catálogo" icon="o-wrench-screwdriver">
 
             {{-- Proveedores: cargos 1 y 2 --}}
-            @if ($puede(1 ))
+            @if ($puede(2 ))
                 <x-menu-item 
                     title="Proveedores" 
                     icon="o-truck" 
