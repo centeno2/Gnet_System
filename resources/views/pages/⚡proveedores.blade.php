@@ -578,24 +578,19 @@ new class extends Component
 
 <div class="min-h-screen bg-[#F0F3F7] p-6 space-y-6">
     @if ($mensaje)
-        <div
-            class="fixed right-5 top-5 z-50 flex w-[min(480px,calc(100vw-2rem))] items-center justify-between gap-4 rounded-2xl border px-5 py-4 shadow-lg
+    <div class="fixed right-5 top-5 z-50 flex w-[min(480px,calc(100vw-2rem))] items-center justify-between gap-4 rounded-2xl border px-5 py-4 shadow-lg
             {{ $mensaje['tipo'] === 'success'
                 ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#1A2B42]'
-                : 'border-red-200 bg-red-50 text-red-700' }}"
-        >
-            <p class="text-sm font-bold">
-                {{ $mensaje['texto'] }}
-            </p>
+                : 'border-red-200 bg-red-50 text-red-700' }}">
+        <p class="text-sm font-bold">
+            {{ $mensaje['texto'] }}
+        </p>
 
-            <button
-                type="button"
-                wire:click="$set('mensaje', null)"
-                class="rounded-lg px-2 text-xl leading-none text-[#5F6B7A] hover:bg-white/70"
-            >
-                ×
-            </button>
-        </div>
+        <button type="button" wire:click="$set('mensaje', null)"
+            class="rounded-lg px-2 text-xl leading-none text-[#5F6B7A] hover:bg-white/70">
+            ×
+        </button>
+    </div>
     @endif
 
     <div>
@@ -618,19 +613,18 @@ new class extends Component
                     </p>
                 </div>
 
-                <label class="flex cursor-pointer select-none items-center gap-3 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] px-4 py-3">
+                <label
+                    class="flex cursor-pointer select-none items-center gap-3 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] px-4 py-3">
                     <span class="text-sm font-semibold {{ $esInstitucional ? 'text-[#5F6B7A]' : 'text-[#1A2B42]' }}">
                         Personal
                     </span>
 
-                    <input
-                        type="checkbox"
-                        wire:model.live="esInstitucional"
-                        class="sr-only"
-                    />
+                    <input type="checkbox" wire:model.live="esInstitucional" class="sr-only" />
 
-                    <span class="relative h-7 w-14 rounded-full transition duration-300 {{ $esInstitucional ? 'bg-[#2E8BC0]' : 'bg-[#D7E4F3]' }}">
-                        <span class="absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow transition-transform duration-300 {{ $esInstitucional ? 'translate-x-7' : 'translate-x-0' }}"></span>
+                    <span
+                        class="relative h-7 w-14 rounded-full transition duration-300 {{ $esInstitucional ? 'bg-[#2E8BC0]' : 'bg-[#D7E4F3]' }}">
+                        <span
+                            class="absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow transition-transform duration-300 {{ $esInstitucional ? 'translate-x-7' : 'translate-x-0' }}"></span>
                     </span>
 
                     <span class="text-sm font-semibold {{ $esInstitucional ? 'text-[#1A2B42]' : 'text-[#5F6B7A]' }}">
@@ -646,53 +640,32 @@ new class extends Component
 
                 <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
                     @if ($esInstitucional)
-                        <div>
-                            <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                                Nombre de la institución <span class="text-red-500">*</span>
-                            </label>
+                    <div>
+                        <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
+                            Nombre de la institución <span class="text-red-500">*</span>
+                        </label>
 
-                            <x-input
-                                wire:model="nombreInstitucion"
-                                placeholder="Ejemplo: Amazon"
-                                class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                            />
-
-                            @error('nombreInstitucion')
-                                <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
-                            @enderror
-                        </div>
+                        <x-input wire:model="nombreInstitucion" placeholder="Ejemplo: Amazon"
+                            class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
+                    </div>
                     @else
-                        <div>
-                            <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                                Nombres <span class="text-red-500">*</span>
-                            </label>
+                    <div>
+                        <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
+                            Nombres <span class="text-red-500">*</span>
+                        </label>
 
-                            <x-input
-                                wire:model="nombres"
-                                placeholder="Ejemplo: Daniel Antonio"
-                                class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                            />
+                        <x-input wire:model="nombres" placeholder="Ejemplo: Daniel Antonio"
+                            class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
+                    </div>
 
-                            @error('nombres')
-                                <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
-                            @enderror
-                        </div>
+                    <div>
+                        <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
+                            Apellidos <span class="text-red-500">*</span>
+                        </label>
 
-                        <div>
-                            <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                                Apellidos <span class="text-red-500">*</span>
-                            </label>
-
-                            <x-input
-                                wire:model="apellidos"
-                                placeholder="Ejemplo: López García"
-                                class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                            />
-
-                            @error('apellidos')
-                                <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
-                            @enderror
-                        </div>
+                        <x-input wire:model="apellidos" placeholder="Ejemplo: López García"
+                            class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
+                    </div>
                     @endif
 
                     <div>
@@ -700,16 +673,8 @@ new class extends Component
                             Teléfono <span class="text-red-500">*</span>
                         </label>
 
-                        <x-input
-                            type="tel"
-                            wire:model="telefono"
-                            placeholder="Ejemplo: 58631620"
-                            class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                        />
-
-                        @error('telefono')
-                            <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
-                        @enderror
+                        <x-input type="tel" wire:model="telefono" placeholder="Ejemplo: 58631620"
+                            class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
                     </div>
 
                     <div>
@@ -717,16 +682,8 @@ new class extends Component
                             Correo electrónico <span class="text-red-500">*</span>
                         </label>
 
-                        <x-input
-                            type="email"
-                            wire:model="correo"
-                            placeholder="Ejemplo: example@gmail.com"
-                            class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                        />
-
-                        @error('correo')
-                            <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
-                        @enderror
+                        <x-input type="email" wire:model="correo" placeholder="Ejemplo: example@gmail.com"
+                            class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
                     </div>
 
                     <div>
@@ -734,15 +691,8 @@ new class extends Component
                             Código RUC <span class="text-red-500">*</span>
                         </label>
 
-                        <x-input
-                            wire:model="codigoRuc"
-                            placeholder="Ingrese el código RUC"
-                            class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                        />
-
-                        @error('codigoRuc')
-                            <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
-                        @enderror
+                        <x-input wire:model="codigoRuc" placeholder="Ingrese el código RUC"
+                            class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
                     </div>
 
                     <div>
@@ -750,19 +700,17 @@ new class extends Component
                             Nacionalidad <span class="text-red-500">*</span>
                         </label>
 
-                        <select
-                            wire:model="nacionalidad"
-                            class="w-full rounded-xl border-0 bg-[#F0F3F7] px-4 py-3 text-[#1A2B42] outline-none ring-1 ring-[#D7E4F3] focus:ring-2 focus:ring-[#2E8BC0]"
-                        >
+                        <select wire:model="nacionalidad"
+                            class="w-full rounded-xl border-0 bg-[#F0F3F7] px-4 py-3 text-[#1A2B42] outline-none ring-1 ring-[#D7E4F3] focus:ring-2 focus:ring-[#2E8BC0]">
                             <option value="">Seleccione un país</option>
 
                             @foreach ($paises as $pais)
-                                <option value="{{ $pais }}">{{ $pais }}</option>
+                            <option value="{{ $pais }}">{{ $pais }}</option>
                             @endforeach
                         </select>
 
                         @error('nacionalidad')
-                            <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
+                        <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
                         @enderror
                     </div>
 
@@ -771,52 +719,41 @@ new class extends Component
                             Dirección <span class="text-red-500">*</span>
                         </label>
 
-                        <textarea
-                            wire:model="direccion"
-                            rows="3"
+                        <textarea wire:model="direccion" rows="3"
                             placeholder="{{ $esInstitucional ? 'Ingrese la dirección de la institución' : 'Ingrese la dirección del proveedor' }}"
-                            class="w-full rounded-xl border-0 bg-[#F0F3F7] px-4 py-3 text-[#1A2B42] outline-none ring-1 ring-[#D7E4F3] placeholder:text-[#7B8794] focus:ring-2 focus:ring-[#2E8BC0]"
-                        ></textarea>
+                            class="w-full rounded-xl border-0 bg-[#F0F3F7] px-4 py-3 text-[#1A2B42] outline-none ring-1 ring-[#D7E4F3] placeholder:text-[#7B8794] focus:ring-2 focus:ring-[#2E8BC0]"></textarea>
 
                         @error('direccion')
-                            <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
+                        <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
                         @enderror
                     </div>
                 </div>
             </div>
 
             <div class="flex justify-end gap-3">
-                <x-button
-                    type="button"
-                    label="Limpiar"
-                    wire:click="resetFormulario"
-                    class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB]"
-                />
+                <x-button type="button" label="Limpiar" wire:click="resetFormulario"
+                    class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB]" />
 
-                <x-button
-                    type="submit"
-                    label="Guardar proveedor"
-                    spinner="guardarProveedor"
-                    class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4] focus:ring-2 focus:ring-[#0E48A1]/30"
-                />
+                <x-button type="submit" label="Guardar proveedor" spinner="guardarProveedor"
+                    class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4] focus:ring-2 focus:ring-[#0E48A1]/30" />
             </div>
         </form>
     </x-card>
 
     @php
-        $headers = [
-            ['key' => 'type', 'label' => 'Tipo'],
-            ['key' => 'full_name', 'label' => 'Proveedor'],
-            ['key' => 'phone', 'label' => 'Teléfono'],
-            ['key' => 'email', 'label' => 'Correo'],
-            ['key' => 'address', 'label' => 'Dirección'],
-            ['key' => 'ruc', 'label' => 'Código RUC'],
-            ['key' => 'nationality', 'label' => 'Nacionalidad'],
-            ['key' => 'status', 'label' => 'Estado'],
-            ['key' => 'acciones', 'label' => 'Acciones'],
-        ];
+    $headers = [
+    ['key' => 'type', 'label' => 'Tipo'],
+    ['key' => 'full_name', 'label' => 'Proveedor'],
+    ['key' => 'phone', 'label' => 'Teléfono'],
+    ['key' => 'email', 'label' => 'Correo'],
+    ['key' => 'address', 'label' => 'Dirección'],
+    ['key' => 'ruc', 'label' => 'Código RUC'],
+    ['key' => 'nationality', 'label' => 'Nacionalidad'],
+    ['key' => 'status', 'label' => 'Estado'],
+    ['key' => 'acciones', 'label' => 'Acciones'],
+    ];
 
-        $proveedores = $this->proveedores();
+    $proveedores = $this->proveedores();
     @endphp
 
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
@@ -831,56 +768,35 @@ new class extends Component
                 </p>
             </div>
 
-            <x-input
-                wire:model.live.debounce.300ms="buscar"
-                icon="o-magnifying-glass"
+            <x-input wire:model.live.debounce.300ms="buscar" icon="o-magnifying-glass"
                 placeholder="Buscar por proveedor, teléfono, correo, dirección, RUC o nacionalidad"
-                class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-            />
+                class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
         </div>
 
-        <x-table
-            :headers="$headers"
-            :rows="$proveedores"
-            class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr:hover]:bg-[#F7F9FC]"
-        >
+        <x-table :headers="$headers" :rows="$proveedores"
+            class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr:hover]:bg-[#F7F9FC]">
             @scope('cell_full_name', $row)
-                <span class="block min-w-[220px] whitespace-nowrap font-medium text-[#1A2B42]">
-                    {{ $row['full_name'] }}
-                </span>
+            <span class="block min-w-[220px] whitespace-nowrap font-medium text-[#1A2B42]">
+                {{ $row['full_name'] }}
+            </span>
             @endscope
 
             @scope('cell_status', $row)
-                <span class="rounded-full px-3 py-1 text-xs font-bold {{ $row['status'] === 'Activo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' }}">
-                    {{ $row['status'] }}
-                </span>
+            <span
+                class="rounded-full px-3 py-1 text-xs font-bold {{ $row['status'] === 'Activo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' }}">
+                {{ $row['status'] }}
+            </span>
             @endscope
 
             @scope('cell_acciones', $row)
-                <x-button
-                    icon="o-pencil-square"
-                    label="Editar"
-                    wire:click="cargarProveedorEditar({{ $row['id'] }})"
-                    class="h-10 min-h-10 rounded-md border-0 bg-[#2E8BC0] px-4 text-sm font-bold text-white hover:bg-[#0B6FE4]"
-                />
+            <x-button icon="o-pencil-square" label="Editar" wire:click="cargarProveedorEditar({{ $row['id'] }})"
+                class="h-10 min-h-10 rounded-md border-0 bg-[#2E8BC0] px-4 text-sm font-bold text-white hover:bg-[#0B6FE4]" />
             @endscope
         </x-table>
     </x-card>
 
-    <x-modal
-        wire:model="modalEditarProveedor"
-        class="backdrop-blur"
-        box-class="max-w-3xl rounded-2xl bg-white p-0"
-    >
+    <x-modal wire:model="modalEditarProveedor" class="backdrop-blur" box-class="max-w-3xl rounded-2xl bg-white p-0">
         <div class="relative p-6">
-            <button
-                type="button"
-                wire:click="cerrarModalEditar"
-                class="absolute right-5 top-4 rounded-lg px-2 text-2xl leading-none text-[#1A2B42] hover:bg-[#F0F3F7]"
-            >
-                ×
-            </button>
-
             <div class="mb-6">
                 <h2 class="text-2xl font-black text-[#1A2B42]">
                     Editar proveedor
@@ -897,58 +813,37 @@ new class extends Component
                         Tipo de proveedor
                     </label>
 
-                    <x-input
-                        wire:model="editTipoProveedor"
-                        readonly
-                        class="h-12 min-h-12 w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                    />
+                    <x-input wire:model="editTipoProveedor" readonly
+                        class="h-12 min-h-12 w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]" />
                 </div>
 
                 @if ($editEsInstitucional)
-                    <div>
-                        <label class="mb-2 block text-sm font-bold text-[#1A2B42]">
-                            Institución
-                        </label>
+                <div>
+                    <label class="mb-2 block text-sm font-bold text-[#1A2B42]">
+                        Institución
+                    </label>
 
-                        <x-input
-                            wire:model="editNombreInstitucion"
-                            class="h-12 min-h-12 w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                        />
-
-                        @error('editNombreInstitucion')
-                            <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
-                        @enderror
-                    </div>
+                    <x-input wire:model="editNombreInstitucion"
+                        class="h-12 min-h-12 w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]" />
+                </div>
                 @else
-                    <div>
-                        <label class="mb-2 block text-sm font-bold text-[#1A2B42]">
-                            Nombres
-                        </label>
+                <div>
+                    <label class="mb-2 block text-sm font-bold text-[#1A2B42]">
+                        Nombres
+                    </label>
 
-                        <x-input
-                            wire:model="editNombres"
-                            class="h-12 min-h-12 w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                        />
+                    <x-input wire:model="editNombres"
+                        class="h-12 min-h-12 w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]" />
+                </div>
 
-                        @error('editNombres')
-                            <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
-                        @enderror
-                    </div>
+                <div>
+                    <label class="mb-2 block text-sm font-bold text-[#1A2B42]">
+                        Apellidos
+                    </label>
 
-                    <div>
-                        <label class="mb-2 block text-sm font-bold text-[#1A2B42]">
-                            Apellidos
-                        </label>
-
-                        <x-input
-                            wire:model="editApellidos"
-                            class="h-12 min-h-12 w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                        />
-
-                        @error('editApellidos')
-                            <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
-                        @enderror
-                    </div>
+                    <x-input wire:model="editApellidos"
+                        class="h-12 min-h-12 w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]" />
+                </div>
                 @endif
 
                 <div>
@@ -956,15 +851,8 @@ new class extends Component
                         Teléfono
                     </label>
 
-                    <x-input
-                        wire:model="editTelefono"
-                        type="tel"
-                        class="h-12 min-h-12 w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                    />
-
-                    @error('editTelefono')
-                        <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
-                    @enderror
+                    <x-input wire:model="editTelefono" type="tel"
+                        class="h-12 min-h-12 w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]" />
                 </div>
 
                 <div>
@@ -972,15 +860,8 @@ new class extends Component
                         Correo electrónico
                     </label>
 
-                    <x-input
-                        wire:model="editCorreo"
-                        type="email"
-                        class="h-12 min-h-12 w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                    />
-
-                    @error('editCorreo')
-                        <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
-                    @enderror
+                    <x-input wire:model="editCorreo" type="email"
+                        class="h-12 min-h-12 w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]" />
                 </div>
 
                 <div>
@@ -988,14 +869,8 @@ new class extends Component
                         Código RUC
                     </label>
 
-                    <x-input
-                        wire:model="editCodigoRuc"
-                        class="h-12 min-h-12 w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]"
-                    />
-
-                    @error('editCodigoRuc')
-                        <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
-                    @enderror
+                    <x-input wire:model="editCodigoRuc"
+                        class="h-12 min-h-12 w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42]" />
                 </div>
 
                 <div>
@@ -1003,19 +878,17 @@ new class extends Component
                         Nacionalidad
                     </label>
 
-                    <select
-                        wire:model="editNacionalidad"
-                        class="h-12 w-full rounded-xl border border-[#D7E4F3] bg-white px-4 text-[#1A2B42] outline-none focus:ring-2 focus:ring-[#2E8BC0]"
-                    >
+                    <select wire:model="editNacionalidad"
+                        class="h-12 w-full rounded-xl border border-[#D7E4F3] bg-white px-4 text-[#1A2B42] outline-none focus:ring-2 focus:ring-[#2E8BC0]">
                         <option value="">Seleccione un país</option>
 
                         @foreach ($paises as $pais)
-                            <option value="{{ $pais }}">{{ $pais }}</option>
+                        <option value="{{ $pais }}">{{ $pais }}</option>
                         @endforeach
                     </select>
 
                     @error('editNacionalidad')
-                        <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
+                    <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
                     @enderror
                 </div>
 
@@ -1024,14 +897,11 @@ new class extends Component
                         Dirección
                     </label>
 
-                    <textarea
-                        wire:model="editDireccion"
-                        rows="3"
-                        class="w-full rounded-xl border-0 bg-[#F0F3F7] px-4 py-3 text-[#1A2B42] outline-none ring-1 ring-[#D7E4F3] focus:ring-2 focus:ring-[#2E8BC0]"
-                    ></textarea>
+                    <textarea wire:model="editDireccion" rows="3"
+                        class="w-full rounded-xl border-0 bg-[#F0F3F7] px-4 py-3 text-[#1A2B42] outline-none ring-1 ring-[#D7E4F3] focus:ring-2 focus:ring-[#2E8BC0]"></textarea>
 
                     @error('editDireccion')
-                        <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
+                    <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
                     @enderror
                 </div>
 
@@ -1040,34 +910,23 @@ new class extends Component
                         Estado
                     </label>
 
-                    <select
-                        wire:model.live="editEstado"
-                        class="h-12 w-full rounded-xl border border-[#D7E4F3] bg-white px-4 text-[#1A2B42] outline-none focus:ring-2 focus:ring-[#2E8BC0]"
-                    >
+                    <select wire:model.live="editEstado"
+                        class="h-12 w-full rounded-xl border border-[#D7E4F3] bg-white px-4 text-[#1A2B42] outline-none focus:ring-2 focus:ring-[#2E8BC0]">
                         <option value="1">Activo</option>
                         <option value="0">Inactivo</option>
                     </select>
 
                     @error('editEstado')
-                        <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
+                    <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
                     @enderror
                 </div>
 
                 <div class="flex justify-end gap-3 pt-3">
-                    <x-button
-                        type="button"
-                        label="Cancelar"
-                        wire:click="cerrarModalEditar"
-                        class="h-12 min-h-12 rounded-md border border-[#D7E4F3] bg-white px-6 font-bold text-[#1A2B42] shadow-sm hover:bg-[#F0F3F7]"
-                    />
+                    <x-button type="button" label="Cancelar" wire:click="cerrarModalEditar"
+                        class="h-12 min-h-12 rounded-md border border-[#D7E4F3] bg-white px-6 font-bold text-[#1A2B42] shadow-sm hover:bg-[#F0F3F7]" />
 
-                    <x-button
-                        type="submit"
-                        icon="o-check"
-                        label="Guardar cambios"
-                        spinner="actualizarProveedor"
-                        class="h-12 min-h-12 rounded-md border-0 bg-[#0E48A1] px-6 font-bold text-white shadow-sm hover:bg-[#0B6FE4]"
-                    />
+                    <x-button type="submit" icon="o-check" label="Guardar cambios" spinner="actualizarProveedor"
+                        class="h-12 min-h-12 rounded-md border-0 bg-[#0E48A1] px-6 font-bold text-white shadow-sm hover:bg-[#0B6FE4]" />
                 </div>
             </form>
         </div>
