@@ -564,25 +564,49 @@ new class extends Component
     {
         $usuarioAutenticado = auth()->user();
 
-        if ($usuarioAutenticado && isset($usuarioAutenticado->Id_Usuario)) {
-            return (int) $usuarioAutenticado->Id_Usuario;
-        }
+        $posiblesIds = collect();
 
-        if ($usuarioAutenticado && isset($usuarioAutenticado->id)) {
-            return (int) $usuarioAutenticado->id;
-        }
-
-        $primerUsuario = Usuario::query()
-            ->orderBy('Id_Usuario')
-            ->first();
-
-        if (! $primerUsuario) {
-            throw ValidationException::withMessages([
-                'Id_Usuario' => 'No se encontró ningún usuario para registrar el abono.',
+        if ($usuarioAutenticado) {
+            $posiblesIds = $posiblesIds->merge([
+                $usuarioAutenticado->Id_Usuario ?? null,
+                method_exists($usuarioAutenticado, 'getAttribute') ? $usuarioAutenticado->getAttribute('Id_Usuario') : null,
+                method_exists($usuarioAutenticado, 'getAttribute') ? $usuarioAutenticado->getAttribute('id_usuario') : null,
+                method_exists($usuarioAutenticado, 'getAttribute') ? $usuarioAutenticado->getAttribute('usuario_id') : null,
+                method_exists($usuarioAutenticado, 'getAuthIdentifier') ? $usuarioAutenticado->getAuthIdentifier() : null,
+                auth()->id(),
             ]);
         }
 
-        return (int) $primerUsuario->Id_Usuario;
+        $posiblesIds = $posiblesIds->merge([
+            session('Id_Usuario'),
+            session('id_usuario'),
+            session('usuario_id'),
+            session('user_id'),
+        ]);
+
+        $posiblesIds = $posiblesIds
+            ->filter(fn ($valor) => filled($valor) && is_numeric($valor))
+            ->map(fn ($valor) => (int) $valor)
+            ->unique()
+            ->values();
+
+        if ($posiblesIds->isEmpty()) {
+            throw ValidationException::withMessages([
+                'Id_Usuario' => 'No hay un usuario autenticado para registrar el abono.',
+            ]);
+        }
+
+        $usuario = Usuario::query()
+            ->whereIn('Id_Usuario', $posiblesIds->all())
+            ->first();
+
+        if (! $usuario) {
+            throw ValidationException::withMessages([
+                'Id_Usuario' => 'El usuario autenticado no está vinculado con la tabla usuario.',
+            ]);
+        }
+
+        return (int) $usuario->Id_Usuario;
     }
 
     protected function resolverClienteCredito(Credito $credito): ?ClienteCredito
@@ -656,22 +680,34 @@ new class extends Component
             return;
         }
 
+        $usuarioExiste = Usuario::query()
+            ->whereKey($idUsuario)
+            ->exists();
+
+        if (! $usuarioExiste) {
+            throw ValidationException::withMessages([
+                'Id_Usuario' => 'El usuario que intenta registrar el abono no existe.',
+            ]);
+        }
+
         $textoObservacion = trim(
             'Método: ' . ucfirst($metodoPago) .
             ($observacion ? '. ' . trim($observacion) : '')
         );
 
-        AbonoCredito::query()->create([
-            'Id_Credito' => (int) $credito->Id_Credito,
-            'Id_Usuario' => $idUsuario,
-            'Fecha_Abono' => $fechaPago,
-            'Moneda' => $moneda,
-            'Monto' => round($monto, 2),
-            'Tipo_Cambio' => round($tipoCambio, 4),
-            'Monto_Equivalente_Cordobas' => round($montoEquivalenteCordobas, 2),
-            'Numero_Transferencia' => filled($referencia) ? trim((string) $referencia) : null,
-            'Observacion' => $textoObservacion,
-        ]);
+        $abono = new AbonoCredito();
+
+        $abono->Id_Credito = (int) $credito->Id_Credito;
+        $abono->Id_Usuario = $idUsuario;
+        $abono->Fecha_Abono = $fechaPago;
+        $abono->Moneda = $moneda;
+        $abono->Monto = round($monto, 2);
+        $abono->Tipo_Cambio = round($tipoCambio, 4);
+        $abono->Monto_Equivalente_Cordobas = round($montoEquivalenteCordobas, 2);
+        $abono->Numero_Transferencia = filled($referencia) ? trim((string) $referencia) : null;
+        $abono->Observacion = $textoObservacion;
+
+        $abono->save();
     }
 
     protected function obtenerAbonosCredito(Credito $credito, bool $bloquear = false)
