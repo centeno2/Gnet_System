@@ -122,7 +122,7 @@
             @endif
 
             {{-- Usuario: cargos 1 y 2 --}}
-            @if ($puede(2 ))
+            @if ($puede(1 ,2 ))
                 <x-menu-item 
                     title="Usuario" 
                     icon="o-user" 
