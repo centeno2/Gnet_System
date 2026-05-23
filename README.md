@@ -84,6 +84,19 @@ El sistema busca reducir tareas manuales, mejorar el control de datos y mantener
 | **MySQL** | Base de datos principal del sistema |
 | **Laragon** | Entorno local de desarrollo |
 | **Vite** | Compilación de assets frontend |
+| **Symfony Intl** | Soporte para internacionalización, monedas, países y formatos regionales |
+
+---
+
+## Dependencia adicional
+
+Para el correcto funcionamiento de componentes relacionados con formatos regionales, monedas, países e internacionalización, el sistema utiliza el paquete **Symfony Intl**.
+
+Instalación:
+
+```bash
+composer require symfony/intl
+```
 
 ---
 
@@ -113,3 +126,4 @@ Gnet System
 ├── Arqueo de caja
 ├── Mantenimiento
 └── Informes
+```
