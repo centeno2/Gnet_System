@@ -34,7 +34,6 @@ class Proveedor extends Model
         'Id_Persona' => 'integer',
         'Tipo_Proveedor' => 'integer',
         'Estado' => 'boolean',
-        'Codigo_Ruc' => 'string',
     ];
 
     public function persona(): BelongsTo
@@ -49,11 +48,33 @@ class Proveedor extends Model
 
     public function esNatural(): bool
     {
-        return $this->Tipo_Proveedor === self::TIPO_NATURAL;
+        return (int) $this->Tipo_Proveedor === self::TIPO_NATURAL;
     }
 
     public function esEmpresa(): bool
     {
-        return $this->Tipo_Proveedor === self::TIPO_EMPRESA;
+        return (int) $this->Tipo_Proveedor === self::TIPO_EMPRESA;
+    }
+
+    public function getTipoProveedorTextoAttribute(): string
+    {
+        return match ((int) $this->Tipo_Proveedor) {
+            self::TIPO_EMPRESA => 'Empresa',
+            default => 'Natural',
+        };
+    }
+
+    public function getEstadoTextoAttribute(): string
+    {
+        return $this->Estado ? 'Activo' : 'Inactivo';
+    }
+
+    public function getNombreProveedorAttribute(): string
+    {
+        if ($this->esEmpresa()) {
+            return trim((string) $this->Empresa);
+        }
+
+        return $this->persona?->nombre_completo ?? '';
     }
 }

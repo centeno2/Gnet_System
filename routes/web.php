@@ -48,10 +48,17 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
     Route::livewire('/ventas/instalacion-camaras', 'pages::ventas.instalacion-camaras')->name('ventas.instalacion-camaras');
     Route::livewire('/productos', 'pages::productos')->name('productos.index');
     Route::livewire('/productos/listado', 'pages::components.productos.listado')->name('productos.listado');
+<<<<<<< HEAD
 
 });
 
 Route::middleware(['auth', 'cargo: 1, 2'])->group(function () {
+=======
+   
+});
+
+Route ::middleware (['auth', 'cargo: 1, 2'])->group(function () {
+>>>>>>> 411d553d15ab74760a5d16d34829ca938b64eb6a
 
     Route::livewire('/trabajadores', 'pages::trabajadores')->name('trabajadores');
     Route::livewire('/planillapago', 'pages::planillapago')->name('planillapago');
@@ -69,6 +76,8 @@ Route::middleware(['auth', 'cargo: 1,2,3'])->group(function () {
 
     Route::livewire('/main', 'pages::main')->name('main');
     Route::livewire('/ventas/facturacion', 'pages::ventas.facturacion')->name('ventas.facturacion');
+    Route::livewire('/ventas/servicio-tecnico', 'pages::ventas.servicio-tecnico')->name('ventas.servicio-tecnico');
+    Route::livewire('/ventas/instalacion-camaras', 'pages::ventas.instalacion-camaras')->name('ventas.instalacion-camaras');
     Route::livewire('/clientes', 'pages::clientes')->name('clientes');
     Route::livewire('/devoluciones', 'pages::devoluciones')->name('devoluciones');
     Route::livewire('/arqueodecaja', 'pages::arqueodecaja')->name('arqueodecaja');

@@ -17,7 +17,8 @@ new class extends Component
 {
     use WithPagination;
 
-    public string $search = '';
+    public string $periodoMes = '';
+    public string $quincena = 'SEGUNDA';
     public string $fechaInicioCorte = '';
     public string $fechaFinCorte = '';
     public string $tipoPlanilla = Planilla::TIPO_NORMAL;
@@ -32,6 +33,10 @@ new class extends Component
     public bool $modalPago = false;
     public bool $modalReporte = false;
     public bool $modalLiquidacion = false;
+    public bool $modalConfirmarRecalculo = false;
+
+    public ?int $planillaConfirmarId = null;
+    public array $idsConfirmarRecalculo = [];
 
     public ?int $formTrabajadorId = null;
 
@@ -65,21 +70,41 @@ new class extends Component
 
     public function mount(): void
     {
-        $this->fechaInicioCorte = now()->startOfMonth()->format('Y-m-d');
-        $this->fechaFinCorte = now()->endOfMonth()->format('Y-m-d');
-        $this->fechaIncentivo = now()->format('Y-m-d');
-        $this->fechaDeduccion = now()->format('Y-m-d');
-        $this->vacacionFechaInicio = now()->format('Y-m-d');
-        $this->vacacionFechaFin = now()->format('Y-m-d');
-        $this->pagoFecha = now()->format('Y-m-d');
-        $this->liquidacionFechaSalida = now()->format('Y-m-d');
+        $hoy = Carbon::now();
+
+        $this->periodoMes = $hoy->format('Y-m');
+        $this->quincena = ((int) $hoy->format('d')) <= 15 ? 'PRIMERA' : 'SEGUNDA';
+
+        $this->aplicarPeriodo();
+
+        $this->fechaIncentivo = $this->fechaDentroPeriodo($hoy);
+        $this->fechaDeduccion = $this->fechaDentroPeriodo($hoy);
+        $this->vacacionFechaInicio = $this->fechaDentroPeriodo($hoy);
+        $this->vacacionFechaFin = $this->fechaDentroPeriodo($hoy);
+        $this->pagoFecha = $hoy->format('Y-m-d');
+        $this->liquidacionFechaSalida = $hoy->format('Y-m-d');
+
+        $this->cargarPlanillaDelPeriodo(false);
     }
 
-    public function updatedSearch(): void
+    public function updatedPeriodoMes(): void
     {
-        $this->resetPage();
-        $this->seleccionarTodos = false;
-        $this->selectedTrabajadores = [];
+        $this->aplicarPeriodo();
+        $this->limpiarSeleccion();
+        $this->cargarPlanillaDelPeriodo(true);
+    }
+
+    public function updatedQuincena(): void
+    {
+        $this->aplicarPeriodo();
+        $this->limpiarSeleccion();
+        $this->cargarPlanillaDelPeriodo(true);
+    }
+
+    public function updatedTipoPlanilla(): void
+    {
+        $this->limpiarSeleccion();
+        $this->cargarPlanillaDelPeriodo(true);
     }
 
     public function updatedSeleccionarTodos($value): void
@@ -99,28 +124,44 @@ new class extends Component
         $this->calcularDiasVacacion();
     }
 
+    public function aplicarPeriodo(): void
+    {
+        [$year, $month] = explode('-', $this->periodoMes ?: Carbon::now()->format('Y-m'));
+
+        $base = Carbon::create((int) $year, (int) $month, 1)->startOfDay();
+
+        if ($this->quincena === 'PRIMERA') {
+            $inicio = $base->copy()->day(1)->startOfDay();
+            $fin = $base->copy()->day(15)->endOfDay();
+        } else {
+            $inicio = $base->copy()->day(16)->startOfDay();
+            $fin = $base->copy()->endOfMonth()->endOfDay();
+        }
+
+        $this->fechaInicioCorte = $inicio->format('Y-m-d');
+        $this->fechaFinCorte = $fin->format('Y-m-d');
+    }
+
+    public function cargarTrabajadores(): void
+    {
+        $this->resetPage();
+
+        $this->selectedTrabajadores = $this->trabajadoresQuery()
+            ->pluck('Id_Trabajador')
+            ->map(fn ($id) => (string) $id)
+            ->all();
+
+        $this->seleccionarTodos = true;
+
+        $this->notificar('success', 'Trabajadores cargados', 'Se seleccionaron los trabajadores activos del periodo.');
+    }
+
     public function trabajadoresQuery()
     {
-        $term = trim($this->search);
-
         return Trabajador::query()
             ->with(['persona', 'cargo'])
             ->where('Estado', 1)
-            ->when($term !== '', function ($query) use ($term) {
-                $query->where(function ($subQuery) use ($term) {
-                    $subQuery
-                        ->where('Cedula', 'LIKE', "%{$term}%")
-                        ->orWhereHas('persona', function ($persona) use ($term) {
-                            $persona
-                                ->where('Primer_Nombre', 'LIKE', "%{$term}%")
-                                ->orWhere('Segundo_Nombre', 'LIKE', "%{$term}%")
-                                ->orWhere('Primer_Apellido', 'LIKE', "%{$term}%")
-                                ->orWhere('Segundo_Apellido', 'LIKE', "%{$term}%")
-                                ->orWhere('Telefono', 'LIKE', "%{$term}%");
-                        });
-                });
-            })
-            ->orderByDesc('Id_Trabajador');
+            ->orderBy('Id_Trabajador');
     }
 
     public function trabajadores()
@@ -133,8 +174,8 @@ new class extends Component
         return Trabajador::query()
             ->with('persona')
             ->where('Estado', 1)
-            ->orderByDesc('Id_Trabajador')
-            ->limit(200)
+            ->orderBy('Id_Trabajador')
+            ->limit(250)
             ->get()
             ->map(fn (Trabajador $trabajador) => [
                 'id' => $trabajador->Id_Trabajador,
@@ -142,6 +183,28 @@ new class extends Component
             ])
             ->values()
             ->all();
+    }
+
+    public function cargarPlanillaDelPeriodo(bool $notificar = false): void
+    {
+        $planilla = $this->buscarPlanillaPeriodo();
+
+        $this->planillaActualId = $planilla?->Id_Planilla;
+
+        if ($notificar && $planilla) {
+            $this->notificar('info', 'Planilla encontrada', 'Se cargó la planilla existente del periodo seleccionado.');
+        }
+    }
+
+    public function buscarPlanillaPeriodo(?string $tipo = null): ?Planilla
+    {
+        return Planilla::query()
+            ->whereDate('Fecha_Inicio_Corte', Carbon::parse($this->fechaInicioCorte)->toDateString())
+            ->whereDate('Fecha_Fin_Corte', Carbon::parse($this->fechaFinCorte)->toDateString())
+            ->where('Tipo_Planilla', $tipo ?: $this->tipoPlanilla)
+            ->where('Estado', '!=', Planilla::ESTADO_ANULADA)
+            ->latest('Id_Planilla')
+            ->first();
     }
 
     public function planillaActual(): ?Planilla
@@ -152,10 +215,7 @@ new class extends Component
                 ->find($this->planillaActualId);
         }
 
-        return Planilla::query()
-            ->with(['detalles.trabajador.persona', 'detalles.trabajador.cargo'])
-            ->latest('Id_Planilla')
-            ->first();
+        return $this->buscarPlanillaPeriodo()?->load(['detalles.trabajador.persona', 'detalles.trabajador.cargo']);
     }
 
     public function resumen(): array
@@ -171,7 +231,7 @@ new class extends Component
                 'indemnizacion' => $this->money(0),
                 'deducciones' => $this->money(0),
                 'neto' => $this->money(0),
-                'estado' => 'Sin planilla',
+                'estado' => 'SIN PLANILLA',
             ];
         }
 
@@ -206,6 +266,7 @@ new class extends Component
                     'salario' => $this->money($detalle->Salario_Base),
                     'dias' => $this->numero($detalle->Dias_Trabajados),
                     'vacaciones' => $this->numero($detalle->Dias_Vacaciones),
+                    'monto_vacaciones' => $this->money($detalle->Monto_Vacaciones),
                     'incentivo' => $this->money($detalle->Monto_Incentivo),
                     'aguinaldo' => $this->money($detalle->Monto_Aguinaldo),
                     'indemnizacion' => $this->money($detalle->Monto_Indemnizacion ?? 0),
@@ -218,11 +279,55 @@ new class extends Component
             ->all();
     }
 
+    public function headersDetalle(): array
+    {
+        $base = [
+            ['key' => 'empleado', 'label' => 'Empleado'],
+            ['key' => 'cargo', 'label' => 'Cargo'],
+        ];
+
+        return match ($this->tipoPlanilla) {
+            Planilla::TIPO_AGUINALDO => [
+                ...$base,
+                ['key' => 'aguinaldo', 'label' => 'Aguinaldo'],
+                ['key' => 'total', 'label' => 'Total neto'],
+                ['key' => 'estado', 'label' => 'Estado'],
+            ],
+            Planilla::TIPO_VACACIONES => [
+                ...$base,
+                ['key' => 'vacaciones', 'label' => 'Días vac.'],
+                ['key' => 'monto_vacaciones', 'label' => 'Monto vac.'],
+                ['key' => 'total', 'label' => 'Total neto'],
+                ['key' => 'estado', 'label' => 'Estado'],
+            ],
+            Planilla::TIPO_LIQUIDACION => [
+                ...$base,
+                ['key' => 'salario', 'label' => 'Salario prop.'],
+                ['key' => 'dias', 'label' => 'Días'],
+                ['key' => 'monto_vacaciones', 'label' => 'Vacaciones'],
+                ['key' => 'aguinaldo', 'label' => 'Aguinaldo'],
+                ['key' => 'indemnizacion', 'label' => 'Indemnización'],
+                ['key' => 'deduccion', 'label' => 'Deducción'],
+                ['key' => 'total', 'label' => 'Total neto'],
+                ['key' => 'estado', 'label' => 'Estado'],
+            ],
+            default => [
+                ...$base,
+                ['key' => 'salario', 'label' => 'Salario quincenal'],
+                ['key' => 'dias', 'label' => 'Días'],
+                ['key' => 'incentivo', 'label' => 'Incentivo'],
+                ['key' => 'deduccion', 'label' => 'Deducción'],
+                ['key' => 'total', 'label' => 'Total neto'],
+                ['key' => 'estado', 'label' => 'Estado'],
+            ],
+        };
+    }
+
     public function abrirIncentivo(?int $trabajadorId = null): void
     {
         $this->resetValidation();
         $this->formTrabajadorId = $trabajadorId ?: $this->primerTrabajadorSeleccionado();
-        $this->fechaIncentivo = now()->format('Y-m-d');
+        $this->fechaIncentivo = $this->fechaDentroPeriodo(Carbon::now());
         $this->conceptoIncentivo = '';
         $this->montoIncentivo = 0;
         $this->observacionIncentivo = null;
@@ -254,14 +359,20 @@ new class extends Component
         ]);
 
         $this->modalIncentivo = false;
-        $this->notificar('success', 'Incentivo registrado', 'Quedó pendiente para la próxima planilla.');
+
+        if ($this->actualizarPlanillaNormalPorMovimiento()) {
+            $this->notificar('success', 'Incentivo registrado', 'La planilla calculada fue actualizada automáticamente.');
+            return;
+        }
+
+        $this->notificar('success', 'Incentivo registrado', 'Quedó pendiente hasta calcular la planilla normal.');
     }
 
     public function abrirDeduccion(?int $trabajadorId = null): void
     {
         $this->resetValidation();
         $this->formTrabajadorId = $trabajadorId ?: $this->primerTrabajadorSeleccionado();
-        $this->fechaDeduccion = now()->format('Y-m-d');
+        $this->fechaDeduccion = $this->fechaDentroPeriodo(Carbon::now());
         $this->conceptoDeduccion = '';
         $this->montoDeduccion = 0;
         $this->observacionDeduccion = null;
@@ -293,15 +404,47 @@ new class extends Component
         ]);
 
         $this->modalDeduccion = false;
-        $this->notificar('success', 'Deducción registrada', 'Quedó pendiente para la próxima planilla.');
+
+        if ($this->actualizarPlanillaNormalPorMovimiento()) {
+            $this->notificar('success', 'Deducción registrada', 'La planilla calculada fue actualizada automáticamente.');
+            return;
+        }
+
+        $this->notificar('success', 'Deducción registrada', 'Quedó pendiente hasta calcular la planilla normal.');
+    }
+
+    private function actualizarPlanillaNormalPorMovimiento(): bool
+    {
+        $tipoAnterior = $this->tipoPlanilla;
+        $this->tipoPlanilla = Planilla::TIPO_NORMAL;
+
+        $planilla = $this->buscarPlanillaPeriodo(Planilla::TIPO_NORMAL);
+
+        if (! $planilla) {
+            $this->tipoPlanilla = $tipoAnterior;
+            return false;
+        }
+
+        if ($this->planillaBloqueada($planilla)) {
+            $this->tipoPlanilla = $tipoAnterior;
+            $this->planillaActualId = $planilla->Id_Planilla;
+            return false;
+        }
+
+        $this->recalcularPlanilla($planilla);
+
+        $this->tipoPlanilla = Planilla::TIPO_NORMAL;
+        $this->planillaActualId = $planilla->Id_Planilla;
+
+        return true;
     }
 
     public function abrirVacaciones(?int $trabajadorId = null): void
     {
         $this->resetValidation();
         $this->formTrabajadorId = $trabajadorId ?: $this->primerTrabajadorSeleccionado();
-        $this->vacacionFechaInicio = now()->format('Y-m-d');
-        $this->vacacionFechaFin = now()->format('Y-m-d');
+        $this->vacacionFechaInicio = $this->fechaDentroPeriodo(Carbon::now());
+        $this->vacacionFechaFin = $this->fechaDentroPeriodo(Carbon::now());
         $this->vacacionDias = 1;
         $this->vacacionEstado = Vacaciones::ESTADO_APROBADA;
         $this->vacacionObservacion = null;
@@ -324,6 +467,22 @@ new class extends Component
             'vacacionFechaFin.after_or_equal' => 'La fecha final no puede ser menor a la fecha inicial.',
             'vacacionDias.min' => 'Los días deben ser mayores a cero.',
         ]);
+
+        $trabajador = Trabajador::query()->find($this->formTrabajadorId);
+
+        if (! $trabajador) {
+            $this->notificar('warning', 'Trabajador no encontrado', 'No se pudo cargar el trabajador seleccionado.');
+            return;
+        }
+
+        $saldoDisponible = $this->saldoVacacionesNumero($trabajador, Carbon::parse($this->vacacionFechaInicio));
+
+        if (in_array($this->vacacionEstado, [Vacaciones::ESTADO_APROBADA, Vacaciones::ESTADO_PAGADA], true)
+            && $this->numeroSeguro($this->vacacionDias) > $saldoDisponible
+        ) {
+            $this->notificar('warning', 'Saldo insuficiente', 'El trabajador no tiene suficientes días acumulados.');
+            return;
+        }
 
         DB::transaction(function () {
             $vacacion = Vacaciones::create([
@@ -350,14 +509,14 @@ new class extends Component
         });
 
         $this->modalVacaciones = false;
-        $this->notificar('success', 'Vacaciones registradas', 'El saldo de vacaciones fue actualizado.');
+        $this->notificar('success', 'Vacaciones registradas', 'El saldo del trabajador fue actualizado.');
     }
 
     public function abrirLiquidacion(?int $trabajadorId = null): void
     {
         $this->resetValidation();
         $this->formTrabajadorId = $trabajadorId ?: $this->primerTrabajadorSeleccionado();
-        $this->liquidacionFechaSalida = now()->format('Y-m-d');
+        $this->liquidacionFechaSalida = Carbon::now()->format('Y-m-d');
         $this->liquidacionMotivo = 'Renuncia';
         $this->liquidacionIncluirIndemnizacion = true;
         $this->liquidacionObservacion = null;
@@ -392,13 +551,17 @@ new class extends Component
         }
 
         DB::transaction(function () use ($trabajador, $fechaSalida) {
-            $desde = $fechaSalida->copy()->startOfMonth();
+            $desde = $this->inicioQuincenaPorFecha($fechaSalida);
             $hasta = $fechaSalida->copy();
+
+            $this->tipoPlanilla = Planilla::TIPO_LIQUIDACION;
+            $this->fechaInicioCorte = $desde->format('Y-m-d');
+            $this->fechaFinCorte = $hasta->format('Y-m-d');
 
             $planilla = Planilla::create([
                 'Fecha_Inicio_Corte' => $desde,
                 'Fecha_Fin_Corte' => $hasta,
-                'Fecha_Generacion' => now(),
+                'Fecha_Generacion' => Carbon::now(),
                 'Tipo_Planilla' => Planilla::TIPO_LIQUIDACION,
                 'Estado' => Planilla::ESTADO_CALCULADA,
                 'Total_Bruto' => 0,
@@ -412,7 +575,6 @@ new class extends Component
             ]);
 
             $this->crearDetallePlanilla($planilla, $trabajador, $desde, $hasta, true);
-
             $this->actualizarTotalesPlanilla($planilla);
 
             $trabajador->update([
@@ -425,8 +587,7 @@ new class extends Component
         });
 
         $this->modalLiquidacion = false;
-        $this->selectedTrabajadores = [];
-        $this->seleccionarTodos = false;
+        $this->limpiarSeleccion();
 
         $this->notificar('success', 'Liquidación generada', 'El trabajador fue liquidado y marcado como inactivo.');
     }
@@ -434,17 +595,15 @@ new class extends Component
     public function generarPlanilla(): void
     {
         $this->validate([
-            'fechaInicioCorte' => ['required', 'date'],
-            'fechaFinCorte' => ['required', 'date', 'after_or_equal:fechaInicioCorte'],
+            'periodoMes' => ['required'],
+            'quincena' => ['required', 'in:PRIMERA,SEGUNDA'],
             'tipoPlanilla' => ['required', 'in:NORMAL,AGUINALDO,VACACIONES,LIQUIDACION'],
-        ], [
-            'fechaFinCorte.after_or_equal' => 'La fecha final no puede ser menor a la fecha inicial.',
         ]);
 
         $ids = $this->idsParaCalculo();
 
         if (empty($ids)) {
-            $this->notificar('warning', 'Sin trabajadores', 'No hay trabajadores disponibles para calcular.');
+            $this->notificar('warning', 'Sin trabajadores', 'Presione "Cargar trabajadores" o seleccione al menos un trabajador.');
             return;
         }
 
@@ -453,25 +612,83 @@ new class extends Component
             return;
         }
 
+        $planilla = $this->buscarPlanillaPeriodo();
+
+        if ($planilla && $this->planillaBloqueada($planilla)) {
+            $this->planillaActualId = $planilla->Id_Planilla;
+            $this->notificar('warning', 'Planilla bloqueada', 'Este periodo ya tiene pagos aplicados y no puede recalcularse.');
+            return;
+        }
+
+        if ($planilla) {
+            $this->planillaConfirmarId = $planilla->Id_Planilla;
+            $this->idsConfirmarRecalculo = $ids;
+            $this->modalConfirmarRecalculo = true;
+            return;
+        }
+
+        $this->procesarPlanilla($ids, null);
+    }
+
+    public function confirmarRecalculo(): void
+    {
+        $planilla = Planilla::query()->find($this->planillaConfirmarId);
+
+        if (! $planilla) {
+            $this->modalConfirmarRecalculo = false;
+            $this->notificar('warning', 'Planilla no encontrada', 'No se pudo cargar la planilla para actualizar.');
+            return;
+        }
+
+        if ($this->planillaBloqueada($planilla)) {
+            $this->modalConfirmarRecalculo = false;
+            $this->planillaActualId = $planilla->Id_Planilla;
+            $this->notificar('warning', 'Planilla bloqueada', 'Ya tiene pagos aplicados y no puede recalcularse.');
+            return;
+        }
+
+        $this->procesarPlanilla($this->idsConfirmarRecalculo, $planilla);
+
+        $this->modalConfirmarRecalculo = false;
+        $this->planillaConfirmarId = null;
+        $this->idsConfirmarRecalculo = [];
+    }
+
+    private function procesarPlanilla(array $ids, ?Planilla $planilla): void
+    {
         $desde = Carbon::parse($this->fechaInicioCorte)->startOfDay();
         $hasta = Carbon::parse($this->fechaFinCorte)->endOfDay();
+        $actualizando = (bool) $planilla;
 
-        DB::transaction(function () use ($ids, $desde, $hasta) {
-            $planilla = Planilla::create([
-                'Fecha_Inicio_Corte' => $desde,
-                'Fecha_Fin_Corte' => $hasta,
-                'Fecha_Generacion' => now(),
-                'Tipo_Planilla' => $this->tipoPlanilla,
-                'Estado' => Planilla::ESTADO_CALCULADA,
-                'Total_Bruto' => 0,
-                'Total_Incentivos' => 0,
-                'Total_Vacaciones' => 0,
-                'Total_Aguinaldo' => 0,
-                'Total_Indemnizacion' => 0,
-                'Total_Deducciones' => 0,
-                'Total_Neto' => 0,
-                'Observacion' => null,
-            ]);
+        DB::transaction(function () use ($ids, $desde, $hasta, &$planilla) {
+            if (! $planilla) {
+                $planilla = Planilla::create([
+                    'Fecha_Inicio_Corte' => $desde,
+                    'Fecha_Fin_Corte' => $hasta,
+                    'Fecha_Generacion' => Carbon::now(),
+                    'Tipo_Planilla' => $this->tipoPlanilla,
+                    'Estado' => Planilla::ESTADO_CALCULADA,
+                    'Total_Bruto' => 0,
+                    'Total_Incentivos' => 0,
+                    'Total_Vacaciones' => 0,
+                    'Total_Aguinaldo' => 0,
+                    'Total_Indemnizacion' => 0,
+                    'Total_Deducciones' => 0,
+                    'Total_Neto' => 0,
+                    'Observacion' => null,
+                ]);
+            } else {
+                $this->limpiarDetallesPlanilla($planilla);
+
+                $planilla->update([
+                    'Fecha_Inicio_Corte' => $desde,
+                    'Fecha_Fin_Corte' => $hasta,
+                    'Fecha_Generacion' => Carbon::now(),
+                    'Tipo_Planilla' => $this->tipoPlanilla,
+                    'Estado' => Planilla::ESTADO_CALCULADA,
+                    'Observacion' => null,
+                ]);
+            }
 
             $trabajadores = Trabajador::query()
                 ->with(['persona', 'cargo'])
@@ -487,19 +704,92 @@ new class extends Component
             $this->planillaActualId = $planilla->Id_Planilla;
         });
 
-        $this->selectedTrabajadores = [];
-        $this->seleccionarTodos = false;
+        $this->limpiarSeleccion();
 
-        $this->notificar('success', 'Planilla generada', 'La planilla fue calculada correctamente.');
+        $this->notificar(
+            'success',
+            $actualizando ? 'Planilla actualizada' : 'Planilla generada',
+            'El periodo seleccionado quedó calculado correctamente.'
+        );
+    }
+
+    private function recalcularPlanilla(Planilla $planilla): void
+    {
+        $desde = Carbon::parse($planilla->Fecha_Inicio_Corte)->startOfDay();
+        $hasta = Carbon::parse($planilla->Fecha_Fin_Corte)->endOfDay();
+
+        DB::transaction(function () use ($planilla, $desde, $hasta) {
+            $ids = $planilla->detalles()->pluck('Id_Trabajador')->filter()->values()->all();
+
+            if (empty($ids)) {
+                return;
+            }
+
+            $this->limpiarDetallesPlanilla($planilla);
+
+            $trabajadores = Trabajador::query()
+                ->with(['persona', 'cargo'])
+                ->whereIn('Id_Trabajador', $ids)
+                ->where('Estado', 1)
+                ->get();
+
+            foreach ($trabajadores as $trabajador) {
+                $this->crearDetallePlanilla($planilla, $trabajador, $desde, $hasta, false);
+            }
+
+            $this->actualizarTotalesPlanilla($planilla);
+        });
+    }
+
+    private function limpiarDetallesPlanilla(Planilla $planilla): void
+    {
+        $detalleIds = $planilla->detalles()->pluck('Id_Detalle_Planilla');
+
+        if ($detalleIds->isEmpty()) {
+            return;
+        }
+
+        IncentivoTrabajador::query()
+            ->whereIn('Id_Detalle_Planilla', $detalleIds)
+            ->update([
+                'Id_Detalle_Planilla' => null,
+                'Estado' => IncentivoTrabajador::ESTADO_PENDIENTE,
+            ]);
+
+        DeduccionTrabajador::query()
+            ->whereIn('Id_Detalle_Planilla', $detalleIds)
+            ->update([
+                'Id_Detalle_Planilla' => null,
+                'Estado' => DeduccionTrabajador::ESTADO_PENDIENTE,
+            ]);
+
+        Vacaciones::query()
+            ->whereIn('Id_Detalle_Planilla', $detalleIds)
+            ->update([
+                'Id_Detalle_Planilla' => null,
+                'Estado' => Vacaciones::ESTADO_APROBADA,
+            ]);
+
+        MovimientoVacacion::query()
+            ->whereIn('Id_Detalle_Planilla', $detalleIds)
+            ->where('Tipo_Movimiento', MovimientoVacacion::TIPO_PAGADA)
+            ->delete();
+
+        MovimientoVacacion::query()
+            ->whereIn('Id_Detalle_Planilla', $detalleIds)
+            ->update(['Id_Detalle_Planilla' => null]);
+
+        DetallePlanilla::query()
+            ->whereIn('Id_Detalle_Planilla', $detalleIds)
+            ->delete();
     }
 
     private function crearDetallePlanilla(Planilla $planilla, Trabajador $trabajador, Carbon $desde, Carbon $hasta, bool $forzarLiquidacion): void
     {
         $tipo = $forzarLiquidacion ? Planilla::TIPO_LIQUIDACION : $this->tipoPlanilla;
 
-        $salarioMensual = $this->numeroSeguro($trabajador->Salario);
         $salarioDia = $this->salarioDiario($trabajador);
-        $diasCorte = $this->diasCorte($desde, $hasta);
+        $diasCorte = $this->diasCorte($desde, $hasta, $tipo, $forzarLiquidacion);
 
         $incluyeSalario = in_array($tipo, [Planilla::TIPO_NORMAL, Planilla::TIPO_LIQUIDACION], true);
         $incluyeExtras = in_array($tipo, [Planilla::TIPO_NORMAL, Planilla::TIPO_LIQUIDACION], true);
@@ -608,14 +898,14 @@ new class extends Component
         $planilla = $this->planillaActual();
 
         if (! $planilla) {
-            $this->notificar('warning', 'Sin planilla', 'Primero genere una planilla.');
+            $this->notificar('warning', 'Sin planilla', 'Primero genere o cargue una planilla.');
             return;
         }
 
         $this->resetValidation();
         $this->planillaActualId = $planilla->Id_Planilla;
         $this->pagoDetalleId = $detalleId;
-        $this->pagoFecha = now()->format('Y-m-d');
+        $this->pagoFecha = Carbon::now()->format('Y-m-d');
         $this->pagoMetodo = PagoPlanilla::METODO_EFECTIVO;
         $this->pagoObservacion = null;
         $this->modalPago = true;
@@ -677,7 +967,7 @@ new class extends Component
         $planilla = $this->planillaActual();
 
         if (! $planilla) {
-            $this->notificar('warning', 'Sin planilla', 'Primero genere una planilla.');
+            $this->notificar('warning', 'Sin planilla', 'Primero genere o cargue una planilla.');
             return;
         }
 
@@ -739,14 +1029,14 @@ new class extends Component
             return '0';
         }
 
-        return $this->numero($this->saldoVacacionesNumero($trabajador, $this->fechaFinCorte ?: now()));
+        return $this->numero($this->saldoVacacionesNumero($trabajador, $this->fechaFinCorte ?: Carbon::now()));
     }
 
     private function saldoVacacionesNumero(Trabajador $trabajador, string|Carbon|null $hasta = null): float
     {
         $fechaHasta = $hasta instanceof Carbon
             ? $hasta->copy()->startOfDay()
-            : Carbon::parse($hasta ?: now())->startOfDay();
+            : Carbon::parse($hasta ?: Carbon::now())->startOfDay();
 
         $acumuladas = $this->diasVacacionesAcumuladas($trabajador, $fechaHasta);
 
@@ -756,7 +1046,7 @@ new class extends Component
             ->selectRaw("
                 COALESCE(SUM(
                     CASE
-                        WHEN Tipo_Movimiento IN ('AJUSTE_POSITIVO', 'ACUMULACION') THEN Dias
+                        WHEN Tipo_Movimiento = 'AJUSTE_POSITIVO' THEN Dias
                         WHEN Tipo_Movimiento IN ('TOMADA', 'PAGADA', 'AJUSTE_NEGATIVO') THEN -Dias
                         ELSE 0
                     END
@@ -846,20 +1136,10 @@ new class extends Component
 
     private function idsParaCalculo(): array
     {
-        $ids = collect($this->selectedTrabajadores)
+        return collect($this->selectedTrabajadores)
             ->filter()
             ->map(fn ($id) => (int) $id)
             ->unique()
-            ->values()
-            ->all();
-
-        if (! empty($ids)) {
-            return $ids;
-        }
-
-        return $this->trabajadoresQuery()
-            ->pluck('Id_Trabajador')
-            ->map(fn ($id) => (int) $id)
             ->values()
             ->all();
     }
@@ -890,9 +1170,55 @@ new class extends Component
         }
     }
 
-    private function diasCorte(Carbon $desde, Carbon $hasta): int
+    private function diasCorte(Carbon $desde, Carbon $hasta, string $tipo, bool $liquidacion = false): int
     {
-        return min(30, max(1, $desde->diffInDays($hasta) + 1));
+        if ($tipo !== Planilla::TIPO_NORMAL && ! $liquidacion) {
+            return 0;
+        }
+
+        if ($liquidacion) {
+            return min(15, max(1, $desde->diffInDays($hasta) + 1));
+        }
+
+        return 15;
+    }
+
+    private function planillaBloqueada(Planilla $planilla): bool
+    {
+        if ($planilla->Estado === Planilla::ESTADO_PAGADA) {
+            return true;
+        }
+
+        return PagoPlanilla::query()
+            ->whereHas('detallePlanilla', fn ($query) => $query->where('Id_Planilla', $planilla->Id_Planilla))
+            ->exists();
+    }
+
+    private function inicioQuincenaPorFecha(Carbon $fecha): Carbon
+    {
+        return (int) $fecha->format('d') <= 15
+            ? $fecha->copy()->day(1)->startOfDay()
+            : $fecha->copy()->day(16)->startOfDay();
+    }
+
+    private function fechaDentroPeriodo($fecha): string
+    {
+        $fecha = Carbon::parse($fecha)->startOfDay();
+
+        $inicio = Carbon::parse($this->fechaInicioCorte)->startOfDay();
+        $fin = Carbon::parse($this->fechaFinCorte)->endOfDay();
+
+        if ($fecha->betweenIncluded($inicio, $fin)) {
+            return $fecha->format('Y-m-d');
+        }
+
+        return $fin->format('Y-m-d');
+    }
+
+    private function limpiarSeleccion(): void
+    {
+        $this->selectedTrabajadores = [];
+        $this->seleccionarTodos = false;
     }
 
     public function nombreTrabajador(Trabajador $trabajador): string
@@ -967,7 +1293,25 @@ new class extends Component
 
 ?>
 
-<div class="min-h-screen bg-[#F0F3F7] p-4 md:p-6 space-y-5">
+<div class="payroll-page min-h-screen bg-[#F0F3F7] p-4 md:p-6 space-y-5 text-[#111827]">
+    <style>
+        .payroll-page label,
+        .payroll-page .label,
+        .payroll-page .label-text,
+        .payroll-page input,
+        .payroll-page select,
+        .payroll-page textarea,
+        .payroll-page table,
+        .payroll-page td {
+            color: #111827 !important;
+        }
+
+        .payroll-page input::placeholder,
+        .payroll-page textarea::placeholder {
+            color: #6B7280 !important;
+        }
+    </style>
+
     @php
         $trabajadores = $this->trabajadores();
         $trabajadorOptions = $this->trabajadoresOptions();
@@ -984,25 +1328,18 @@ new class extends Component
             ['key' => 'vacaciones', 'label' => 'Vacaciones'],
         ];
 
-        $headersDetalle = [
-            ['key' => 'empleado', 'label' => 'Empleado'],
-            ['key' => 'cargo', 'label' => 'Cargo'],
-            ['key' => 'salario', 'label' => 'Salario base'],
-            ['key' => 'dias', 'label' => 'Días'],
-            ['key' => 'vacaciones', 'label' => 'Vac.'],
-            ['key' => 'incentivo', 'label' => 'Incentivo'],
-            ['key' => 'aguinaldo', 'label' => 'Aguinaldo'],
-            ['key' => 'indemnizacion', 'label' => 'Indemnización'],
-            ['key' => 'deduccion', 'label' => 'Deducción'],
-            ['key' => 'total', 'label' => 'Total neto'],
-            ['key' => 'estado', 'label' => 'Estado'],
-        ];
+        $headersDetalle = $this->headersDetalle();
 
         $tipoOptions = [
             ['id' => 'NORMAL', 'name' => 'Normal'],
             ['id' => 'AGUINALDO', 'name' => 'Aguinaldo'],
-            ['id' => 'VACACIONES', 'name' => 'Pagar vacaciones'],
+            ['id' => 'VACACIONES', 'name' => 'Pago vacaciones'],
             ['id' => 'LIQUIDACION', 'name' => 'Liquidación'],
+        ];
+
+        $quincenaOptions = [
+            ['id' => 'PRIMERA', 'name' => '1 al 15'],
+            ['id' => 'SEGUNDA', 'name' => '16 al cierre'],
         ];
 
         $estadoVacacionOptions = [
@@ -1024,35 +1361,33 @@ new class extends Component
     <div class="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
             <h1 class="text-2xl md:text-3xl font-bold text-[#1A2B42]">Planilla de trabajadores</h1>
-            <p class="mt-1 text-sm text-[#5F6B7A]">
-                Gestión de pagos, incentivos, deducciones, vacaciones, aguinaldo y liquidaciones.
+            <p class="mt-1 text-sm text-[#111827]">
+                Gestión quincenal de pagos, incentivos, deducciones, vacaciones, aguinaldo y liquidaciones.
             </p>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
-            <span class="rounded-full border border-[#D7E4F3] bg-white px-4 py-2 text-sm font-semibold text-[#1A2B42]">
+            <span class="rounded-full border border-[#D7E4F3] bg-white px-4 py-2 text-sm font-semibold text-[#111827]">
                 Seleccionados: {{ count($selectedTrabajadores) }}
             </span>
-            <span class="rounded-full border border-[#D7E4F3] bg-white px-4 py-2 text-sm font-semibold text-[#1A2B42]">
+            <span class="rounded-full border border-[#D7E4F3] bg-white px-4 py-2 text-sm font-semibold text-[#111827]">
                 Estado: {{ $resumen['estado'] }}
             </span>
         </div>
     </div>
 
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-        <div class="grid grid-cols-1 gap-4 xl:grid-cols-5">
-            <div class="xl:col-span-2">
-                <x-input
-                    label="Buscar empleado"
-                    placeholder="Nombre, apellido, cédula o teléfono"
-                    wire:model.live.debounce.350ms="search"
-                    icon="o-magnifying-glass"
-                    class="bg-[#F0F3F7] text-[#1A2B42]"
-                />
-            </div>
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <x-input label="Mes" type="month" wire:model.live="periodoMes" class="bg-[#F0F3F7] text-[#111827]" />
 
-            <x-input label="Inicio de corte" type="date" wire:model.live="fechaInicioCorte" class="bg-[#F0F3F7] text-[#1A2B42]" />
-            <x-input label="Fin de corte" type="date" wire:model.live="fechaFinCorte" class="bg-[#F0F3F7] text-[#1A2B42]" />
+            <x-select
+                label="Periodo"
+                :options="$quincenaOptions"
+                option-value="id"
+                option-label="name"
+                wire:model.live="quincena"
+                class="bg-[#F0F3F7] text-[#111827]"
+            />
 
             <x-select
                 label="Tipo de planilla"
@@ -1060,43 +1395,40 @@ new class extends Component
                 option-value="id"
                 option-label="name"
                 wire:model.live="tipoPlanilla"
-                class="bg-[#F0F3F7] text-[#1A2B42]"
+                class="bg-[#F0F3F7] text-[#111827]"
             />
+
+            <x-input label="Inicio" type="date" wire:model="fechaInicioCorte" readonly class="bg-[#F0F3F7] text-[#111827]" />
+            <x-input label="Corte" type="date" wire:model="fechaFinCorte" readonly class="bg-[#F0F3F7] text-[#111827]" />
         </div>
 
         <div class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-7">
             <div class="rounded-2xl bg-[#F0F3F7] p-4">
-                <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Bruto</p>
+                <p class="text-xs font-semibold uppercase text-[#111827]">Bruto</p>
                 <p class="mt-1 text-lg font-bold text-[#1A2B42]">{{ $resumen['bruto'] }}</p>
             </div>
-
             <div class="rounded-2xl bg-[#F0F3F7] p-4">
-                <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Incentivos</p>
+                <p class="text-xs font-semibold uppercase text-[#111827]">Incentivos</p>
                 <p class="mt-1 text-lg font-bold text-[#1A2B42]">{{ $resumen['incentivos'] }}</p>
             </div>
-
             <div class="rounded-2xl bg-[#F0F3F7] p-4">
-                <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Vacaciones</p>
+                <p class="text-xs font-semibold uppercase text-[#111827]">Vacaciones</p>
                 <p class="mt-1 text-lg font-bold text-[#1A2B42]">{{ $resumen['vacaciones'] }}</p>
             </div>
-
             <div class="rounded-2xl bg-[#F0F3F7] p-4">
-                <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Aguinaldo</p>
+                <p class="text-xs font-semibold uppercase text-[#111827]">Aguinaldo</p>
                 <p class="mt-1 text-lg font-bold text-[#1A2B42]">{{ $resumen['aguinaldo'] }}</p>
             </div>
-
             <div class="rounded-2xl bg-[#F0F3F7] p-4">
-                <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Indemnización</p>
+                <p class="text-xs font-semibold uppercase text-[#111827]">Indemnización</p>
                 <p class="mt-1 text-lg font-bold text-[#1A2B42]">{{ $resumen['indemnizacion'] }}</p>
             </div>
-
             <div class="rounded-2xl bg-[#F0F3F7] p-4">
-                <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Deducciones</p>
+                <p class="text-xs font-semibold uppercase text-[#111827]">Deducciones</p>
                 <p class="mt-1 text-lg font-bold text-[#1A2B42]">{{ $resumen['deducciones'] }}</p>
             </div>
-
             <div class="rounded-2xl bg-[#EAF2FB] p-4">
-                <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Neto</p>
+                <p class="text-xs font-semibold uppercase text-[#111827]">Neto</p>
                 <p class="mt-1 text-lg font-bold text-[#0E48A1]">{{ $resumen['neto'] }}</p>
             </div>
         </div>
@@ -1106,12 +1438,13 @@ new class extends Component
         <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
                 <h2 class="text-xl font-bold text-[#1A2B42]">Acciones rápidas</h2>
-                <p class="text-sm text-[#5F6B7A]">
-                    Si no seleccionás empleados, se calcularán los trabajadores filtrados.
+                <p class="text-sm text-[#111827]">
+                    Cada periodo solo puede tener una planilla por tipo. Si ya existe, se solicita confirmación para actualizarla.
                 </p>
             </div>
 
             <div class="flex flex-wrap gap-2">
+                <x-button label="Cargar trabajadores" icon="o-users" wire:click="cargarTrabajadores" class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
                 <x-button label="Vacaciones" icon="o-sun" wire:click="abrirVacaciones" class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
                 <x-button label="Incentivo" icon="o-gift" wire:click="abrirIncentivo" class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
                 <x-button label="Deducción" icon="o-minus-circle" wire:click="abrirDeduccion" class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
@@ -1128,115 +1461,130 @@ new class extends Component
             <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
                     <h2 class="text-xl font-bold text-[#1A2B42]">Trabajadores disponibles</h2>
-                    <p class="text-sm text-[#5F6B7A]">Seleccione empleados o use el filtro superior.</p>
+                    <p class="text-sm text-[#111827]">Use “Cargar trabajadores” para seleccionar el listado activo.</p>
                 </div>
 
-                <label class="inline-flex items-center gap-2 rounded-xl border border-[#D7E4F3] bg-[#F0F3F7] px-3 py-2 text-sm font-semibold text-[#1A2B42]">
+                <label class="inline-flex items-center gap-2 rounded-xl border border-[#D7E4F3] bg-[#F0F3F7] px-3 py-2 text-sm font-semibold text-[#111827]">
                     <input type="checkbox" wire:model.live="seleccionarTodos" class="checkbox checkbox-sm border-[#2E8BC0]">
-                    Seleccionar filtrados
+                    Seleccionar listado
                 </label>
             </div>
 
-            <x-table
-                :headers="$headersTrabajadores"
-                :rows="$trabajadores"
-                with-pagination
-                class="[&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl"
-            >
-                @scope('cell_select', $trabajador)
-                    <input type="checkbox" value="{{ $trabajador->Id_Trabajador }}" wire:model.live="selectedTrabajadores" class="checkbox checkbox-sm border-[#2E8BC0]">
-                @endscope
+            <div class="overflow-x-auto">
+                <x-table
+                    :headers="$headersTrabajadores"
+                    :rows="$trabajadores"
+                    with-pagination
+                    class="[&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr:hover]:bg-[#F7F9FC]"
+                >
+                    @scope('cell_select', $trabajador)
+                        <input type="checkbox" value="{{ $trabajador->Id_Trabajador }}" wire:model.live="selectedTrabajadores" class="checkbox checkbox-sm border-[#2E8BC0]">
+                    @endscope
 
-                @scope('cell_empleado', $trabajador)
-                    <div>
-                        <p class="font-semibold text-[#1A2B42]">{{ $this->nombreTrabajador($trabajador) }}</p>
-                        <p class="text-xs text-[#5F6B7A]">Ingreso: {{ optional($trabajador->Fecha_Ingreso)->format('d/m/Y') ?? 'Sin fecha' }}</p>
-                    </div>
-                @endscope
+                    @scope('cell_empleado', $trabajador)
+                        <div>
+                            <p class="font-semibold text-[#111827]">{{ $this->nombreTrabajador($trabajador) }}</p>
+                            <p class="text-xs text-[#111827]">Ingreso: {{ optional($trabajador->Fecha_Ingreso)->format('d/m/Y') ?? 'Sin fecha' }}</p>
+                        </div>
+                    @endscope
 
-                @scope('cell_cargo', $trabajador)
-                    <span class="inline-flex rounded-full bg-[#D7E4F3] px-3 py-1 text-xs font-semibold text-[#1A2B42]">
-                        {{ $this->cargoTrabajador($trabajador) }}
-                    </span>
-                @endscope
+                    @scope('cell_cargo', $trabajador)
+                        <span class="inline-flex rounded-full bg-[#D7E4F3] px-3 py-1 text-xs font-semibold text-[#111827]">
+                            {{ $this->cargoTrabajador($trabajador) }}
+                        </span>
+                    @endscope
 
-                @scope('cell_telefono', $trabajador)
-                    <span class="text-[#1A2B42]">{{ $this->telefonoTrabajador($trabajador) }}</span>
-                @endscope
+                    @scope('cell_telefono', $trabajador)
+                        <span class="text-[#111827]">{{ $this->telefonoTrabajador($trabajador) }}</span>
+                    @endscope
 
-                @scope('cell_salario', $trabajador)
-                    <span class="font-semibold text-[#1A2B42]">{{ $this->money($trabajador->Salario) }}</span>
-                @endscope
+                    @scope('cell_salario', $trabajador)
+                        <span class="font-semibold text-[#111827]">{{ $this->money($trabajador->Salario) }}</span>
+                    @endscope
 
-                @scope('cell_vacaciones', $trabajador)
-                    <span class="font-semibold text-[#0E48A1]">{{ $this->saldoVacaciones($trabajador->Id_Trabajador) }} días</span>
-                @endscope
+                    @scope('cell_vacaciones', $trabajador)
+                        <span class="font-semibold text-[#0E48A1]">{{ $this->saldoVacaciones($trabajador->Id_Trabajador) }} días</span>
+                    @endscope
 
-                @scope('actions', $trabajador)
-                    <div class="flex flex-wrap gap-1">
-                        <x-button icon="o-sun" wire:click="abrirVacaciones({{ $trabajador->Id_Trabajador }})" class="btn-sm border-0 bg-[#EAF2FB] text-[#1A2B42] hover:bg-[#D7E4F3]" spinner />
-                        <x-button icon="o-gift" wire:click="abrirIncentivo({{ $trabajador->Id_Trabajador }})" class="btn-sm border-0 bg-[#EAF2FB] text-[#1A2B42] hover:bg-[#D7E4F3]" spinner />
-                        <x-button icon="o-minus-circle" wire:click="abrirDeduccion({{ $trabajador->Id_Trabajador }})" class="btn-sm border-0 bg-[#EAF2FB] text-[#1A2B42] hover:bg-[#D7E4F3]" spinner />
-                        <x-button icon="o-user-minus" wire:click="abrirLiquidacion({{ $trabajador->Id_Trabajador }})" class="btn-sm border-0 bg-[#FCEAD8] text-[#9A4A0A] hover:bg-[#F7D1A6]" spinner />
-                    </div>
-                @endscope
-            </x-table>
+                    @scope('actions', $trabajador)
+                        <div class="flex flex-wrap gap-1">
+                            <x-button icon="o-sun" wire:click="abrirVacaciones({{ $trabajador->Id_Trabajador }})" class="btn-sm border-0 bg-[#EAF2FB] text-[#111827] hover:bg-[#D7E4F3]" spinner />
+                            <x-button icon="o-gift" wire:click="abrirIncentivo({{ $trabajador->Id_Trabajador }})" class="btn-sm border-0 bg-[#EAF2FB] text-[#111827] hover:bg-[#D7E4F3]" spinner />
+                            <x-button icon="o-minus-circle" wire:click="abrirDeduccion({{ $trabajador->Id_Trabajador }})" class="btn-sm border-0 bg-[#EAF2FB] text-[#111827] hover:bg-[#D7E4F3]" spinner />
+                            <x-button icon="o-user-minus" wire:click="abrirLiquidacion({{ $trabajador->Id_Trabajador }})" class="btn-sm border-0 bg-[#FCEAD8] text-[#9A4A0A] hover:bg-[#F7D1A6]" spinner />
+                        </div>
+                    @endscope
+                </x-table>
+            </div>
         </x-card>
 
         <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
             <div class="mb-4">
                 <h2 class="text-xl font-bold text-[#1A2B42]">Detalle de planilla</h2>
-                <p class="text-sm text-[#5F6B7A]">
-                    {{ $planillaActual ? 'Planilla #' . $planillaActual->Id_Planilla . ' - ' . $planillaActual->Tipo_Planilla : 'Aún no hay planilla generada.' }}
+                <p class="text-sm text-[#111827]">
+                    {{ $planillaActual ? 'Planilla #' . $planillaActual->Id_Planilla . ' - ' . $planillaActual->Tipo_Planilla : 'No hay planilla calculada para este periodo.' }}
                 </p>
             </div>
 
-            <x-table
-                :headers="$headersDetalle"
-                :rows="$detalles"
-                class="[&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl"
-            >
-                @scope('cell_empleado', $row)
-                    <span class="font-semibold text-[#1A2B42]">{{ $row['empleado'] }}</span>
-                @endscope
+            <div class="overflow-x-auto">
+                <x-table
+                    :headers="$headersDetalle"
+                    :rows="$detalles"
+                    class="[&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr:hover]:bg-[#F7F9FC]"
+                >
+                    @scope('cell_empleado', $row)
+                        <span class="font-semibold text-[#111827]">{{ $row['empleado'] }}</span>
+                    @endscope
 
-                @scope('cell_cargo', $row)
-                    <span class="inline-flex rounded-full bg-[#D7E4F3] px-3 py-1 text-xs font-semibold text-[#1A2B42]">
-                        {{ $row['cargo'] }}
-                    </span>
-                @endscope
+                    @scope('cell_cargo', $row)
+                        <span class="inline-flex rounded-full bg-[#D7E4F3] px-3 py-1 text-xs font-semibold text-[#111827]">
+                            {{ $row['cargo'] }}
+                        </span>
+                    @endscope
 
-                @scope('cell_total', $row)
-                    <span class="font-bold text-[#0E48A1]">{{ $row['total'] }}</span>
-                @endscope
+                    @scope('cell_total', $row)
+                        <span class="font-bold text-[#0E48A1]">{{ $row['total'] }}</span>
+                    @endscope
 
-                @scope('cell_estado', $row)
-                    <span class="inline-flex rounded-full px-3 py-1 text-xs font-semibold {{ $row['estado'] === 'PAGADO' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700' }}">
-                        {{ $row['estado'] }}
-                    </span>
-                @endscope
+                    @scope('cell_estado', $row)
+                        <span class="inline-flex rounded-full px-3 py-1 text-xs font-semibold {{ $row['estado'] === 'PAGADO' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700' }}">
+                            {{ $row['estado'] }}
+                        </span>
+                    @endscope
 
-                @scope('actions', $row)
-                    @if($row['estado'] !== 'PAGADO')
-                        <x-button icon="o-banknotes" wire:click="abrirPago({{ $row['id'] }})" class="btn-sm border-0 bg-[#EAF2FB] text-[#1A2B42] hover:bg-[#D7E4F3]" spinner />
-                    @endif
-                @endscope
-            </x-table>
+                    @scope('actions', $row)
+                        @if($row['estado'] !== 'PAGADO')
+                            <x-button icon="o-banknotes" wire:click="abrirPago({{ $row['id'] }})" class="btn-sm border-0 bg-[#EAF2FB] text-[#111827] hover:bg-[#D7E4F3]" spinner />
+                        @endif
+                    @endscope
+                </x-table>
+            </div>
         </x-card>
     </div>
 
-    <x-modal wire:model="modalIncentivo" title="Registrar incentivo" separator box-class="bg-white text-[#1A2B42] border border-[#D7E4F3] rounded-2xl shadow-xl">
+    <x-modal wire:model="modalConfirmarRecalculo" title="Actualizar planilla existente" separator box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
+        <div class="rounded-2xl bg-[#F0F3F7] p-4 text-sm text-[#111827]">
+            Ya existe una planilla calculada para este periodo y tipo. Si continuás, se recalcularán sus detalles con los trabajadores seleccionados, incentivos y deducciones pendientes.
+        </div>
+
+        <x-slot:actions>
+            <x-button label="Cancelar" wire:click="$set('modalConfirmarRecalculo', false)" />
+            <x-button label="Actualizar planilla" icon="o-check" wire:click="confirmarRecalculo" class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
+        </x-slot:actions>
+    </x-modal>
+
+    <x-modal wire:model="modalIncentivo" title="Registrar incentivo" separator box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div class="md:col-span-2">
-                <x-select label="Trabajador" :options="$trabajadorOptions" option-value="id" option-label="name" wire:model="formTrabajadorId" placeholder="Seleccione un trabajador" class="bg-[#F0F3F7] text-[#1A2B42]" />
+                <x-select label="Trabajador" :options="$trabajadorOptions" option-value="id" option-label="name" wire:model="formTrabajadorId" placeholder="Seleccione un trabajador" class="bg-[#F0F3F7] text-[#111827]" />
             </div>
-            <x-input label="Fecha" type="date" wire:model="fechaIncentivo" class="bg-[#F0F3F7] text-[#1A2B42]" />
-            <x-input label="Monto" type="number" step="0.01" min="0" wire:model="montoIncentivo" prefix="C$" class="bg-[#F0F3F7] text-[#1A2B42]" />
+            <x-input label="Fecha" type="date" wire:model="fechaIncentivo" class="bg-[#F0F3F7] text-[#111827]" />
+            <x-input label="Monto" type="number" step="0.01" min="0" wire:model="montoIncentivo" prefix="C$" class="bg-[#F0F3F7] text-[#111827]" />
             <div class="md:col-span-2">
-                <x-input label="Concepto" wire:model="conceptoIncentivo" placeholder="Ej: Bono por desempeño" class="bg-[#F0F3F7] text-[#1A2B42]" />
+                <x-input label="Concepto" wire:model="conceptoIncentivo" placeholder="Ej: Bono por desempeño" class="bg-[#F0F3F7] text-[#111827]" />
             </div>
             <div class="md:col-span-2">
-                <x-textarea label="Observación" wire:model="observacionIncentivo" rows="3" placeholder="Opcional" class="bg-[#F0F3F7] text-[#1A2B42]" />
+                <x-textarea label="Observación" wire:model="observacionIncentivo" rows="3" placeholder="Opcional" class="bg-[#F0F3F7] text-[#111827]" />
             </div>
         </div>
 
@@ -1246,18 +1594,18 @@ new class extends Component
         </x-slot:actions>
     </x-modal>
 
-    <x-modal wire:model="modalDeduccion" title="Registrar deducción" separator box-class="bg-white text-[#1A2B42] border border-[#D7E4F3] rounded-2xl shadow-xl">
+    <x-modal wire:model="modalDeduccion" title="Registrar deducción" separator box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div class="md:col-span-2">
-                <x-select label="Trabajador" :options="$trabajadorOptions" option-value="id" option-label="name" wire:model="formTrabajadorId" placeholder="Seleccione un trabajador" class="bg-[#F0F3F7] text-[#1A2B42]" />
+                <x-select label="Trabajador" :options="$trabajadorOptions" option-value="id" option-label="name" wire:model="formTrabajadorId" placeholder="Seleccione un trabajador" class="bg-[#F0F3F7] text-[#111827]" />
             </div>
-            <x-input label="Fecha" type="date" wire:model="fechaDeduccion" class="bg-[#F0F3F7] text-[#1A2B42]" />
-            <x-input label="Monto" type="number" step="0.01" min="0" wire:model="montoDeduccion" prefix="C$" class="bg-[#F0F3F7] text-[#1A2B42]" />
+            <x-input label="Fecha" type="date" wire:model="fechaDeduccion" class="bg-[#F0F3F7] text-[#111827]" />
+            <x-input label="Monto" type="number" step="0.01" min="0" wire:model="montoDeduccion" prefix="C$" class="bg-[#F0F3F7] text-[#111827]" />
             <div class="md:col-span-2">
-                <x-input label="Concepto" wire:model="conceptoDeduccion" placeholder="Ej: Adelanto salarial" class="bg-[#F0F3F7] text-[#1A2B42]" />
+                <x-input label="Concepto" wire:model="conceptoDeduccion" placeholder="Ej: Adelanto salarial" class="bg-[#F0F3F7] text-[#111827]" />
             </div>
             <div class="md:col-span-2">
-                <x-textarea label="Observación" wire:model="observacionDeduccion" rows="3" placeholder="Opcional" class="bg-[#F0F3F7] text-[#1A2B42]" />
+                <x-textarea label="Observación" wire:model="observacionDeduccion" rows="3" placeholder="Opcional" class="bg-[#F0F3F7] text-[#111827]" />
             </div>
         </div>
 
@@ -1267,17 +1615,17 @@ new class extends Component
         </x-slot:actions>
     </x-modal>
 
-    <x-modal wire:model="modalVacaciones" title="Registrar vacaciones" separator box-class="bg-white text-[#1A2B42] border border-[#D7E4F3] rounded-2xl shadow-xl">
+    <x-modal wire:model="modalVacaciones" title="Registrar vacaciones" separator box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div class="md:col-span-2">
-                <x-select label="Trabajador" :options="$trabajadorOptions" option-value="id" option-label="name" wire:model="formTrabajadorId" placeholder="Seleccione un trabajador" class="bg-[#F0F3F7] text-[#1A2B42]" />
+                <x-select label="Trabajador" :options="$trabajadorOptions" option-value="id" option-label="name" wire:model="formTrabajadorId" placeholder="Seleccione un trabajador" class="bg-[#F0F3F7] text-[#111827]" />
             </div>
-            <x-input label="Fecha inicio" type="date" wire:model.live="vacacionFechaInicio" class="bg-[#F0F3F7] text-[#1A2B42]" />
-            <x-input label="Fecha fin" type="date" wire:model.live="vacacionFechaFin" class="bg-[#F0F3F7] text-[#1A2B42]" />
-            <x-input label="Días" type="number" min="1" wire:model="vacacionDias" class="bg-[#F0F3F7] text-[#1A2B42]" />
-            <x-select label="Estado" :options="$estadoVacacionOptions" option-value="id" option-label="name" wire:model="vacacionEstado" class="bg-[#F0F3F7] text-[#1A2B42]" />
+            <x-input label="Fecha inicio" type="date" wire:model.live="vacacionFechaInicio" class="bg-[#F0F3F7] text-[#111827]" />
+            <x-input label="Fecha fin" type="date" wire:model.live="vacacionFechaFin" class="bg-[#F0F3F7] text-[#111827]" />
+            <x-input label="Días" type="number" min="1" wire:model="vacacionDias" class="bg-[#F0F3F7] text-[#111827]" />
+            <x-select label="Estado" :options="$estadoVacacionOptions" option-value="id" option-label="name" wire:model="vacacionEstado" class="bg-[#F0F3F7] text-[#111827]" />
             <div class="md:col-span-2">
-                <x-textarea label="Observación" wire:model="vacacionObservacion" rows="3" placeholder="Opcional" class="bg-[#F0F3F7] text-[#1A2B42]" />
+                <x-textarea label="Observación" wire:model="vacacionObservacion" rows="3" placeholder="Opcional" class="bg-[#F0F3F7] text-[#111827]" />
             </div>
         </div>
 
@@ -1287,22 +1635,22 @@ new class extends Component
         </x-slot:actions>
     </x-modal>
 
-    <x-modal wire:model="modalLiquidacion" title="Liquidar trabajador" separator box-class="bg-white text-[#1A2B42] border border-[#D7E4F3] rounded-2xl shadow-xl">
+    <x-modal wire:model="modalLiquidacion" title="Liquidar trabajador" separator box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div class="md:col-span-2">
-                <x-select label="Trabajador" :options="$trabajadorOptions" option-value="id" option-label="name" wire:model="formTrabajadorId" placeholder="Seleccione un trabajador" class="bg-[#F0F3F7] text-[#1A2B42]" />
+                <x-select label="Trabajador" :options="$trabajadorOptions" option-value="id" option-label="name" wire:model="formTrabajadorId" placeholder="Seleccione un trabajador" class="bg-[#F0F3F7] text-[#111827]" />
             </div>
 
-            <x-input label="Fecha de salida" type="date" wire:model="liquidacionFechaSalida" class="bg-[#F0F3F7] text-[#1A2B42]" />
-            <x-input label="Motivo" wire:model="liquidacionMotivo" placeholder="Renuncia, despido, mutuo acuerdo..." class="bg-[#F0F3F7] text-[#1A2B42]" />
+            <x-input label="Fecha de salida" type="date" wire:model="liquidacionFechaSalida" class="bg-[#F0F3F7] text-[#111827]" />
+            <x-input label="Motivo" wire:model="liquidacionMotivo" placeholder="Renuncia, despido, mutuo acuerdo..." class="bg-[#F0F3F7] text-[#111827]" />
 
-            <label class="md:col-span-2 flex items-center gap-3 rounded-2xl border border-[#D7E4F3] bg-[#F0F3F7] p-4 text-sm font-semibold text-[#1A2B42]">
+            <label class="md:col-span-2 flex items-center gap-3 rounded-2xl border border-[#D7E4F3] bg-[#F0F3F7] p-4 text-sm font-semibold text-[#111827]">
                 <input type="checkbox" wire:model.live="liquidacionIncluirIndemnizacion" class="checkbox checkbox-sm border-[#2E8BC0]">
                 Incluir indemnización por antigüedad
             </label>
 
             <div class="md:col-span-2">
-                <x-textarea label="Observación" wire:model="liquidacionObservacion" rows="3" placeholder="Opcional" class="bg-[#F0F3F7] text-[#1A2B42]" />
+                <x-textarea label="Observación" wire:model="liquidacionObservacion" rows="3" placeholder="Opcional" class="bg-[#F0F3F7] text-[#111827]" />
             </div>
         </div>
 
@@ -1312,9 +1660,9 @@ new class extends Component
         </x-slot:actions>
     </x-modal>
 
-    <x-modal wire:model="modalPago" title="Registrar pago de planilla" separator box-class="bg-white text-[#1A2B42] border border-[#D7E4F3] rounded-2xl shadow-xl">
+    <x-modal wire:model="modalPago" title="Registrar pago de planilla" separator box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
         <div class="space-y-4">
-            <div class="rounded-2xl bg-[#F0F3F7] p-4 text-sm text-[#1A2B42]">
+            <div class="rounded-2xl bg-[#F0F3F7] p-4 text-sm text-[#111827]">
                 @if($pagoDetalleId)
                     Se pagará únicamente el detalle seleccionado.
                 @else
@@ -1323,10 +1671,10 @@ new class extends Component
             </div>
 
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <x-input label="Fecha de pago" type="date" wire:model="pagoFecha" class="bg-[#F0F3F7] text-[#1A2B42]" />
-                <x-select label="Método de pago" :options="$metodoPagoOptions" option-value="id" option-label="name" wire:model="pagoMetodo" class="bg-[#F0F3F7] text-[#1A2B42]" />
+                <x-input label="Fecha de pago" type="date" wire:model="pagoFecha" class="bg-[#F0F3F7] text-[#111827]" />
+                <x-select label="Método de pago" :options="$metodoPagoOptions" option-value="id" option-label="name" wire:model="pagoMetodo" class="bg-[#F0F3F7] text-[#111827]" />
                 <div class="md:col-span-2">
-                    <x-textarea label="Observación" wire:model="pagoObservacion" rows="3" placeholder="Opcional" class="bg-[#F0F3F7] text-[#1A2B42]" />
+                    <x-textarea label="Observación" wire:model="pagoObservacion" rows="3" placeholder="Opcional" class="bg-[#F0F3F7] text-[#111827]" />
                 </div>
             </div>
         </div>
@@ -1337,34 +1685,34 @@ new class extends Component
         </x-slot:actions>
     </x-modal>
 
-    <x-modal wire:model="modalReporte" title="Resumen de planilla" separator box-class="bg-white text-[#1A2B42] border border-[#D7E4F3] rounded-2xl shadow-xl">
+    <x-modal wire:model="modalReporte" title="Resumen de planilla" separator box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
         @if($planillaActual)
             <div class="space-y-4">
                 <div class="rounded-2xl bg-[#F0F3F7] p-4">
                     <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <p class="text-sm text-[#1A2B42]"><span class="font-semibold">Planilla:</span> #{{ $planillaActual->Id_Planilla }}</p>
-                        <p class="text-sm text-[#1A2B42]"><span class="font-semibold">Tipo:</span> {{ $planillaActual->Tipo_Planilla }}</p>
-                        <p class="text-sm text-[#1A2B42]">
-                            <span class="font-semibold">Corte:</span>
+                        <p class="text-sm text-[#111827]"><span class="font-semibold">Planilla:</span> #{{ $planillaActual->Id_Planilla }}</p>
+                        <p class="text-sm text-[#111827]"><span class="font-semibold">Tipo:</span> {{ $planillaActual->Tipo_Planilla }}</p>
+                        <p class="text-sm text-[#111827]">
+                            <span class="font-semibold">Periodo:</span>
                             {{ optional($planillaActual->Fecha_Inicio_Corte)->format('d/m/Y') }}
                             -
                             {{ optional($planillaActual->Fecha_Fin_Corte)->format('d/m/Y') }}
                         </p>
-                        <p class="text-sm text-[#1A2B42]"><span class="font-semibold">Estado:</span> {{ $planillaActual->Estado }}</p>
+                        <p class="text-sm text-[#111827]"><span class="font-semibold">Estado:</span> {{ $planillaActual->Estado }}</p>
                     </div>
                 </div>
 
                 <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
                     <div class="rounded-2xl bg-[#EAF2FB] p-4">
-                        <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Bruto</p>
+                        <p class="text-xs font-semibold uppercase text-[#111827]">Bruto</p>
                         <p class="text-lg font-bold text-[#1A2B42]">{{ $this->money($planillaActual->Total_Bruto) }}</p>
                     </div>
                     <div class="rounded-2xl bg-[#EAF2FB] p-4">
-                        <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Deducciones</p>
+                        <p class="text-xs font-semibold uppercase text-[#111827]">Deducciones</p>
                         <p class="text-lg font-bold text-[#1A2B42]">{{ $this->money($planillaActual->Total_Deducciones) }}</p>
                     </div>
                     <div class="rounded-2xl bg-[#EAF2FB] p-4">
-                        <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Neto</p>
+                        <p class="text-xs font-semibold uppercase text-[#111827]">Neto</p>
                         <p class="text-lg font-bold text-[#0E48A1]">{{ $this->money($planillaActual->Total_Neto) }}</p>
                     </div>
                 </div>
