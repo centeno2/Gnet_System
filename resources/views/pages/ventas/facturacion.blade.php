@@ -4,6 +4,7 @@ use App\Models\Cliente;
 use App\Models\Producto;
 use App\Models\ProductoSerie;
 use App\Models\TarifaCopia;
+use App\Models\TasaCambio;
 use App\Models\Usuario;
 use App\Models\Venta;
 use Illuminate\Support\Facades\DB;
@@ -38,7 +39,7 @@ new class extends Component
 
     public string $tipoPagoCordobas = self::PAGO_EFECTIVO;
     public string $tipoPagoDolares = self::PAGO_EFECTIVO;
-    public string $tipoCambio = '36.50';
+    public string $tipoCambio = '0.00';
 
     public string $referenciaCordobas = '';
     public string $referenciaDolares = '';
@@ -87,7 +88,19 @@ new class extends Component
 
     public function mount(): void
     {
+        $this->cargarTasaCambio();
         $this->cargarCopiasRapidas();
+    }
+
+    public function cargarTasaCambio(): void
+    {
+        $tasaActual = TasaCambio::actual();
+
+        $valorActual = $tasaActual
+            ? (float) $tasaActual->Valor_Cambio
+            : 0;
+
+        $this->tipoCambio = number_format($valorActual, 2, '.', '');
     }
 
     public function cambiarTipoVenta(string $tipo): void
@@ -588,6 +601,13 @@ new class extends Component
 
     public function abrirModalCobro(): void
     {
+        $this->cargarTasaCambio();
+
+        if (! $this->tasaCambioValida()) {
+            $this->mostrarToast('Debe registrar una tasa de cambio válida desde Arqueo de caja antes de facturar.', 'error');
+            return;
+        }
+
         if (count($this->detalleVenta) === 0) {
             $this->mostrarToast('Agregue al menos un item a la venta.', 'error');
             return;
@@ -615,6 +635,12 @@ new class extends Component
     public function guardarVenta(): void
     {
         $this->resetErrorBag();
+        $this->cargarTasaCambio();
+
+        if (! $this->tasaCambioValida()) {
+            $this->mostrarToast('Debe registrar una tasa de cambio válida desde Arqueo de caja antes de guardar la venta.', 'error');
+            return;
+        }
 
         $total = $this->totalVenta();
         $descuento = $this->descuentoVenta();
@@ -845,7 +871,7 @@ new class extends Component
         $this->tipoVenta = self::TIPO_CONTADO;
         $this->tipoPagoCordobas = self::PAGO_EFECTIVO;
         $this->tipoPagoDolares = self::PAGO_EFECTIVO;
-        $this->tipoCambio = '36.50';
+        $this->cargarTasaCambio();
 
         $this->usarConsumidorFinal();
 
@@ -993,7 +1019,12 @@ new class extends Component
     {
         $tasa = $this->limpiarDecimal($this->tipoCambio);
 
-        return $tasa > 0 ? $tasa : 1;
+        return $tasa > 0 ? $tasa : 0;
+    }
+
+    protected function tasaCambioValida(): bool
+    {
+        return $this->tasaCambio() > 0;
     }
 
     protected function pagoRequiereReferencia(string $tipoPago): bool
@@ -1555,6 +1586,12 @@ new class extends Component
                                 }}</strong>
                         </div>
 
+                        <div class="rounded-xl bg-[#F8FBFF] px-3 py-2 text-[#1A2B42]">
+                            <span class="block text-xs text-[#5F6B7A]">Tasa de cambio</span>
+                            <strong class="block text-base">TC {{ number_format($this->tasaCambio(), 2, '.', ',')
+                                }}</strong>
+                        </div>
+
                         <div class="grid grid-cols-1 gap-2 pt-1">
                             <x-button :label="$tipoVenta === 'CONTADO' ? 'Cobrar' : 'Guardar crédito'"
                                 wire:click="abrirModalCobro"
@@ -1586,9 +1623,9 @@ new class extends Component
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
             @if ($tipoVenta === 'CONTADO')
             <div>
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo cambio</label>
-                <x-input wire:model.live.debounce.250ms="tipoCambio" type="text" inputmode="decimal"
-                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tasa de cambio oficial</label>
+                <x-input wire:model="tipoCambio" type="text" inputmode="decimal" readonly
+                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#EAF2FB] text-sm font-semibold text-[#1A2B42]" />
             </div>
 
             <div>
