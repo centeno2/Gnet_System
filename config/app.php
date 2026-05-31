@@ -22,6 +22,8 @@ return [
 
     'key' => env('APP_KEY'),
 
+    'faker_locale' => 'es_ES',
+
     'previous_keys' => [
         ...array_filter(
             explode(',', (string) env('APP_PREVIOUS_KEYS', '')),
@@ -33,4 +35,5 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    
 ];
