@@ -1,10 +1,14 @@
+
 {{--
     Cabecera del sidebar.
 --}}
-<div class="rounded-2xl">
-    <img src="{{ asset('img/gnetlogo.png') }}" alt="Logo" class="mx-auto mt-4 w-32 rounded-lg object-cover">
+<div class="flex h-24 items-center justify-center px-3">
+    <img
+        src="{{ asset('img/gnetlogo.png') }}"
+        alt="Logo"
+        class="w-10 rounded-lg object-cover transition-all duration-500 ease-in-out lg:group-hover/sidebar:w-32"
+    >
 </div>
-
 @php
     $cargo = (int) (auth()->user()?->trabajador?->cargo?->Id_Cargo ?? 0);
 
@@ -25,19 +29,19 @@
         <x-menu-sub title="Ventas" icon="o-shopping-cart">
             <x-menu-item 
                 title="Facturación" 
-                icon="o-receipt-refund" 
+                icon="o-receipt-percent" 
                 link="{{ route('ventas.facturacion') }}" 
             />
 
             <x-menu-item 
                 title="Servicio técnico" 
-                icon="o-wrench-screwdriver"
+                icon="o-computer-desktop"
                 link="{{ route('ventas.servicio-tecnico') }}" 
             />
 
             <x-menu-item 
                 title="Instalación de cámaras" 
-                icon="o-wrench-screwdriver"
+                 icon="o-camera"
                 link="{{ route('ventas.instalacion-camaras') }}" 
             />
         </x-menu-sub>
@@ -47,7 +51,7 @@
     @if ($puede(1, 2))
         <x-menu-item 
             title="Crédito" 
-            icon="o-credit-card" 
+            icon="o-banknotes"
             link="{{ route('creditos') }}" 
         />
     @endif
@@ -65,7 +69,7 @@
     @if ($puede(1, 2))
         <x-menu-item 
             title="Productos" 
-            icon="o-cube" 
+             icon="o-cube-transparent"
             link="{{ route('productos.index') }}" 
         />
     @endif
@@ -74,7 +78,7 @@
     @if ($puede(2))
         <x-menu-item 
             title="Salidas de inventario" 
-            icon="o-arrow-up-tray" 
+            icon="o-arrow-up-tray"
             link="{{ route('otras_salidas') }}" 
         />
     @endif
@@ -90,10 +94,10 @@
 
     {{-- Gestión de trabajadores: cargos 2  --}}
     @if ($puedeVerGestionTrabajadores)
-        <x-menu-sub title="Gestión de trabajadores" icon="o-users">
+        <x-menu-sub title="Gestión de trabajadores" icon="o-identification">
             <x-menu-item 
                 title="Planilla de pago" 
-                icon="o-document-text" 
+                icon="o-clipboard-document-list" 
                 link="{{ route('planillapago') }}" 
             />
         </x-menu-sub>
@@ -101,7 +105,7 @@
 
     {{-- Catálogo --}}
     @if ($puedeVerCatalogo)
-        <x-menu-sub title="Catálogo" icon="o-wrench-screwdriver">
+        <x-menu-sub title="Catálogo" icon="o-rectangle-stack">
 
             {{-- Proveedores: cargos 1 y 2 --}}
             @if ($puede(2 ))
