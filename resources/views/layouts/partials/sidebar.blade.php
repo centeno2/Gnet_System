@@ -80,10 +80,6 @@
             title="Salidas de inventario"
             icon="o-arrow-up-tray"
             link="{{ route('otras_salidas') }}"
-        <x-menu-item
-            title="Salidas de inventario"
-            icon="o-arrow-up-tray"
-            link="{{ route('otras_salidas') }}"
         />
     @endif
 
