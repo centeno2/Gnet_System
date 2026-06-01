@@ -14,10 +14,12 @@ use Carbon\Carbon;
 use Illuminate\Validation\Rule;
 use Livewire\Component;
 use Livewire\WithPagination;
+use Mary\Traits\Toast; // MODIFICADO: se usa el trait nativo de MaryUI para mostrar mensajes temporales.
 
 new class extends Component
 {
     use WithPagination;
+    use Toast; // MODIFICADO: habilita $this->toast(...) para notificaciones temporales.
 
     public string $buscarProveedor = '';
     public string $proveedorNombre = '';
@@ -82,6 +84,7 @@ new class extends Component
 
     public ?int $compraEditandoId = null;
     public string $buscarCompraRealizada = '';
+    public bool $mostrarComprasRealizadas = false; //controla si se muestra la lista de compras realizadas en lugar del detalle temporal.
 
     public string $toastMensaje = '';
     public string $toastTipo = 'success';
@@ -192,6 +195,19 @@ new class extends Component
     public function updatedBuscarCompraRealizada(): void
     {
         $this->resetPage('comprasPage');
+    }
+
+    public function verComprasRealizadas(): void
+    {
+        // permite cambiar la tabla inferior al listado de compras realizadas sin tocar la lógica de guardado.
+        $this->mostrarComprasRealizadas = true;
+        $this->resetPage('comprasPage');
+    }
+
+    public function verDetalleCompra(): void
+    {
+        // regresa a la tabla normal de productos agregados a la compra actual.
+        $this->mostrarComprasRealizadas = false;
     }
 
     public function comprasRealizadas()
@@ -479,16 +495,23 @@ new class extends Component
 
     protected function mostrarToast(string $mensaje, string $tipo = 'success'): void
     {
-        $this->toastMensaje = $mensaje;
-        $this->toastTipo = $tipo;
-        $this->mostrarToast = true;
+        //los mensajes ya no quedan fijos; ahora usan el toast temporal
+        $this->toast(
+            type: $tipo,
+            title: $mensaje,
+            position: 'toast-top toast-end',
+            icon: $tipo === 'success' ? 'o-check-circle' : 'o-x-circle',
+            css: $tipo === 'success' ? 'alert-success' : 'alert-error',
+            timeout: 3000
+        );
     }
 
     public function cerrarToast(): void
     {
-        $this->mostrarToast = false;
+        // se conserva por compatibilidad, aunque el cierre ahora lo maneja MaryUI automáticamente.
         $this->toastMensaje = '';
         $this->toastTipo = 'success';
+        $this->mostrarToast = false;
     }
 
     protected function cargarCatalogos(): void
@@ -1175,6 +1198,7 @@ new class extends Component
         $this->resetValidation();
 
         $this->compraEditandoId = (int) $compra->Id_Compra;
+        $this->mostrarComprasRealizadas = false; // al editar una compra se vuelve a mostrar el detalle normal para trabajarla.
         $this->seleccionarProveedor((int) $compra->Id_Proveedor);
 
         $this->numeroCompra = (string) $compra->Numero_Compra;
@@ -1232,7 +1256,7 @@ new class extends Component
             ];
         }
 
-        $this->mostrarToast('Compra cargada para edición. Al guardar se aplicarán las mismas validaciones.');
+        $this->mostrarToast('Compra cargada para edición.');
     }
 
     protected function datosEncabezadoCompra(int $idUsuario): array
@@ -1535,6 +1559,7 @@ new class extends Component
     {
         $estabaEditandoCompra = $this->compraEditandoId !== null;
         $this->compraEditandoId = null;
+        $this->mostrarComprasRealizadas = false; // al cancelar se vuelve a la tabla normal de detalle.
 
         $this->buscarProveedor = '';
         $this->proveedorNombre = '';
@@ -1632,9 +1657,9 @@ new class extends Component
 };
 ?>
 
-<div class="min-h-screen bg-[#F0F3F7] px-4 py-4 md:px-6 md:py-5">
+<div class="min-h-screen bg-[#F0F3F7] px-3 py-4 sm:px-4 md:px-6 md:py-5">
     <div class="mx-auto flex w-full max-w-[1450px] flex-col gap-4">
-        <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
                 <h1 class="text-2xl font-bold text-[#1A2B42]">Compras</h1>
                 <p class="mt-1 text-sm text-[#5F6B7A]">
@@ -1642,7 +1667,7 @@ new class extends Component
                 </p>
             </div>
 
-            <div class="rounded-2xl border border-[#D7E4F3] bg-white px-4 py-3 shadow-sm">
+            <div class="w-full rounded-2xl border border-[#D7E4F3] bg-white px-4 py-3 shadow-sm sm:w-auto">
                 <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Total de compra</p>
                 <p class="text-2xl font-bold text-[#1A2B42]">
                     C$ {{ number_format($this->totalGeneral(), 2) }}
@@ -1650,23 +1675,13 @@ new class extends Component
             </div>
         </div>
 
-        @if ($mostrarToast)
-            <div class="fixed right-5 top-5 z-999 w-full max-w-sm">
-                <div class="{{ $toastTipo === 'success' ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#1A2B42]' : 'border-red-200 bg-red-50 text-red-700' }} rounded-2xl border px-4 py-4 shadow-lg">
-                    <div class="flex items-start justify-between gap-3">
-                        <p class="text-sm font-medium">{{ $toastMensaje }}</p>
-                        <button type="button" wire:click="cerrarToast" class="text-lg leading-none text-[#5F6B7A] hover:text-[#1A2B42]">
-                            ×
-                        </button>
-                    </div>
-                </div>
-            </div>
-        @endif
+        {{-- MODIFICADO: se reemplazó la alerta fija por el componente toast temporal de MaryUI. --}}
+        <x-toast position="toast-top toast-end" />
 
 
         @if ($mostrarModalCuentaBancaria)
-            <div class="fixed inset-0 z-998 flex items-center justify-center bg-black/40 px-4 py-6">
-                <div class="w-full max-w-2xl rounded-2xl border border-[#D7E4F3] bg-white p-5 shadow-xl">
+            <div class="fixed inset-0 z-998 flex items-start justify-center overflow-y-auto bg-black/40 px-3 py-6 sm:items-center sm:px-4">
+                <div class="w-full max-w-2xl rounded-2xl border border-[#D7E4F3] bg-white p-4 shadow-xl sm:p-5 max-h-[90vh] overflow-y-auto">
                     <div class="mb-4 flex items-start justify-between gap-3">
                         <div>
                             <h3 class="text-xl font-bold text-[#1A2B42]">Agregar cuenta bancaria</h3>
@@ -1679,7 +1694,7 @@ new class extends Component
                         </button>
                     </div>
 
-                    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:gap-4">
                         <div>
                             <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                                 Banco <span class="text-red-600">*</span>
@@ -1767,14 +1782,14 @@ new class extends Component
                         <button
                             type="button"
                             wire:click="cerrarModalCuentaBancaria"
-                            class="rounded-lg border border-[#D7E4F3] px-4 py-2 text-sm font-semibold text-[#1A2B42] hover:bg-[#F0F3F7]"
+                            class="w-full rounded-lg border border-[#D7E4F3] px-4 py-2 text-sm font-semibold text-[#1A2B42] hover:bg-[#F0F3F7] sm:w-auto"
                         >
                             Cancelar
                         </button>
                         <button
                             type="button"
                             wire:click="guardarCuentaBancaria"
-                            class="rounded-lg bg-[#2E8BC0] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0B6FE4]"
+                            class="w-full rounded-lg bg-[#2E8BC0] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0B6FE4] sm:w-auto"
                         >
                             Guardar cuenta
                         </button>
@@ -1783,11 +1798,11 @@ new class extends Component
             </div>
         @endif
 
-        <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_330px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
-            <div class="flex min-w-0 flex-col gap-4">
+        {{-- MODIFICADO: se eliminó el panel lateral para que las compras realizadas se muestren abajo bajo demanda. --}}
+        <div class="flex min-w-0 flex-col gap-4">
                 @if ($compraEditandoId)
                     <div class="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-800 shadow-sm">
-                        Está editando la compra #{{ $numeroCompra }}. Puede modificar datos y detalles; al guardar se usan las mismas validaciones del registro normal.
+                        Está editando la compra #{{ $numeroCompra }}. Puede modificar datos y detalles.
                     </div>
                 @endif
 
@@ -1799,8 +1814,8 @@ new class extends Component
                 </p>
             </div>
 
-            <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
-                <div class="relative lg:col-span-4">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6 xl:grid-cols-12">
+                <div class="relative sm:col-span-2 lg:col-span-3 xl:col-span-4">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                         Proveedor
                     </label>
@@ -1844,9 +1859,9 @@ new class extends Component
                     @endif
                 </div>
 
-                <div class="lg:col-span-2">
+                <div class="sm:col-span-1 lg:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                        Número de factura
+                        N. Factura
                     </label>
                     <x-input
                         wire:model.defer="numeroCompra"
@@ -1860,7 +1875,7 @@ new class extends Component
                     @enderror
                 </div>
 
-                <div class="lg:col-span-2">
+                <div class="sm:col-span-1 lg:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                         Fecha
                     </label>
@@ -1875,7 +1890,7 @@ new class extends Component
                     @enderror
                 </div>
 
-                <div class="lg:col-span-2">
+                <div class="sm:col-span-1 lg:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                         Tipo de pago
                     </label>
@@ -1893,7 +1908,7 @@ new class extends Component
                 </div>
 
                 @if ($tipoCompra === 'CREDITO')
-                    <div class="lg:col-span-2">
+                    <div class="sm:col-span-1 lg:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                             Fecha límite de pago
                         </label>
@@ -1909,7 +1924,7 @@ new class extends Component
                     </div>
                 @endif
 
-                <div class="lg:col-span-2">
+                <div class="sm:col-span-1 lg:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                         Medio de pago
                     </label>
@@ -1927,11 +1942,11 @@ new class extends Component
                 </div>
 
                 @if ($medioPago === 'TRANSFERENCIA')
-                    <div class="lg:col-span-3">
+                    <div class="sm:col-span-2 lg:col-span-3">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                             Cuenta destino
                         </label>
-                        <div class="flex gap-2">
+                        <div class="flex flex-col gap-2 sm:flex-row">
                             <select
                                 wire:model.live="idCuentaBancaria"
                                 class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]"
@@ -1948,7 +1963,7 @@ new class extends Component
                                 type="button"
                                 wire:click="abrirModalCuentaBancaria"
                                 title="Agregar cuenta bancaria"
-                                class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#2E8BC0] text-lg font-bold text-white hover:bg-[#0B6FE4]"
+                                class="inline-flex h-10 w-full shrink-0 items-center justify-center rounded-lg bg-[#2E8BC0] text-lg font-bold text-white hover:bg-[#0B6FE4] sm:w-10"
                             >
                                 +
                             </button>
@@ -1958,7 +1973,7 @@ new class extends Component
                         @enderror
                     </div>
 
-                    <div class="lg:col-span-2">
+                    <div class="sm:col-span-1 lg:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Banco</label>
                         <x-input
                             value="{{ $bancoCuentaSeleccionada }}"
@@ -1968,7 +1983,7 @@ new class extends Component
                         />
                     </div>
 
-                    <div class="lg:col-span-2">
+                    <div class="sm:col-span-1 lg:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Tipo de cuenta</label>
                         <x-input
                             value="{{ $tipoCuentaSeleccionada }}"
@@ -1978,7 +1993,7 @@ new class extends Component
                         />
                     </div>
 
-                    <div class="lg:col-span-1">
+                    <div class="sm:col-span-1 lg:col-span-1">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Moneda</label>
                         <x-input
                             value="{{ $monedaCuentaSeleccionada }}"
@@ -1988,7 +2003,7 @@ new class extends Component
                         />
                     </div>
 
-                    <div class="lg:col-span-2">
+                    <div class="sm:col-span-1 lg:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                             Referencia
                         </label>
@@ -2005,7 +2020,7 @@ new class extends Component
                     </div>
                 @endif
 
-                <div class="lg:col-span-1">
+                <div class="sm:col-span-1 lg:col-span-1">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">IVA</label>
                     <x-input
                         wire:model.live.debounce.250ms="iva"
@@ -2020,7 +2035,7 @@ new class extends Component
                     @enderror
                 </div>
 
-                <div class="lg:col-span-1">
+                <div class="sm:col-span-1 lg:col-span-1">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Retención</label>
                     <x-input
                         wire:model.live.debounce.250ms="retencion"
@@ -2035,7 +2050,7 @@ new class extends Component
                     @enderror
                 </div>
 
-                <div class="lg:col-span-12">
+                <div class="sm:col-span-2 lg:col-span-12">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Observación</label>
                     <textarea
                         wire:model.defer="observacion"
@@ -2061,11 +2076,11 @@ new class extends Component
                     </p>
                 </div>
 
-                <div class="inline-flex rounded-xl bg-[#F0F3F7] p-1">
+                <div class="grid w-full grid-cols-1 gap-1 rounded-xl bg-[#F0F3F7] p-1 sm:grid-cols-2 lg:w-auto">
                     <button
                         type="button"
                         wire:click="cambiarModoProducto('existente')"
-                        class="{{ $modoProducto === 'existente' ? 'bg-[#2E8BC0] text-white' : 'text-[#1A2B42]' }} rounded-lg px-4 py-2 text-sm font-semibold transition"
+                        class="{{ $modoProducto === 'existente' ? 'bg-[#2E8BC0] text-white' : 'text-[#1A2B42]' }} rounded-lg px-4 py-2 text-center text-sm font-semibold transition"
                     >
                         Producto existente
                     </button>
@@ -2073,7 +2088,7 @@ new class extends Component
                     <button
                         type="button"
                         wire:click="cambiarModoProducto('nuevo')"
-                        class="{{ $modoProducto === 'nuevo' ? 'bg-[#2E8BC0] text-white' : 'text-[#1A2B42]' }} rounded-lg px-4 py-2 text-sm font-semibold transition"
+                        class="{{ $modoProducto === 'nuevo' ? 'bg-[#2E8BC0] text-white' : 'text-[#1A2B42]' }} rounded-lg px-4 py-2 text-center text-sm font-semibold transition"
                     >
                         Producto nuevo
                     </button>
@@ -2087,8 +2102,8 @@ new class extends Component
             @endif
 
             @if ($modoProducto === 'existente')
-                <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
-                    <div class="relative xl:col-span-4">
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6 xl:grid-cols-12">
+                    <div class="relative sm:col-span-2 xl:col-span-4">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                             Buscar producto
                         </label>
@@ -2136,7 +2151,7 @@ new class extends Component
                         @endif
                     </div>
 
-                    <div class="xl:col-span-2">
+                    <div class="sm:col-span-1 xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Categoría</label>
                         <x-input
                             value="{{ $productoCategoria }}"
@@ -2146,7 +2161,7 @@ new class extends Component
                         />
                     </div>
 
-                    <div class="xl:col-span-2">
+                    <div class="sm:col-span-1 xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Marca</label>
                         <x-input
                             value="{{ $productoMarca }}"
@@ -2156,7 +2171,7 @@ new class extends Component
                         />
                     </div>
 
-                    <div class="xl:col-span-2">
+                    <div class="sm:col-span-1 xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Modelo</label>
                         <x-input
                             value="{{ $productoModelo }}"
@@ -2167,8 +2182,8 @@ new class extends Component
                     </div>
                 </div>
             @else
-                <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
-                    <div class="xl:col-span-3">
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6 xl:grid-cols-12">
+                    <div class="sm:col-span-2 xl:col-span-3">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                             Nombre del producto
                         </label>
@@ -2184,7 +2199,7 @@ new class extends Component
                         @enderror
                     </div>
 
-                    <div class="xl:col-span-2">
+                    <div class="sm:col-span-1 xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                             Modelo
                         </label>
@@ -2200,7 +2215,7 @@ new class extends Component
                         @enderror
                     </div>
 
-                    <div class="xl:col-span-3">
+                    <div class="sm:col-span-2 xl:col-span-3">
                         <div class="flex items-center justify-between gap-2">
                             <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                                 Categoría
@@ -2245,7 +2260,7 @@ new class extends Component
                         @endif
                     </div>
 
-                    <div class="xl:col-span-3">
+                    <div class="sm:col-span-2 xl:col-span-3">
                         <div class="flex items-center justify-between gap-2">
                             <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                                 Marca
@@ -2290,7 +2305,7 @@ new class extends Component
                         @endif
                     </div>
 
-                    <div class="xl:col-span-1">
+                    <div class="sm:col-span-1 xl:col-span-1">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                             Stock mín.
                         </label>
@@ -2305,7 +2320,7 @@ new class extends Component
                         @enderror
                     </div>
 
-                    <div class="xl:col-span-2">
+                    <div class="sm:col-span-1 xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Garantía nuevo</label>
                         <x-input
                             wire:model.defer="nuevoGarantiaNuevo"
@@ -2319,7 +2334,7 @@ new class extends Component
                         @enderror
                     </div>
 
-                    <div class="xl:col-span-2">
+                    <div class="sm:col-span-1 xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Garantía usado</label>
                         <x-input
                             wire:model.defer="nuevoGarantiaUsado"
@@ -2333,7 +2348,7 @@ new class extends Component
                         @enderror
                     </div>
 
-                    <div class="xl:col-span-2">
+                    <div class="sm:col-span-1 xl:col-span-2">
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                             Estado
                         </label>
@@ -2351,8 +2366,8 @@ new class extends Component
                 </div>
             @endif
 
-            <div class="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-12">
-                <div class="xl:col-span-1">
+            <div class="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6 xl:grid-cols-12">
+                <div class="sm:col-span-1 xl:col-span-1">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                         Cantidad
                     </label>
@@ -2367,7 +2382,7 @@ new class extends Component
                     @enderror
                 </div>
 
-                <div class="xl:col-span-2">
+                <div class="sm:col-span-1 xl:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                         Precio compra
                     </label>
@@ -2383,7 +2398,7 @@ new class extends Component
                     @enderror
                 </div>
 
-                <div class="xl:col-span-2">
+                <div class="sm:col-span-1 xl:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                         Precio venta
                         @if ($modoProducto === 'existente' && ! $precioVentaEditable)
@@ -2403,7 +2418,7 @@ new class extends Component
                     @enderror
                 </div>
 
-                <div class="xl:col-span-2">
+                <div class="sm:col-span-1 xl:col-span-2">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                         Garantía proveedor
                     </label>
@@ -2422,7 +2437,7 @@ new class extends Component
 
                 </div>
 
-                <div class="xl:col-span-5">
+                <div class="sm:col-span-2 xl:col-span-5">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                         Número de serie
                         <span class="text-xs font-normal text-[#5F6B7A]">
@@ -2441,30 +2456,28 @@ new class extends Component
                 </div>
             </div>
 
-            <div class="mt-5 flex flex-wrap justify-end gap-3">
+            <div class="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
                 @if ($editandoDetalle)
                     <x-button
                         label="Cancelar edición"
                         type="button"
                         wire:click="cancelarEdicionDetalle"
-                        class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]"
-                    />                        <span class="text-xs font-normal text-[#5F6B7A]">
-                            Opcional
-                        </span>
+                        class="h-10 min-h-10 w-full border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7] sm:w-auto"
+                    />
 
                     <x-button
                         label="Actualizar detalle"
                         icon="o-pencil-square"
                         type="button"
                         wire:click="agregarDetalle"
-                        class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]"
+                        class="h-10 min-h-10 w-full border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4] sm:w-auto"
                     />
                 @else
                     <x-button
                         label="Limpiar producto"
                         type="button"
                         wire:click="limpiarDetalleProducto"
-                        class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]"
+                        class="h-10 min-h-10 w-full border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7] sm:w-auto"
                     />
 
                     <x-button
@@ -2472,178 +2485,124 @@ new class extends Component
                         icon="o-plus"
                         type="button"
                         wire:click="agregarDetalle"
-                        class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]"
+                        class="h-10 min-h-10 w-full border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4] sm:w-auto"
                     />
                 @endif
             </div>
         </x-card>
 
         <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-            <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            {{-- esta tarjeta alterna entre el detalle temporal y las compras realizadas para evitar el panel lateral amontonado. --}}
+            <div class="mb-4 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div>
-                    <h2 class="text-xl font-bold text-[#1A2B42]">Detalle de compra</h2>
+                    <h2 class="text-xl font-bold text-[#1A2B42]">
+                        {{ $mostrarComprasRealizadas ? 'Compras realizadas' : 'Detalle de compra' }}
+                    </h2>
+                    <p class="text-sm text-[#5F6B7A]">
+                        {{ $mostrarComprasRealizadas ? 'Seleccione una compra para editarla o vuelva al detalle actual.' : 'Revise los productos agregados antes de guardar la compra.' }}
+                    </p>
                 </div>
 
-                <div class="grid grid-cols-2 gap-2 text-right md:grid-cols-4">
-                    <div class="rounded-xl bg-[#F0F3F7] px-3 py-2">
-                        <p class="text-xs text-[#5F6B7A]">Subtotal</p>
-                        <p class="text-sm font-bold text-[#1A2B42]">C$ {{ number_format($this->subtotalGeneral(), 2) }}</p>
-                    </div>
+                @if (! $mostrarComprasRealizadas)
+                    <div class="flex w-full flex-col gap-3 xl:w-auto xl:flex-row xl:items-start">
+                        <div class="grid grid-cols-2 gap-2 text-right sm:grid-cols-4">
+                            <div class="rounded-xl bg-[#F0F3F7] px-3 py-2">
+                                <p class="text-xs text-[#5F6B7A]">Subtotal</p>
+                                <p class="text-sm font-bold text-[#1A2B42]">C$ {{ number_format($this->subtotalGeneral(), 2) }}</p>
+                            </div>
 
-                    <div class="rounded-xl bg-[#F0F3F7] px-3 py-2">
-                        <p class="text-xs text-[#5F6B7A]">IVA</p>
-                        <p class="text-sm font-bold text-[#1A2B42]">C$ {{ number_format($this->ivaGeneral(), 2) }}</p>
-                    </div>
+                            <div class="rounded-xl bg-[#F0F3F7] px-3 py-2">
+                                <p class="text-xs text-[#5F6B7A]">IVA</p>
+                                <p class="text-sm font-bold text-[#1A2B42]">C$ {{ number_format($this->ivaGeneral(), 2) }}</p>
+                            </div>
 
-                    <div class="rounded-xl bg-[#F0F3F7] px-3 py-2">
-                        <p class="text-xs text-[#5F6B7A]">Retención</p>
-                        <p class="text-sm font-bold text-[#1A2B42]">C$ {{ number_format($this->retencionGeneral(), 2) }}</p>
-                    </div>
+                            <div class="rounded-xl bg-[#F0F3F7] px-3 py-2">
+                                <p class="text-xs text-[#5F6B7A]">Retención</p>
+                                <p class="text-sm font-bold text-[#1A2B42]">C$ {{ number_format($this->retencionGeneral(), 2) }}</p>
+                            </div>
 
-                    <div class="rounded-xl bg-[#EAF4FD] px-3 py-2">
-                        <p class="text-xs text-[#5F6B7A]">Total</p>
-                        <p class="text-sm font-bold text-[#1A2B42]">C$ {{ number_format($this->totalGeneral(), 2) }}</p>
+                            <div class="rounded-xl bg-[#EAF4FD] px-3 py-2">
+                                <p class="text-xs text-[#5F6B7A]">Total</p>
+                                <p class="text-sm font-bold text-[#1A2B42]">C$ {{ number_format($this->totalGeneral(), 2) }}</p>
+                            </div>
+                        </div>
+
+                        <x-button
+                            label="Ver compras"
+                            icon="o-list-bullet"
+                            type="button"
+                            wire:click="verComprasRealizadas"
+                            class="h-10 min-h-10 w-full border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4] xl:w-auto"
+                        />
                     </div>
-                </div>
+                @else
+                    <x-button
+                        label="Volver al detalle"
+                        icon="o-arrow-left"
+                        type="button"
+                        wire:click="verDetalleCompra"
+                        class="h-10 min-h-10 w-full border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7] sm:w-auto"
+                    />
+                @endif
             </div>
 
-            <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-white">
-                <div class="max-h-[430px] overflow-x-auto overflow-y-auto">
-                    <table class="min-w-[1350px] w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
-                        <thead class="sticky top-0 z-10">
-                            <tr>
-                                <th class="rounded-tl-xl bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">Tipo</th>
-                                <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">Producto</th>
-                                <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">Categoría</th>
-                                <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">Marca</th>
-                                <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Cantidad</th>
-                                <th class="bg-[#2E8BC0] px-3 py-3 text-right font-semibold text-white">P. compra</th>
-                                <th class="bg-[#2E8BC0] px-3 py-3 text-right font-semibold text-white">P. venta</th>
-                                <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Garantía </th>
-                                <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Series</th>
-                                <th class="bg-[#2E8BC0] px-3 py-3 text-right font-semibold text-white">Subtotal</th>
-                                <th class="rounded-tr-xl bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Acción</th>
-                            </tr>
-                        </thead>
-
-                        <tbody>
-                            @forelse ($detalles as $index => $detalle)
-                                <tr class="{{ $editandoDetalle && $indiceDetalleEditando === $index ? 'bg-blue-50' : 'odd:bg-white even:bg-[#F8FBFF]' }}">
-                                    <td class="px-3 py-3 whitespace-nowrap">
-                                        <span class="{{ $detalle['modo'] === 'nuevo' ? 'bg-[#EAF4FD] text-[#0E48A1]' : 'bg-green-100 text-green-700' }} rounded-full px-2.5 py-1 text-xs font-semibold">
-                                            {{ $detalle['modo'] === 'nuevo' ? 'Nuevo' : 'Existente' }}
-                                        </span>
-                                    </td>
-
-                                    <td class="px-3 py-3 whitespace-nowrap font-semibold">
-                                        {{ $detalle['nombre_producto'] }}
-                                        <span class="block text-xs font-normal text-[#5F6B7A]">{{ $detalle['modelo'] }}</span>
-                                    </td>
-
-                                    <td class="px-3 py-3 whitespace-nowrap">{{ $detalle['categoria'] }}</td>
-                                    <td class="px-3 py-3 whitespace-nowrap">{{ $detalle['marca'] }}</td>
-                                    <td class="px-3 py-3 text-center whitespace-nowrap">{{ $detalle['cantidad'] }}</td>
-                                    <td class="px-3 py-3 text-right whitespace-nowrap">C$ {{ number_format($detalle['precio_compra'], 2) }}</td>
-                                    <td class="px-3 py-3 text-right whitespace-nowrap">C$ {{ number_format($detalle['precio_venta'], 2) }}</td>
-                                    <td class="px-3 py-3 text-center whitespace-nowrap">
-                                        {{ $detalle['garantia_proveedor'] !== null ? $detalle['garantia_proveedor'] . ' mes(es)' : 'Sin garantía' }}
-                                    </td>
-                                    <td class="px-3 py-3 text-center whitespace-nowrap">{{ count($detalle['series']) }}</td>
-                                    <td class="px-3 py-3 text-right font-semibold whitespace-nowrap">C$ {{ number_format($detalle['subtotal'], 2) }}</td>
-
-                                    <td class="px-3 py-3 text-center whitespace-nowrap">
-                                        <div class="flex items-center justify-center gap-2">
-                                            <x-button
-                                                icon="o-pencil-square"
-                                                wire:click="editarDetalle({{ $index }})"
-                                                class="h-8 min-h-8 border-0 bg-blue-50 px-3 text-xs text-blue-700 hover:bg-blue-100"
-                                            />
-
-                                            <x-button
-                                                icon="o-trash"
-                                                wire:click="quitarDetalle({{ $index }})"
-                                                class="h-8 min-h-8 border-0 bg-red-50 px-3 text-xs text-red-700 hover:bg-red-100"
-                                            />
-                                        </div>
-                                    </td>
-                                </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="11" class="px-4 py-8 text-center text-sm text-[#7B8794]">
-                                        Todavía no hay productos agregados a la compra.
-                                    </td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="mt-5 flex flex-wrap justify-end gap-3">
-                <x-button
-                    label="{{ $compraEditandoId ? 'Cancelar edición' : 'Cancelar compra' }}"
-                    icon="o-x-mark"
-                    type="button"
-                    wire:click="cancelarCompra"
-                    class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]"
-                />
-
-                <x-button
-                    label="{{ $compraEditandoId ? 'Actualizar compra' : 'Guardar compra' }}"
-                    icon="o-check"
-                    type="button"
-                    wire:click="guardarCompra"
-                    class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]"
-                />
-            </div>
-        </x-card>
-            </div>
-
-            <aside class="xl:sticky xl:top-4 xl:self-start">
+            @if ($mostrarComprasRealizadas)
                 @php($comprasRealizadas = $this->comprasRealizadas())
 
-                <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-                    <div class="mb-3">
-                        <h2 class="text-base font-bold text-[#1A2B42]">Compras realizadas</h2>
-                        <p class="text-xs text-[#5F6B7A]">
-                            Corregir compras.
-                        </p>
+                {{-- las compras realizadas ahora se muestran abajo en tarjetas responsivas, no en un panel lateral. --}}
+                <div class="rounded-2xl border border-[#D7E4F3] bg-[#F8FBFF] p-3 sm:p-4">
+                    <div class="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                        <x-input
+                            wire:model.live.debounce.300ms="buscarCompraRealizada"
+                            icon="o-magnifying-glass"
+                            type="text"
+                            placeholder="Buscar factura/proveedor"
+                            class="h-10 min-h-10 w-full rounded-lg bg-white text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
+                        />
+
+                        <x-button
+                            label="Cerrar compras"
+                            icon="o-x-mark"
+                            type="button"
+                            wire:click="verDetalleCompra"
+                            class="h-10 min-h-10 w-full border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7] lg:w-auto"
+                        />
                     </div>
 
-                    <x-input
-                        wire:model.live.debounce.300ms="buscarCompraRealizada"
-                        icon="o-magnifying-glass"
-                        type="text"
-                        placeholder="Buscar factura/proveedor"
-                        class="h-9 min-h-9 w-full rounded-lg bg-[#F0F3F7] text-xs text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
-
-                    <div class="mt-3 flex max-h-[540px] flex-col gap-2 overflow-y-auto pr-1">
+                    <div class="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
                         @forelse ($comprasRealizadas as $compraRealizada)
-                            <div wire:key="compra-realizada-{{ $compraRealizada->Id_Compra }}" class="rounded-xl border {{ $compraEditandoId === (int) $compraRealizada->Id_Compra ? 'border-[#2E8BC0] bg-[#EAF4FD]' : 'border-[#D7E4F3] bg-white' }} p-3">
-                                <div class="flex items-start justify-between gap-2">
+                            <div wire:key="compra-realizada-{{ $compraRealizada->Id_Compra }}" class="rounded-xl border {{ $compraEditandoId === (int) $compraRealizada->Id_Compra ? 'border-[#2E8BC0] bg-[#EAF4FD]' : 'border-[#D7E4F3] bg-white' }} p-4 shadow-sm">
+                                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                     <div class="min-w-0">
-                                        <p class="truncate text-sm font-bold text-[#1A2B42]">
+                                        <p class="truncate text-base font-bold text-[#1A2B42]">
                                             #{{ $compraRealizada->Numero_Compra }}
                                         </p>
-                                        <p class="truncate text-xs text-[#5F6B7A]">
+                                        <p class="truncate text-sm text-[#5F6B7A]">
                                             {{ $this->nombreProveedorPorId((int) $compraRealizada->Id_Proveedor) }}
                                         </p>
                                     </div>
 
-                                    <span class="shrink-0 rounded-full bg-[#F0F3F7] px-2 py-1 text-[11px] font-semibold text-[#1A2B42]">
+                                    <span class="w-fit shrink-0 rounded-full bg-[#F0F3F7] px-3 py-1 text-xs font-semibold text-[#1A2B42]">
                                         {{ $compraRealizada->Tipo_Compra }}
                                     </span>
                                 </div>
 
-                                <div class="mt-2 grid grid-cols-2 gap-2 text-xs text-[#5F6B7A]">
-                                    <div>
+                                <div class="mt-4 grid grid-cols-1 gap-3 text-sm text-[#5F6B7A] sm:grid-cols-3">
+                                    <div class="rounded-lg bg-[#F0F3F7] px-3 py-2">
                                         <span class="block font-semibold text-[#1A2B42]">
                                             {{ Carbon::parse($compraRealizada->Fecha_Compra)->format('d/m/Y') }}
                                         </span>
                                         Fecha
                                     </div>
-                                    <div class="text-right">
+
+                                    <div class="rounded-lg bg-[#F0F3F7] px-3 py-2">
+                                        <span class="block font-semibold text-[#1A2B42]">
+                                            {{ (int) ($compraRealizada->detalles_count ?? 0) }} producto(s)
+                                        </span>
+                                        Detalle
+                                    </div>
+
+                                    <div class="rounded-lg bg-[#EAF4FD] px-3 py-2 sm:text-right">
                                         <span class="block font-semibold text-[#1A2B42]">
                                             C$ {{ number_format((float) $compraRealizada->Total, 2) }}
                                         </span>
@@ -2651,32 +2610,119 @@ new class extends Component
                                     </div>
                                 </div>
 
-                                <div class="mt-2 flex items-center justify-between gap-2">
-                                    <span class="text-xs text-[#5F6B7A]">
-                                        {{ (int) ($compraRealizada->detalles_count ?? 0) }} producto(s)
-                                    </span>
-
+                                <div class="mt-4 flex justify-end">
                                     <x-button
                                         label="Editar"
                                         icon="o-pencil-square"
                                         type="button"
                                         wire:click="editarCompra({{ $compraRealizada->Id_Compra }})"
-                                        class="h-8 min-h-8 border-0 bg-[#2E8BC0] px-3 text-xs text-white hover:bg-[#0B6FE4]"
+                                        class="h-9 min-h-9 w-full border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4] sm:w-auto"
                                     />
                                 </div>
                             </div>
                         @empty
-                            <div class="rounded-xl border border-dashed border-[#D7E4F3] px-3 py-6 text-center text-xs text-[#7B8794]">
+                            <div class="rounded-xl border border-dashed border-[#D7E4F3] bg-white px-3 py-8 text-center text-sm text-[#7B8794] lg:col-span-2 2xl:col-span-3">
                                 No hay compras para mostrar.
                             </div>
                         @endforelse
                     </div>
 
-                    <div class="mt-3 text-xs">
+                    <div class="mt-4 text-xs">
                         <x-pagination :rows="$comprasRealizadas" />
                     </div>
-                </x-card>
-            </aside>
+                </div>
+            @else
+                <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-white">
+                    <div class="max-h-[430px] overflow-x-auto overflow-y-auto">
+                        <table class="min-w-[1350px] w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
+                            <thead class="sticky top-0 z-10">
+                                <tr>
+                                    <th class="rounded-tl-xl bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">Tipo</th>
+                                    <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">Producto</th>
+                                    <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">Categoría</th>
+                                    <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">Marca</th>
+                                    <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Cantidad</th>
+                                    <th class="bg-[#2E8BC0] px-3 py-3 text-right font-semibold text-white">P. compra</th>
+                                    <th class="bg-[#2E8BC0] px-3 py-3 text-right font-semibold text-white">P. venta</th>
+                                    <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Garantía </th>
+                                    <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Series</th>
+                                    <th class="bg-[#2E8BC0] px-3 py-3 text-right font-semibold text-white">Subtotal</th>
+                                    <th class="rounded-tr-xl bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Acción</th>
+                                </tr>
+                            </thead>
+
+                            <tbody>
+                                @forelse ($detalles as $index => $detalle)
+                                    <tr class="{{ $editandoDetalle && $indiceDetalleEditando === $index ? 'bg-blue-50' : 'odd:bg-white even:bg-[#F8FBFF]' }}">
+                                        <td class="px-3 py-3 whitespace-nowrap">
+                                            <span class="{{ $detalle['modo'] === 'nuevo' ? 'bg-[#EAF4FD] text-[#0E48A1]' : 'bg-green-100 text-green-700' }} rounded-full px-2.5 py-1 text-xs font-semibold">
+                                                {{ $detalle['modo'] === 'nuevo' ? 'Nuevo' : 'Existente' }}
+                                            </span>
+                                        </td>
+
+                                        <td class="px-3 py-3 whitespace-nowrap font-semibold">
+                                            {{ $detalle['nombre_producto'] }}
+                                            <span class="block text-xs font-normal text-[#5F6B7A]">{{ $detalle['modelo'] }}</span>
+                                        </td>
+
+                                        <td class="px-3 py-3 whitespace-nowrap">{{ $detalle['categoria'] }}</td>
+                                        <td class="px-3 py-3 whitespace-nowrap">{{ $detalle['marca'] }}</td>
+                                        <td class="px-3 py-3 text-center whitespace-nowrap">{{ $detalle['cantidad'] }}</td>
+                                        <td class="px-3 py-3 text-right whitespace-nowrap">C$ {{ number_format($detalle['precio_compra'], 2) }}</td>
+                                        <td class="px-3 py-3 text-right whitespace-nowrap">C$ {{ number_format($detalle['precio_venta'], 2) }}</td>
+                                        <td class="px-3 py-3 text-center whitespace-nowrap">
+                                            {{ $detalle['garantia_proveedor'] !== null ? $detalle['garantia_proveedor'] . ' mes(es)' : 'Sin garantía' }}
+                                        </td>
+                                        <td class="px-3 py-3 text-center whitespace-nowrap">{{ count($detalle['series']) }}</td>
+                                        <td class="px-3 py-3 text-right font-semibold whitespace-nowrap">C$ {{ number_format($detalle['subtotal'], 2) }}</td>
+
+                                        <td class="px-3 py-3 text-center whitespace-nowrap">
+                                            <div class="flex items-center justify-center gap-2">
+                                                <x-button
+                                                    icon="o-pencil-square"
+                                                    wire:click="editarDetalle({{ $index }})"
+                                                    class="h-8 min-h-8 border-0 bg-blue-50 px-3 text-xs text-blue-700 hover:bg-blue-100"
+                                                />
+
+                                                <x-button
+                                                    icon="o-trash"
+                                                    wire:click="quitarDetalle({{ $index }})"
+                                                    class="h-8 min-h-8 border-0 bg-red-50 px-3 text-xs text-red-700 hover:bg-red-100"
+                                                />
+                                            </div>
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="11" class="px-4 py-8 text-center text-sm text-[#7B8794]">
+                                            Todavía no hay productos agregados a la compra.
+                                        </td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
+                    <x-button
+                        label="{{ $compraEditandoId ? 'Cancelar edición' : 'Cancelar compra' }}"
+                        icon="o-x-mark"
+                        type="button"
+                        wire:click="cancelarCompra"
+                        class="h-10 min-h-10 w-full border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7] sm:w-auto"
+                    />
+
+                    <x-button
+                        label="{{ $compraEditandoId ? 'Actualizar compra' : 'Guardar compra' }}"
+                        icon="o-check"
+                        type="button"
+                        wire:click="guardarCompra"
+                        class="h-10 min-h-10 w-full border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4] sm:w-auto"
+                    />
+                </div>
+            @endif
+        </x-card>
         </div>
     </div>
 </div>

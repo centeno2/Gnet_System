@@ -3,6 +3,7 @@
 use Livewire\Component;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Mary\Traits\Toast;
 
 use App\Models\Cliente;
 use App\Models\Trabajador;
@@ -18,6 +19,9 @@ use App\Models\Venta;
 
 new class extends Component
 {
+    // MODIFICADO: usamos los toast temporales nativos de MaryUI.
+    use Toast;
+
     private const MONEDA_CORDOBA = 'NIO';
     private const MONEDA_DOLAR = 'USD';
 
@@ -39,7 +43,6 @@ new class extends Component
     public array $serviciosPendientes = [];
 
     public ?int $servicioTecnicoIdSeleccionado = null;
-    public ?array $mensaje = null;
 
     public bool $modalPendientes = false;
     public string $filtroPendientes = '';
@@ -135,6 +138,133 @@ new class extends Component
     {
         $this->cargarCombos();
         $this->cargarPendientes();
+    }
+
+    // MODIFICADO: validación reactiva para que las alertas se limpien al corregir el campo.
+    public function updated(string $campo): void
+    {
+        $this->validarCampoEnTiempoReal($campo);
+    }
+
+    // MODIFICADO: permite que las alertas visuales desaparezcan automáticamente luego de unos segundos.
+    public function limpiarErrorCampo(string $campo): void
+    {
+        if (in_array($campo, $this->camposConValidacion(), true)) {
+            $this->resetErrorBag($campo);
+        }
+    }
+
+    private function validarCampoEnTiempoReal(string $campo): void
+    {
+        if (! in_array($campo, $this->camposConValidacion(), true)) {
+            return;
+        }
+
+        $this->resetErrorBag($campo);
+
+        $reglasServicio = $this->reglasServicio();
+
+        if (array_key_exists($campo, $reglasServicio)) {
+            $this->validateOnly($campo, $reglasServicio, $this->mensajesValidacionServicio());
+            return;
+        }
+
+        $reglasProducto = $this->reglasProducto();
+
+        if (array_key_exists($campo, $reglasProducto)) {
+            $this->validateOnly($campo, $reglasProducto, $this->mensajesValidacionProducto());
+        }
+    }
+
+    private function camposConValidacion(): array
+    {
+        return [
+            'clienteId',
+            'tecnicoId',
+            'tipoEquipo',
+            'marca',
+            'modelo',
+            'numeroSerie',
+            'problemaReportado',
+            'detalleDescriptivo',
+            'estadoServicio',
+            'costoEstimado',
+            'fechaEstimadaEntrega',
+            'observacionTecnica',
+            'productoId',
+            'productoSerieId',
+            'productoCantidad',
+            'productoPrecio',
+        ];
+    }
+
+    private function reglasServicio(): array
+    {
+        return [
+            'clienteId' => ['required', 'integer'],
+            'tecnicoId' => ['required', 'integer'],
+            'tipoEquipo' => ['required', 'string', 'max:100'],
+            'marca' => ['nullable', 'string', 'max:100'],
+            'modelo' => ['nullable', 'string', 'max:100'],
+            'numeroSerie' => ['nullable', 'string', 'max:100'],
+            'problemaReportado' => ['required', 'string', 'max:1000'],
+            'detalleDescriptivo' => ['nullable', 'string', 'max:1000'],
+            'estadoServicio' => ['required', 'in:RECIBIDO,EN_REVISION,PENDIENTE_REPUESTO,REPARADO,ENTREGADO,CANCELADO'],
+            'costoEstimado' => ['required', 'numeric', 'min:0'],
+            'fechaEstimadaEntrega' => ['nullable', 'date'],
+            'observacionTecnica' => ['nullable', 'string', 'max:1000'],
+        ];
+    }
+
+    private function mensajesValidacionServicio(): array
+    {
+        return [
+            'clienteId.required' => 'Seleccione el cliente.',
+            'clienteId.integer' => 'Seleccione un cliente válido.',
+            'tecnicoId.required' => 'Seleccione el técnico receptor.',
+            'tecnicoId.integer' => 'Seleccione un técnico válido.',
+            'tipoEquipo.required' => 'Seleccione el tipo de equipo.',
+            'tipoEquipo.max' => 'El tipo de equipo no debe superar los 100 caracteres.',
+            'marca.max' => 'La marca no debe superar los 100 caracteres.',
+            'modelo.max' => 'El modelo no debe superar los 100 caracteres.',
+            'numeroSerie.max' => 'La serie no debe superar los 100 caracteres.',
+            'problemaReportado.required' => 'Ingrese el problema reportado.',
+            'problemaReportado.max' => 'El problema reportado no debe superar los 1000 caracteres.',
+            'detalleDescriptivo.max' => 'El detalle descriptivo no debe superar los 1000 caracteres.',
+            'estadoServicio.required' => 'Seleccione el estado del servicio.',
+            'estadoServicio.in' => 'Seleccione un estado válido.',
+            'costoEstimado.required' => 'Ingrese el costo estimado.',
+            'costoEstimado.numeric' => 'El costo estimado debe ser numérico.',
+            'costoEstimado.min' => 'El costo estimado no puede ser negativo.',
+            'fechaEstimadaEntrega.date' => 'Ingrese una fecha estimada válida.',
+            'observacionTecnica.max' => 'La observación técnica no debe superar los 1000 caracteres.',
+        ];
+    }
+
+    private function reglasProducto(): array
+    {
+        return [
+            'productoId' => ['required', 'integer'],
+            'productoSerieId' => $this->productoTieneSeries ? ['required', 'integer'] : ['nullable', 'integer'],
+            'productoCantidad' => ['required', 'numeric', 'min:0.01'],
+            'productoPrecio' => ['required', 'numeric', 'min:0'],
+        ];
+    }
+
+    private function mensajesValidacionProducto(): array
+    {
+        return [
+            'productoId.required' => 'Seleccione un producto.',
+            'productoId.integer' => 'Seleccione un producto válido.',
+            'productoSerieId.required' => 'Seleccione la serie del producto.',
+            'productoSerieId.integer' => 'Seleccione una serie válida.',
+            'productoCantidad.required' => 'Ingrese la cantidad.',
+            'productoCantidad.numeric' => 'La cantidad debe ser numérica.',
+            'productoCantidad.min' => 'La cantidad debe ser mayor a cero.',
+            'productoPrecio.required' => 'Ingrese el precio.',
+            'productoPrecio.numeric' => 'El precio debe ser numérico.',
+            'productoPrecio.min' => 'El precio no puede ser negativo.',
+        ];
     }
 
     public function updatedPagoCordobas($value): void
@@ -407,7 +537,7 @@ new class extends Component
         $this->detalleDescriptivo = (string) ($servicio->Detalle_Descriptivo ?? '');
         $this->estadoServicio = (string) $servicio->Estado_Servicio;
         $this->costoEstimado = (float) $servicio->Costo_Estimado;
-        $this->fechaEstimadaEntrega = $servicio->Fecha_Estimada_Entrega;
+        $this->fechaEstimadaEntrega = $this->normalizarFechaInput($servicio->Fecha_Estimada_Entrega);
         $this->observacionTecnica = (string) ($servicio->Observacion_Tecnica ?? '');
         $tipoVentaGuardada = $servicio->Id_Venta
             ? DB::table('venta')->where('Id_Venta', $servicio->Id_Venta)->value('Tipo_Venta')
@@ -511,14 +641,8 @@ new class extends Component
 
     public function agregarProducto(): void
     {
-        $this->validate([
-            'productoId' => ['required', 'integer'],
-            'productoCantidad' => ['required', 'numeric', 'min:0.01'],
-            'productoPrecio' => ['required', 'numeric', 'min:0'],
-        ], [
-            'productoId.required' => 'Seleccione un producto.',
-            'productoCantidad.min' => 'La cantidad debe ser mayor a cero.',
-        ]);
+        // MODIFICADO: reglas centralizadas para que la validación normal y la validación en vivo usen los mismos mensajes.
+        $this->validate($this->reglasProducto(), $this->mensajesValidacionProducto());
 
         $producto = Producto::query()
             ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
@@ -620,25 +744,8 @@ new class extends Component
 
     public function guardar(): void
     {
-        $this->validate([
-            'clienteId' => ['required', 'integer'],
-            'tecnicoId' => ['required', 'integer'],
-            'tipoEquipo' => ['required', 'string', 'max:100'],
-            'marca' => ['nullable', 'string', 'max:100'],
-            'modelo' => ['nullable', 'string', 'max:100'],
-            'numeroSerie' => ['nullable', 'string', 'max:100'],
-            'problemaReportado' => ['required', 'string', 'max:1000'],
-            'detalleDescriptivo' => ['nullable', 'string', 'max:1000'],
-            'estadoServicio' => ['required', 'in:RECIBIDO,EN_REVISION,PENDIENTE_REPUESTO,REPARADO,ENTREGADO,CANCELADO'],
-            'costoEstimado' => ['required', 'numeric', 'min:0'],
-            'fechaEstimadaEntrega' => ['nullable', 'date'],
-            'observacionTecnica' => ['nullable', 'string', 'max:1000'],
-        ], [
-            'clienteId.required' => 'Seleccione el cliente.',
-            'tecnicoId.required' => 'Seleccione el técnico receptor.',
-            'tipoEquipo.required' => 'Seleccione el tipo de equipo.',
-            'problemaReportado.required' => 'Ingrese el problema reportado.',
-        ]);
+        // MODIFICADO: reglas centralizadas para permitir alertas dinámicas y limpieza automática.
+        $this->validate($this->reglasServicio(), $this->mensajesValidacionServicio());
 
         if ($this->tipoOperacion === self::TIPO_CREDITO && ! $this->clienteEsInstitucion((int) $this->clienteId)) {
             $this->mostrarMensaje('error', 'Cliente no permitido', 'El crédito solo se puede registrar a clientes institucionales.');
@@ -788,7 +895,7 @@ new class extends Component
                 ->first();
 
             if (!$servicio) {
-                throw new RuntimeException('El servicio técnico seleccionado ya no existe.');
+                throw new \RuntimeException('El servicio técnico seleccionado ya no existe.');
             }
 
             $totalRepuestos = round(collect($this->productos)
@@ -812,7 +919,7 @@ new class extends Component
                 ->first();
 
             if ($creditoExistente && $this->tipoOperacion === self::TIPO_CONTADO) {
-                throw new RuntimeException('Este servicio ya está registrado al crédito. Los abonos deben gestionarse desde el módulo de crédito.');
+                throw new \RuntimeException('Este servicio ya está registrado al crédito. Los abonos deben gestionarse desde el módulo de crédito.');
             }
 
             if ($this->tipoOperacion === self::TIPO_CREDITO) {
@@ -1169,7 +1276,7 @@ new class extends Component
     private function obtenerClienteCreditoActivo(int $clienteId): object
     {
         if (! $this->clienteEsInstitucion($clienteId)) {
-            throw new RuntimeException('El crédito solo se puede registrar a clientes institucionales.');
+            throw new \RuntimeException('El crédito solo se puede registrar a clientes institucionales.');
         }
 
         $clienteCredito = DB::table('cliente_credito')
@@ -1192,7 +1299,7 @@ new class extends Component
         }
 
         if (($clienteCredito->Estado ?? '') !== 'ACTIVO') {
-            throw new RuntimeException('La cuenta de crédito de esta institución no está activa.');
+            throw new \RuntimeException('La cuenta de crédito de esta institución no está activa.');
         }
 
         return $clienteCredito;
@@ -1544,7 +1651,7 @@ new class extends Component
         }
 
         if (!$id) {
-            throw new RuntimeException('No hay usuario activo para registrar el movimiento.');
+            throw new \RuntimeException('No hay usuario activo para registrar el movimiento.');
         }
 
         return (int) $id;
@@ -1611,17 +1718,17 @@ new class extends Component
             ->first();
 
         if (!$producto || (int) $producto->Estado !== 1) {
-            throw new RuntimeException('Producto no disponible: ' . $item['descripcion']);
+            throw new \RuntimeException('Producto no disponible: ' . $item['descripcion']);
         }
 
         $cantidad = (int) ceil((float) $item['cantidad']);
 
         if ($cantidad <= 0) {
-            throw new RuntimeException('Cantidad inválida para: ' . $item['descripcion']);
+            throw new \RuntimeException('Cantidad inválida para: ' . $item['descripcion']);
         }
 
         if ((int) $producto->Stock_Actual < $cantidad) {
-            throw new RuntimeException('Stock insuficiente para: ' . $item['descripcion']);
+            throw new \RuntimeException('Stock insuficiente para: ' . $item['descripcion']);
         }
 
         if ($item['producto_serie_id']) {
@@ -1631,7 +1738,7 @@ new class extends Component
                 ->first();
 
             if (!$serie || $serie->Estado !== 'DISPONIBLE') {
-                throw new RuntimeException('La serie ya no está disponible: ' . $item['serie']);
+                throw new \RuntimeException('La serie ya no está disponible: ' . $item['serie']);
             }
 
             $serie->forceFill([
@@ -1663,6 +1770,19 @@ new class extends Component
         return $instancia;
     }
 
+    private function normalizarFechaInput(mixed $fecha): ?string
+    {
+        if (!$fecha) {
+            return null;
+        }
+
+        if ($fecha instanceof \DateTimeInterface) {
+            return $fecha->format('Y-m-d');
+        }
+
+        return substr((string) $fecha, 0, 10);
+    }
+
     private function limpiarTexto(?string $texto): string
     {
         return trim(preg_replace('/\s+/', ' ', (string) $texto));
@@ -1670,14 +1790,57 @@ new class extends Component
 
     private function mostrarMensaje(string $tipo, string $titulo, string $descripcion): void
     {
-        $this->mensaje = [
-            'tipo' => $tipo,
-            'titulo' => $titulo,
-            'descripcion' => $descripcion,
-        ];
+        // MODIFICADO: antes se guardaba el mensaje en una propiedad y quedaba fijo en pantalla.
+        // Ahora se dispara como toast temporal de MaryUI y desaparece automáticamente.
+        match ($tipo) {
+            'error' => $this->error(
+                $titulo,
+                $descripcion,
+                position: 'toast-top toast-end',
+                timeout: 3500
+            ),
+            'warning' => $this->warning(
+                $titulo,
+                $descripcion,
+                position: 'toast-top toast-end',
+                timeout: 3000
+            ),
+            'info' => $this->info(
+                $titulo,
+                $descripcion,
+                position: 'toast-top toast-end',
+                timeout: 2500
+            ),
+            default => $this->success(
+                $titulo,
+                $descripcion,
+                position: 'toast-top toast-end',
+                timeout: 2500
+            ),
+        };
     }
 };
 ?>
+
+@php
+$errorAlert = function (string $campo) use ($errors) {
+if (! $errors->has($campo)) {
+return '';
+}
+
+$message = e($errors->first($campo));
+$key = 'field-error-' . $campo . '-' . md5($message);
+
+return '<div wire:key="' . $key . '" x-data="{ show: true }"
+    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo(\'' . $campo . '\') }, 4500)" x-show="show"
+    x-transition.opacity.duration.200ms
+    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
+    <span
+        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span><span>'
+        . $message . '</span>
+</div>';
+};
+@endphp
 
 <div class="h-[calc(100vh-3rem)] min-h-0 overflow-hidden bg-[#F0F3F7]">
     <div class="flex h-full min-h-0 flex-col gap-4 px-4 py-4 md:px-6">
@@ -1723,19 +1886,28 @@ new class extends Component
             </div>
         </div>
 
-        @if($mensaje)
-        <div
-            class="fixed right-5 top-5 z-50 w-[min(420px,calc(100vw-2rem))] rounded-2xl border px-4 py-3 shadow-xl {{ $mensaje['tipo'] === 'success' ? 'border-[#B7E4C7] bg-[#ECFDF3] text-[#166534]' : 'border-[#F5C2C7] bg-[#FEF2F2] text-[#991B1B]' }}">
-            <div class="flex items-start justify-between gap-3">
-                <div>
-                    <p class="font-black">{{ $mensaje['titulo'] }}</p>
-                    <p class="text-sm">{{ $mensaje['descripcion'] }}</p>
-                </div>
+        {{-- MODIFICADO: se eliminó el bloque manual de mensaje fijo; MaryUI renderiza el toast temporal
+        automáticamente. --}}
 
-                <button type="button" wire:click="$set('mensaje', null)"
-                    class="rounded-lg px-2 text-sm font-black opacity-70 hover:bg-white/60 hover:opacity-100">
-                    X
-                </button>
+        @php
+        $totalRepuestos = round((float) collect($productos)->sum('subtotal'), 2);
+        $totalServicio = $this->totalServicioActual();
+        $saldo = $this->saldoServicio();
+        @endphp
+
+        {{-- MODIFICADO: resumen visual temporal cuando existen errores de validación en campos. --}}
+        @if ($errors->any())
+        <div wire:key="validation-summary-{{ md5(implode('|', $errors->all())) }}" x-data="{ show: true }"
+            x-init="setTimeout(() => show = false, 3800)" x-show="show" x-transition.opacity.duration.200ms
+            class="shrink-0 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 shadow-sm">
+            <div class="flex items-start gap-3">
+                <span
+                    class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100 text-sm font-black text-red-700">!</span>
+                <div>
+                    <p class="font-black">Revisá los campos marcados.</p>
+                    <p class="text-xs font-semibold text-red-600">Las alertas se ocultan solas; al intentar guardar se
+                        validan nuevamente.</p>
+                </div>
             </div>
         </div>
         @endif
@@ -1754,20 +1926,21 @@ new class extends Component
                             <div class="rounded-2xl bg-[#EAF2FB] px-4 py-2 text-right">
                                 <p class="text-xs font-bold uppercase tracking-wide text-[#0B6FE4]">Total estimado</p>
                                 <p class="text-xl font-black text-[#1A2B42]">
-                                    C$ {{ number_format($this->totalServicioActual(), 2) }}
+                                    C$ {{ number_format($totalServicio, 2) }}
                                 </p>
                             </div>
                         </div>
 
                         <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                             <div class="xl:col-span-2">
-                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">{{ $tipoOperacion ===
-                                    'CREDITO' ? 'Institución' : 'Cliente' }}</label>
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">
+                                    {{ $tipoOperacion === 'CREDITO' ? 'Institución' : 'Cliente' }}
+                                </label>
                                 <x-select wire:model.live="clienteId" :options="$clientes" option-value="id"
                                     option-label="name"
                                     placeholder="{{ $tipoOperacion === 'CREDITO' ? 'Seleccione institución' : 'Seleccione cliente' }}"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                @error('clienteId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
+                                {!! $errorAlert('clienteId') !!}
                             </div>
 
                             <div>
@@ -1778,64 +1951,83 @@ new class extends Component
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Técnico</label>
-                                <x-select wire:model="tecnicoId" :options="$tecnicos" option-value="id"
+                                <x-select wire:model.live="tecnicoId" :options="$tecnicos" option-value="id"
                                     option-label="name" placeholder="Seleccione técnico"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                @error('tecnicoId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
+                                {!! $errorAlert('tecnicoId') !!}
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Tipo</label>
-                                <x-select wire:model="tipoEquipo" :options="$tiposEquipo" option-value="id"
+                                <x-select wire:model.live="tipoEquipo" :options="$tiposEquipo" option-value="id"
                                     option-label="name" placeholder="Seleccione"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                @error('tipoEquipo') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
+                                {!! $errorAlert('tipoEquipo') !!}
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Marca</label>
-                                <x-input wire:model="marca"
+                                <x-input wire:model.live="marca"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                {!! $errorAlert('marca') !!}
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Modelo</label>
-                                <x-input wire:model="modelo"
+                                <x-input wire:model.live="modelo"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                {!! $errorAlert('modelo') !!}
                             </div>
 
                             <div class="xl:col-span-2">
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Serie del equipo
                                     recibido</label>
-                                <x-input wire:model="numeroSerie"
+                                <x-input wire:model.live="numeroSerie"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                {!! $errorAlert('numeroSerie') !!}
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Estado</label>
-                                <x-select wire:model="estadoServicio" :options="$estadosServicio" option-value="id"
+                                <x-select wire:model.live="estadoServicio" :options="$estadosServicio" option-value="id"
                                     option-label="name"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                {!! $errorAlert('estadoServicio') !!}
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Costo estimado</label>
                                 <x-input wire:model.live="costoEstimado" type="number" step="0.01" prefix="C$"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                {!! $errorAlert('costoEstimado') !!}
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Fecha estimada</label>
-                                <x-input wire:model="fechaEstimadaEntrega" type="date"
+                                <x-input wire:model.live="fechaEstimadaEntrega" type="date"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                {!! $errorAlert('fechaEstimadaEntrega') !!}
                             </div>
 
                             <div class="md:col-span-2 xl:col-span-4">
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Problema reportado</label>
-                                <x-textarea wire:model="problemaReportado" rows="2"
+                                <x-textarea wire:model.live="problemaReportado" rows="2"
                                     class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                @error('problemaReportado') <span class="text-xs text-red-600">{{ $message }}</span>
-                                @enderror
+                                {!! $errorAlert('problemaReportado') !!}
+                            </div>
+
+                            <div class="md:col-span-2 xl:col-span-4">
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Detalle descriptivo</label>
+                                <x-textarea wire:model.live="detalleDescriptivo" rows="2"
+                                    class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                {!! $errorAlert('detalleDescriptivo') !!}
+                            </div>
+
+                            <div class="md:col-span-2 xl:col-span-4">
+                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Observación técnica</label>
+                                <x-textarea wire:model.live="observacionTecnica" rows="2"
+                                    class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                {!! $errorAlert('observacionTecnica') !!}
                             </div>
                         </div>
                     </x-card>
@@ -1853,14 +2045,16 @@ new class extends Component
                                 <x-checkbox wire:model.live="checklist.{{ $key }}"
                                     class="checkbox-sm border-2 border-[#2E8BC0] bg-white text-white checked:border-[#0B6FE4] checked:bg-[#0B6FE4] checked:[--chkbg:#0B6FE4] checked:[--chkfg:white]" />
 
-                                <span class="leading-tight">
-                                    {{ $label }}
-                                </span>
+                                <span class="leading-tight">{{ $label }}</span>
                             </label>
                             @endforeach
                         </div>
 
-
+                        <div class="mt-3">
+                            <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Observación del checklist</label>
+                            <x-textarea wire:model="checklist.observacion_checklist" rows="2"
+                                class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                        </div>
                     </x-card>
 
                     <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
@@ -1868,15 +2062,14 @@ new class extends Component
                             <div>
                                 <h2 class="text-lg font-black text-[#1A2B42]">Repuestos / insumos</h2>
                                 <p class="text-sm text-[#5F6B7A]">
-                                    Agregá repuestos directo aquí. Sin modal. Menos clics, menos sufrimiento
-                                    administrativo.
+                                    Agregá repuestos directo aquí. Las series usadas salen del inventario disponible.
                                 </p>
                             </div>
 
                             <div class="rounded-2xl bg-[#EAF2FB] px-4 py-2 text-right">
                                 <p class="text-xs font-bold uppercase tracking-wide text-[#0B6FE4]">Repuestos</p>
                                 <p class="text-xl font-black text-[#1A2B42]">
-                                    C$ {{ number_format(collect($productos)->sum('subtotal'), 2) }}
+                                    C$ {{ number_format($totalRepuestos, 2) }}
                                 </p>
                             </div>
                         </div>
@@ -1889,35 +2082,31 @@ new class extends Component
                                     <x-select wire:model.live="productoId" :options="$productosDisponibles"
                                         option-value="id" option-label="name" placeholder="Seleccione producto"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
-                                    @error('productoId') <span class="text-xs text-red-600">{{ $message }}</span>
-                                    @enderror
+                                    {!! $errorAlert('productoId') !!}
                                 </div>
 
                                 @if($productoTieneSeries)
                                 <div class="md:col-span-3">
                                     <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Serie</label>
-                                    <x-select wire:model="productoSerieId" :options="$seriesDisponibles"
+                                    <x-select wire:model.live="productoSerieId" :options="$seriesDisponibles"
                                         option-value="id" option-label="name" placeholder="Seleccione serie"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
-                                    @error('productoSerieId') <span class="text-xs text-red-600">{{ $message }}</span>
-                                    @enderror
+                                    {!! $errorAlert('productoSerieId') !!}
                                 </div>
                                 @else
                                 <div class="md:col-span-2">
                                     <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Cantidad</label>
-                                    <x-input wire:model="productoCantidad" type="number" step="0.01"
+                                    <x-input wire:model.live="productoCantidad" type="number" step="0.01"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
-                                    @error('productoCantidad') <span class="text-xs text-red-600">{{ $message }}</span>
-                                    @enderror
+                                    {!! $errorAlert('productoCantidad') !!}
                                 </div>
                                 @endif
 
                                 <div class="{{ $productoTieneSeries ? 'md:col-span-2' : 'md:col-span-2' }}">
                                     <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Precio</label>
-                                    <x-input wire:model="productoPrecio" type="number" step="0.01" prefix="C$"
+                                    <x-input wire:model.live="productoPrecio" type="number" step="0.01" prefix="C$"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
-                                    @error('productoPrecio') <span class="text-xs text-red-600">{{ $message }}</span>
-                                    @enderror
+                                    {!! $errorAlert('productoPrecio') !!}
                                 </div>
 
                                 <div
@@ -2048,7 +2237,7 @@ new class extends Component
                             <div class="rounded-2xl bg-[#F7F9FC] p-3">
                                 <p class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">Insumos</p>
                                 <p class="mt-1 text-sm font-black text-[#1A2B42]">
-                                    C$ {{ number_format(collect($productos)->sum('subtotal'), 2) }}
+                                    C$ {{ number_format($totalRepuestos, 2) }}
                                 </p>
                             </div>
                         </div>
@@ -2127,8 +2316,7 @@ new class extends Component
                                     </div>
                                     <div class="rounded-xl bg-white p-2">
                                         <span class="block text-[#5F6B7A]">Saldo</span>
-                                        <strong class="text-[#1A2B42]">C$ {{ number_format($this->saldoServicio(), 2)
-                                            }}</strong>
+                                        <strong class="text-[#1A2B42]">C$ {{ number_format($saldo, 2) }}</strong>
                                     </div>
                                     <div class="rounded-xl bg-white p-2">
                                         <span class="block text-[#5F6B7A]">Cambio</span>
@@ -2168,7 +2356,7 @@ new class extends Component
                         <div class="mt-3 rounded-2xl bg-[#2E8BC0] p-4 text-white">
                             <p class="text-xs font-bold uppercase tracking-wide text-white/80">Total general</p>
                             <p class="text-2xl font-black">
-                                C$ {{ number_format($this->totalServicioActual(), 2) }}
+                                C$ {{ number_format($totalServicio, 2) }}
                             </p>
                         </div>
 

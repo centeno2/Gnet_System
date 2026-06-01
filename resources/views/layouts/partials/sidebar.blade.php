@@ -1,10 +1,14 @@
+
 {{--
     Cabecera del sidebar.
 --}}
-<div class="rounded-2xl">
-    <img src="{{ asset('img/gnetlogo.png') }}" alt="Logo" class="mx-auto mt-4 w-32 rounded-lg object-cover">
+<div class="flex h-24 items-center justify-center px-3">
+    <img
+        src="{{ asset('img/gnetlogo.png') }}"
+        alt="Logo"
+        class="w-10 rounded-lg object-cover transition-all duration-500 ease-in-out lg:group-hover/sidebar:w-32"
+    >
 </div>
-
 @php
     $cargo = (int) (auth()->user()?->trabajador?->cargo?->Id_Cargo ?? 0);
 
@@ -23,119 +27,119 @@
     {{-- Ventas: cargos 1  2 3  --}}
     @if ($puedeVerVentas)
         <x-menu-sub title="Ventas" icon="o-shopping-cart">
-            <x-menu-item 
-                title="Facturación" 
-                icon="o-receipt-refund" 
-                link="{{ route('ventas.facturacion') }}" 
+            <x-menu-item
+                title="Facturación"
+                icon="o-receipt-percent"
+                link="{{ route('ventas.facturacion') }}"
             />
 
-            <x-menu-item 
-                title="Servicio técnico" 
-                icon="o-wrench-screwdriver"
-                link="{{ route('ventas.servicio-tecnico') }}" 
+            <x-menu-item
+                title="Servicio técnico"
+                icon="o-computer-desktop"
+                link="{{ route('ventas.servicio-tecnico') }}"
             />
 
-            <x-menu-item 
-                title="Instalación de cámaras" 
-                icon="o-wrench-screwdriver"
-                link="{{ route('ventas.instalacion-camaras') }}" 
+            <x-menu-item
+                title="Instalación de cámaras"
+                 icon="o-camera"
+                link="{{ route('ventas.instalacion-camaras') }}"
             />
         </x-menu-sub>
     @endif
 
     {{-- Crédito: cargos 1 y 2 --}}
     @if ($puede(1, 2))
-        <x-menu-item 
-            title="Crédito" 
-            icon="o-credit-card" 
-            link="{{ route('creditos') }}" 
+        <x-menu-item
+            title="Crédito"
+            icon="o-banknotes"
+            link="{{ route('creditos') }}"
         />
     @endif
 
     {{-- Compras: cargos 1 --}}
     @if ($puede(2))
-        <x-menu-item 
-            title="Compras" 
-            icon="o-shopping-bag" 
-            link="{{ route('compras') }}" 
+        <x-menu-item
+            title="Compras"
+            icon="o-shopping-bag"
+            link="{{ route('compras') }}"
         />
     @endif
 
     {{-- Productos: cargos 1, 2 --}}
     @if ($puede(1, 2))
-        <x-menu-item 
-            title="Productos" 
-            icon="o-cube" 
-            link="{{ route('productos.index') }}" 
+        <x-menu-item
+            title="Productos"
+             icon="o-cube-transparent"
+            link="{{ route('productos.index') }}"
         />
     @endif
 
     {{-- Salidas de inventario: cargos 1  --}}
     @if ($puede(2))
-        <x-menu-item 
-            title="Salidas de inventario" 
-            icon="o-arrow-up-tray" 
-            link="{{ route('otras_salidas') }}" 
+        <x-menu-item
+            title="Salidas de inventario"
+            icon="o-arrow-up-tray"
+            link="{{ route('otras_salidas') }}"
         />
     @endif
 
     {{-- Devoluciones: cargos 1, 2 y 3 --}}
     @if ($puede(1, 2, 3))
-        <x-menu-item 
-            title="Devoluciones" 
-            icon="o-arrow-uturn-left" 
-            link="{{ route('devoluciones') }}" 
+        <x-menu-item
+            title="Devoluciones"
+            icon="o-arrow-uturn-left"
+            link="{{ route('devoluciones') }}"
         />
     @endif
 
     {{-- Gestión de trabajadores: cargos 2  --}}
     @if ($puedeVerGestionTrabajadores)
-        <x-menu-sub title="Gestión de trabajadores" icon="o-users">
-            <x-menu-item 
-                title="Planilla de pago" 
-                icon="o-document-text" 
-                link="{{ route('planillapago') }}" 
+        <x-menu-sub title="Gestión de trabajadores" icon="o-identification">
+            <x-menu-item
+                title="Planilla de pago"
+                icon="o-clipboard-document-list"
+                link="{{ route('planillapago') }}"
             />
         </x-menu-sub>
     @endif
 
     {{-- Catálogo --}}
     @if ($puedeVerCatalogo)
-        <x-menu-sub title="Catálogo" icon="o-wrench-screwdriver">
+        <x-menu-sub title="Catálogo" icon="o-rectangle-stack">
 
             {{-- Proveedores: cargos 1 y 2 --}}
             @if ($puede(2 ))
-                <x-menu-item 
-                    title="Proveedores" 
-                    icon="o-truck" 
-                    link="{{ route('proveedores') }}" 
+                <x-menu-item
+                    title="Proveedores"
+                    icon="o-truck"
+                    link="{{ route('proveedores') }}"
                 />
             @endif
 
             {{-- Clientes: cargos 1, 2 y 3 --}}
             @if ($puede(1, 2, 3))
-                <x-menu-item 
-                    title="Clientes" 
-                    icon="o-user-group" 
-                    link="{{ route('clientes') }}" 
+                <x-menu-item
+                    title="Clientes"
+                    icon="o-user-group"
+                    link="{{ route('clientes') }}"
                 />
             @endif
 
             {{-- Usuario: cargos 1 y 2 --}}
             @if ($puede(1 ,2 ))
-                <x-menu-item 
-                    title="Usuario" 
-                    icon="o-user" 
-                    link="{{ route('usersystem') }}" 
+                <x-menu-item
+                    title="Usuario"
+                    icon="o-user"
+                    link="{{ route('usersystem') }}"
                 />
             @endif
 
             {{-- Trabajadores: cargos 1 y 2 --}}
             @if ($puede( 2))
-                <x-menu-item 
-                    title="Trabajadores" 
-                    icon="o-users" 
-                    link="{{ route('trabajadores') }}" 
+                <x-menu-item
+                    title="Trabajadores"
+                    icon="o-users"
+                    link="{{ route('trabajadores') }}"
                 />
             @endif
 
@@ -144,37 +148,37 @@
 
     {{-- Arqueo de caja: cargos 1, 2 y 3 --}}
     @if ($puede(1, 2, 3))
-        <x-menu-item 
-            title="Arqueo de caja" 
-            icon="o-calculator" 
-            link="{{ route('arqueodecaja') }}" 
+        <x-menu-item
+            title="Arqueo de caja"
+            icon="o-calculator"
+            link="{{ route('arqueodecaja') }}"
         />
     @endif
 
     {{-- Mantenimiento: cargos 1 y 2 --}}
     @if ($puede(1, 2))
-        <x-menu-item 
-            title="Mantenimiento" 
-            icon="o-cog-6-tooth" 
-            link="{{ route('mantenimiento') }}" 
+        <x-menu-item
+            title="Mantenimiento"
+            icon="o-cog-6-tooth"
+            link="{{ route('mantenimiento') }}"
         />
     @endif
 
     {{-- Informes: cargos 1 y 2 --}}
     @if ($puede( 2))
-        <x-menu-item 
-            title="Informes" 
-            icon="o-document-text" 
-            link="{{ route('mantenimiento') }}" 
+        <x-menu-item
+            title="Informes"
+            icon="o-document-text"
+            link="{{ route('Informes') }}"
         />
     @endif
 
     {{-- Acerca de: cargos 1 y 2 --}}
     @if ($puede(1, 2))
-        <x-menu-item 
-            title="Acerca de" 
-            icon="o-information-circle" 
-            link="{{ route('acerca') }}" 
+        <x-menu-item
+            title="Acerca de"
+            icon="o-information-circle"
+            link="{{ route('acerca') }}"
         />
     @endif
 
