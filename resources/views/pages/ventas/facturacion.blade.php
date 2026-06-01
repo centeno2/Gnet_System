@@ -10,9 +10,12 @@ use App\Models\Venta;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
+use Mary\Traits\Toast;
 
 new class extends Component
 {
+    use Toast;
+
     private const TIPO_CONTADO = 'CONTADO';
     private const TIPO_CREDITO = 'CREDITO';
 
@@ -81,10 +84,6 @@ new class extends Component
     public ?int $ultimaVentaId = null;
     public string $ultimaFacturaNumero = '';
     public string $ultimoTipoVenta = '';
-
-    public string $toastMensaje = '';
-    public string $toastTipo = 'success';
-    public bool $mostrarToast = false;
 
     public function mount(): void
     {
@@ -1243,16 +1242,29 @@ new class extends Component
 
     protected function mostrarToast(string $mensaje, string $tipo = 'success'): void
     {
-        $this->toastMensaje = $mensaje;
-        $this->toastTipo = $tipo;
-        $this->mostrarToast = true;
-    }
-
-    public function cerrarToast(): void
-    {
-        $this->mostrarToast = false;
-        $this->toastMensaje = '';
-        $this->toastTipo = 'success';
+        // MODIFICADO: ahora usa los toast temporales de MaryUI para que desaparezcan automáticamente.
+        match ($tipo) {
+            'error' => $this->error(
+                $mensaje,
+                position: 'toast-top toast-end',
+                timeout: 3500
+            ),
+            'warning' => $this->warning(
+                $mensaje,
+                position: 'toast-top toast-end',
+                timeout: 3000
+            ),
+            'info' => $this->info(
+                $mensaje,
+                position: 'toast-top toast-end',
+                timeout: 2500
+            ),
+            default => $this->success(
+                $mensaje,
+                position: 'toast-top toast-end',
+                timeout: 2500
+            ),
+        };
     }
 };
 ?>
@@ -1289,21 +1301,6 @@ new class extends Component
                 </button>
             </div>
         </div>
-
-        @if ($mostrarToast)
-        <div class="fixed right-5 top-5 z-999 w-full max-w-sm">
-            <div
-                class="{{ $toastTipo === 'success' ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#1A2B42]' : 'border-red-200 bg-red-50 text-red-700' }} rounded-2xl border px-4 py-4 shadow-lg">
-                <div class="flex items-start justify-between gap-3">
-                    <p class="text-sm font-medium">{{ $toastMensaje }}</p>
-                    <button type="button" wire:click="cerrarToast"
-                        class="text-lg leading-none text-[#5F6B7A] hover:text-[#1A2B42]">
-                        ×
-                    </button>
-                </div>
-            </div>
-        </div>
-        @endif
 
         <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_270px]">
 

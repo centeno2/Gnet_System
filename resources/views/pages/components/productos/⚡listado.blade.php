@@ -5,6 +5,9 @@ use Livewire\Component;
 
 new class extends Component
 {
+    private const ESTADO_PRODUCTO_ACTIVO = 1;
+    private const ESTADO_SERIE_DISPONIBLE = 'DISPONIBLE';
+
     public string $vista = 'productos';
 
     public string $buscar = '';
@@ -68,6 +71,10 @@ new class extends Component
 
     public function cambiarVista(string $vista): void
     {
+        if (! in_array($vista, ['productos', 'series'], true)) {
+            return;
+        }
+
         $this->vista = $vista;
         $this->filtroEstado = '';
         $this->reiniciarPagina();
@@ -184,6 +191,29 @@ new class extends Component
         $this->cargarSeriesInventario();
     }
 
+    protected function aplicarDisponibilidadProducto($query): void
+    {
+        // Producto vendible:
+        // 1) Producto activo y con stock mayor a cero.
+        // 2) Si no maneja series, se permite por stock.
+        // 3) Si maneja series, debe tener al menos una serie DISPONIBLE.
+        $query->where('p.Estado', self::ESTADO_PRODUCTO_ACTIVO)
+            ->where('p.Stock_Actual', '>', 0)
+            ->where(function ($q) {
+                $q->whereNotExists(function ($sub) {
+                    $sub->select(DB::raw(1))
+                        ->from('producto_serie as ps_any')
+                        ->whereColumn('ps_any.Id_Producto', 'p.Id_Producto');
+                })
+                ->orWhereExists(function ($sub) {
+                    $sub->select(DB::raw(1))
+                        ->from('producto_serie as ps_disponible')
+                        ->whereColumn('ps_disponible.Id_Producto', 'p.Id_Producto')
+                        ->where('ps_disponible.Estado', self::ESTADO_SERIE_DISPONIBLE);
+                });
+            });
+    }
+
     protected function cargarProductosAgrupados(): void
     {
         $busqueda = trim($this->buscar);
@@ -191,8 +221,6 @@ new class extends Component
         $query = DB::table('producto as p')
             ->leftJoin('categoria_producto as c', 'p.Id_Categoria', '=', 'c.Id_Categoria')
             ->leftJoin('marca as m', 'p.Id_Marca', '=', 'm.Id_Marca')
-            ->where('p.Estado', 1)
-            ->where('p.Stock_Actual', '>', 0)
             ->select(
                 'p.Id_Producto',
                 'p.Nombre_Producto',
@@ -210,8 +238,10 @@ new class extends Component
                 $sub->from('producto_serie as ps')
                     ->selectRaw('COUNT(*)')
                     ->whereColumn('ps.Id_Producto', 'p.Id_Producto')
-                    ->where('ps.Estado', '<>', 'VENDIDO');
+                    ->where('ps.Estado', self::ESTADO_SERIE_DISPONIBLE);
             }, 'total_series');
+
+        $this->aplicarDisponibilidadProducto($query);
 
         if ($this->filtroCategoria !== '') {
             $query->where('p.Id_Categoria', (int) $this->filtroCategoria);
@@ -235,7 +265,7 @@ new class extends Component
                         $sub->select(DB::raw(1))
                             ->from('producto_serie as ps2')
                             ->whereColumn('ps2.Id_Producto', 'p.Id_Producto')
-                            ->where('ps2.Estado', '<>', 'VENDIDO')
+                            ->where('ps2.Estado', self::ESTADO_SERIE_DISPONIBLE)
                             ->where('ps2.Numero_Serie', 'like', "%{$busqueda}%");
                     });
             });
@@ -277,8 +307,9 @@ new class extends Component
             ->join('producto as p', 'ps.Id_Producto', '=', 'p.Id_Producto')
             ->leftJoin('categoria_producto as c', 'p.Id_Categoria', '=', 'c.Id_Categoria')
             ->leftJoin('marca as m', 'p.Id_Marca', '=', 'm.Id_Marca')
-            ->where('ps.Estado', '<>', 'VENDIDO')
-            ->where('p.Estado', 1)
+            ->where('ps.Estado', self::ESTADO_SERIE_DISPONIBLE)
+            ->where('p.Estado', self::ESTADO_PRODUCTO_ACTIVO)
+            ->where('p.Stock_Actual', '>', 0)
             ->select(
                 'ps.id_producto_serie',
                 'ps.Numero_Serie',
@@ -300,8 +331,9 @@ new class extends Component
             $query->where('p.Id_Marca', (int) $this->filtroMarca);
         }
 
+        // Aunque el combo queda fijo a disponibles, se respeta si llega el valor desde Livewire.
         if ($this->filtroEstado !== '') {
-            $query->where('ps.Estado', $this->filtroEstado);
+            $query->where('ps.Estado', self::ESTADO_SERIE_DISPONIBLE);
         }
 
         if ($busqueda !== '') {
@@ -342,11 +374,9 @@ new class extends Component
 
     public function abrirDetalleProducto(int $idProducto): void
     {
-        $producto = DB::table('producto as p')
+        $productoQuery = DB::table('producto as p')
             ->leftJoin('categoria_producto as c', 'p.Id_Categoria', '=', 'c.Id_Categoria')
             ->leftJoin('marca as m', 'p.Id_Marca', '=', 'm.Id_Marca')
-            ->where('p.Estado', 1)
-            ->where('p.Stock_Actual', '>', 0)
             ->select(
                 'p.Id_Producto',
                 'p.Nombre_Producto',
@@ -360,10 +390,14 @@ new class extends Component
                 'c.Nombre_Categoria as categoria',
                 'm.Nombre_Marca as marca'
             )
-            ->where('p.Id_Producto', $idProducto)
-            ->first();
+            ->where('p.Id_Producto', $idProducto);
+
+        $this->aplicarDisponibilidadProducto($productoQuery);
+
+        $producto = $productoQuery->first();
 
         if (! $producto) {
+            $this->mostrarToast('El producto no está disponible para venta.', 'error');
             return;
         }
 
@@ -398,11 +432,12 @@ new class extends Component
         $producto = DB::table('producto')
             ->select('Id_Producto', 'Nombre_Producto', 'Modelo')
             ->where('Id_Producto', $idProducto)
-            ->where('Estado', 1)
+            ->where('Estado', self::ESTADO_PRODUCTO_ACTIVO)
             ->where('Stock_Actual', '>', 0)
             ->first();
 
         if (! $producto) {
+            $this->mostrarToast('El producto no está disponible para venta.', 'error');
             return;
         }
 
@@ -412,7 +447,7 @@ new class extends Component
 
         $this->seriesProducto = DB::table('producto_serie')
             ->where('Id_Producto', $idProducto)
-            ->where('Estado', '<>', 'VENDIDO')
+            ->where('Estado', self::ESTADO_SERIE_DISPONIBLE)
             ->orderByDesc('id_producto_serie')
             ->get([
                 'Numero_Serie',
@@ -449,8 +484,9 @@ new class extends Component
             ->leftJoin('categoria_producto as c', 'p.Id_Categoria', '=', 'c.Id_Categoria')
             ->leftJoin('marca as m', 'p.Id_Marca', '=', 'm.Id_Marca')
             ->where('ps.id_producto_serie', $idSerie)
-            ->where('ps.Estado', '<>', 'VENDIDO')
-            ->where('p.Estado', 1)
+            ->where('ps.Estado', self::ESTADO_SERIE_DISPONIBLE)
+            ->where('p.Estado', self::ESTADO_PRODUCTO_ACTIVO)
+            ->where('p.Stock_Actual', '>', 0)
             ->select(
                 'ps.id_producto_serie',
                 'ps.Numero_Serie',
@@ -468,6 +504,7 @@ new class extends Component
             ->first();
 
         if (! $serie) {
+            $this->mostrarToast('La serie seleccionada ya no está disponible para venta.', 'error');
             return;
         }
 
@@ -522,7 +559,7 @@ new class extends Component
                     Listado completo de productos
                 </h1>
                 <p class="mt-0.5 text-sm text-[#5F6B7A]">
-                    Centro de control del inventario.
+                    Centro de control del inventario disponible para venta.
                 </p>
             </div>
 
@@ -553,9 +590,9 @@ new class extends Component
             <div class="flex shrink-0 flex-col gap-3">
                 <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
-                        <h2 class="text-xl font-bold leading-tight text-[#1A2B42]">Inventario completo</h2>
+                        <h2 class="text-xl font-bold leading-tight text-[#1A2B42]">Inventario disponible</h2>
                         <p class="text-xs text-[#5F6B7A]">
-                            Filtre y revise solamente productos disponibles en inventario.
+                            Solo se muestran productos activos con stock y series disponibles para vender.
                         </p>
                     </div>
 
@@ -575,7 +612,7 @@ new class extends Component
                 <div class="grid shrink-0 grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-12">
                     <div class="xl:col-span-4">
                         <x-input wire:model.live.debounce.350ms="buscar" type="text"
-                            placeholder="{{ $vista === 'productos' ? 'Buscar producto, modelo, marca, categoría o serie' : 'Buscar serie, producto, modelo o marca' }}"
+                            placeholder="{{ $vista === 'productos' ? 'Buscar producto, modelo, marca, categoría o serie disponible' : 'Buscar serie disponible, producto, modelo o marca' }}"
                             class="h-10 min-h-10 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
                     </div>
 
@@ -606,10 +643,8 @@ new class extends Component
                             <option value="">Estados</option>
                             <option value="stock_bajo">Stock bajo</option>
                             @else
-                            <option value="">Estados de serie</option>
+                            <option value="">Solo disponibles</option>
                             <option value="DISPONIBLE">Disponible</option>
-                            <option value="RESERVADO">Reservado</option>
-                            <option value="DAÑADO">Dañado</option>
                             @endif
                         </select>
                     </div>
@@ -628,7 +663,7 @@ new class extends Component
                     </span>
 
                     <span class="inline-flex rounded-full bg-[#F7F9FC] px-3 py-1">
-                        {{ $vista === 'productos' ? 'Productos disponibles' : 'Series disponibles / no vendidas' }}
+                        {{ $vista === 'productos' ? 'Productos vendibles' : 'Series DISPONIBLE' }}
                     </span>
                 </div>
             </div>
@@ -700,7 +735,7 @@ new class extends Component
                                 <td class="px-3 py-2.5 text-center align-middle">
                                     <button type="button" wire:click="verSeries({{ $fila['id_producto'] }})"
                                         class="inline-flex min-w-[2rem] justify-center rounded-full bg-[#EAF4FD] px-2 py-0.5 text-xs font-semibold text-[#0E48A1] hover:bg-[#DDEFFD]"
-                                        title="Ver series no vendidas">
+                                        title="Ver series disponibles">
                                         {{ $fila['series'] }}
                                     </button>
                                 </td>
@@ -727,7 +762,7 @@ new class extends Component
                             @empty
                             <tr>
                                 <td colspan="9" class="px-4 py-10 text-center text-sm text-[#7B8794]">
-                                    No hay productos disponibles que coincidan con los filtros.
+                                    No hay productos disponibles para vender que coincidan con los filtros.
                                 </td>
                             </tr>
                             @endforelse
@@ -797,7 +832,7 @@ new class extends Component
 
                                 <td class="px-3 py-2.5 text-center align-middle">
                                     <span
-                                        class="{{ $fila['estado_serie'] === 'DISPONIBLE' ? 'bg-green-100 text-green-700' : ($fila['estado_serie'] === 'DAÑADO' ? 'bg-red-100 text-red-700' : 'bg-[#EAF4FD] text-[#0E48A1]') }} inline-flex rounded-full px-2 py-0.5 text-xs font-semibold">
+                                        class="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
                                         {{ $fila['estado_serie'] }}
                                     </span>
                                 </td>
@@ -937,7 +972,7 @@ new class extends Component
         box-class="w-full max-w-5xl rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
 
         <div class="mb-5">
-            <h3 class="text-2xl font-bold text-[#1A2B42]">Series del producto</h3>
+            <h3 class="text-2xl font-bold text-[#1A2B42]">Series disponibles del producto</h3>
             <p class="mt-1 text-sm text-[#5F6B7A]">{{ $productoNombreSeries }}</p>
         </div>
 
@@ -965,7 +1000,7 @@ new class extends Component
                         <td class="px-4 py-3 whitespace-nowrap">{{ $serie['fecha_ingreso'] }}</td>
                         <td class="px-4 py-3 whitespace-nowrap">
                             <span
-                                class="{{ $serie['estado'] === 'DISPONIBLE' ? 'bg-green-100 text-green-700' : ($serie['estado'] === 'DAÑADO' ? 'bg-red-100 text-red-700' : 'bg-[#EAF4FD] text-[#0E48A1]') }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">
+                                class="inline-flex rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">
                                 {{ $serie['estado'] }}
                             </span>
                         </td>
@@ -992,7 +1027,7 @@ new class extends Component
         box-class="w-full max-w-4xl rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
 
         <div class="mb-5">
-            <h3 class="text-2xl font-bold text-[#1A2B42]">Detalle de la serie</h3>
+            <h3 class="text-2xl font-bold text-[#1A2B42]">Detalle de la serie disponible</h3>
             <p class="mt-1 text-sm text-[#5F6B7A]">
                 {{ $detalleSerie['producto'] ?? '' }}
             </p>
@@ -1027,13 +1062,8 @@ new class extends Component
             <div class="rounded-xl bg-[#F7F9FC] p-4">
                 <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Estado de la serie</p>
 
-                @php
-                $estadoSerie = $detalleSerie['estado_serie'] ?? '—';
-                @endphp
-
-                <span
-                    class="{{ $estadoSerie === 'DISPONIBLE' ? 'bg-green-100 text-green-700' : ($estadoSerie === 'DAÑADO' ? 'bg-red-100 text-red-700' : 'bg-[#EAF4FD] text-[#0E48A1]') }} mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold">
-                    {{ $estadoSerie }}
+                <span class="mt-2 inline-flex rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
+                    {{ $detalleSerie['estado_serie'] ?? '—' }}
                 </span>
             </div>
 

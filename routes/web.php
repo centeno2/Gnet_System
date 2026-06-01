@@ -48,6 +48,7 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
     Route::livewire('/ventas/instalacion-camaras', 'pages::ventas.instalacion-camaras')->name('ventas.instalacion-camaras');
     Route::livewire('/productos', 'pages::productos')->name('productos.index');
     Route::livewire('/productos/listado', 'pages::components.productos.listado')->name('productos.listado');
+    Route::livewire('/reportes', 'pages::informes')->name('Informes');
 
 });
 
