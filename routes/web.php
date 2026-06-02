@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\FacturaVentaController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Reportes\InventarioReporteController;
 
 Route::get('/', function () {
     return auth()->check()
@@ -49,6 +50,15 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
     Route::livewire('/productos', 'pages::productos')->name('productos.index');
     Route::livewire('/productos/listado', 'pages::components.productos.listado')->name('productos.listado');
     Route::livewire('/reportes', 'pages::informes')->name('Informes');
+
+    Route::get('/reportes/inventario/pdf', [InventarioReporteController::class, 'pdf'])
+        ->name('reportes.inventario.pdf');
+
+    Route::get('/reportes/inventario/excel', [InventarioReporteController::class, 'excel'])
+        ->name('reportes.inventario.excel');
+
+    Route::get('/reportes/inventario/word', [InventarioReporteController::class, 'word'])
+        ->name('reportes.inventario.word');
 
 });
 
