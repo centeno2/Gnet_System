@@ -640,16 +640,19 @@ new class extends Component
         $this->cargarTasaCambio();
 
         if (! $this->tasaCambioValida()) {
+            $this->cerrarPestanaCotizacionVacia();
             $this->mostrarToast('Debe registrar una tasa de cambio válida antes de generar la cotización.', 'error');
             return null;
         }
 
         if (count($this->detalleVenta) === 0) {
+            $this->cerrarPestanaCotizacionVacia();
             $this->mostrarToast('Agregue al menos un item para generar la cotización.', 'error');
             return null;
         }
 
         if (! $this->clienteSeleccionadoValidoParaVenta()) {
+            $this->cerrarPestanaCotizacionVacia();
             $this->mostrarToast($this->mensajeClienteNoPermitido(), 'error');
             return null;
         }
@@ -657,6 +660,7 @@ new class extends Component
         $key = (string) Str::uuid();
 
         Cache::put('cotizacion_venta_' . $key, [
+            'numero' => 'PRO-' . now()->format('Ymd-His'),
             'cliente' => $this->clienteNombre,
             'municipio' => $this->tipoVenta === self::TIPO_CREDITO ? $this->departamentoMunicipio : '',
             'tipo_venta' => $this->tipoVenta,
@@ -667,9 +671,28 @@ new class extends Component
             'items' => array_values($this->detalleVenta),
         ], now()->addMinutes(20));
 
-        return redirect()->route('ventas.cotizacion', [
-            'key' => $key,
-        ]);
+        $url = route('ventas.cotizacion', ['key' => $key]);
+
+        $this->js(
+            'if (window.gnetCotizacionTab && !window.gnetCotizacionTab.closed) {
+                window.gnetCotizacionTab.location.href = ' . json_encode($url) . ';
+            } else {
+                window.gnetCotizacionTab = window.open(' . json_encode($url) . ', "_blank");
+            }'
+        );
+
+        $this->mostrarToast('Cotización generada correctamente.');
+
+        return null;
+    }
+
+    private function cerrarPestanaCotizacionVacia(): void
+    {
+        $this->js(
+            'if (window.gnetCotizacionTab && !window.gnetCotizacionTab.closed) {
+                window.gnetCotizacionTab.close();
+            }'
+        );
     }
 
     public function guardarVenta()
@@ -689,6 +712,7 @@ new class extends Component
         $pagoDolares = $this->limpiarDecimal($this->pagoDolares);
         $equivalenteDolares = round($pagoDolares * $this->tasaCambio(), 2);
         $totalPagado = round($pagoCordobas + $equivalenteDolares, 2);
+
         $cambioEntregadoCordobas = $this->tipoVenta === self::TIPO_CONTADO
             ? round(max($totalPagado - $total, 0), 2)
             : 0.00;
@@ -749,7 +773,8 @@ new class extends Component
                     'Total' => $total,
                     'Tipo_Cambio' => $this->tasaCambio(),
                     'Cambio_Entregado_Cordobas' => $cambioEntregadoCordobas,
-                ])->save();
+                ]);
+                $venta->save();
 
                 foreach ($this->detalleVenta as $item) {
                     if ($item['tipo'] === self::TIPO_PRODUCTO) {
@@ -901,7 +926,7 @@ new class extends Component
                 try {
                     app(ThermalPrintService::class)->imprimirVenta($resultado['id_venta']);
 
-                    $this->mostrarToast('Venta guardada y enviada a impresión. Factura: ' . $resultado['numero_factura']);
+                    $this->mostrarToast('Venta guardada e impresa correctamente. Factura: ' . $resultado['numero_factura']);
                 } catch (\Throwable $impresionError) {
                     $this->mostrarToast(
                         'Venta guardada, pero no se pudo imprimir el voucher: ' . $impresionError->getMessage(),
@@ -1331,7 +1356,8 @@ new class extends Component
             </div>
 
             <div class="flex flex-wrap gap-2">
-                <x-button icon="o-document-text" label="Cotización" wire:click="generarCotizacion"
+                <x-button icon="o-document-text" label="Cotización"
+                    onclick="window.gnetCotizacionTab = window.open('', '_blank')" wire:click="generarCotizacion"
                     spinner="generarCotizacion"
                     class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] shadow-sm hover:bg-[#F8FAFC]" />
 
@@ -1348,7 +1374,6 @@ new class extends Component
         </div>
 
         <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_270px]">
-
             <div class="min-w-0 space-y-4">
 
                 <x-card class="rounded-2xl border border-[#D7E4F3] bg-white p-4 shadow-sm">

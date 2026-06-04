@@ -4,13 +4,12 @@ namespace App\Http\Controllers\Ventas;
 
 use App\Http\Controllers\Controller;
 use App\Services\Ventas\CotizacionVentaPdfService;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpFoundation\Response;
 
 class CotizacionVoucherController extends Controller
 {
-    public function show(string $key, Request $request, CotizacionVentaPdfService $service): Response
+    public function show(string $key, CotizacionVentaPdfService $service): Response
     {
         $payload = Cache::get('cotizacion_venta_' . $key);
 

@@ -132,8 +132,8 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
     Route::get('/ventas/cotizacion/{key}', [CotizacionVoucherController::class, 'show'])
         ->name('ventas.cotizacion');
 
-    Route::get('/ventas/voucher/{venta}', [VentaVoucherController::class, 'show'])
-        ->name('ventas.voucher');
+    //Route::get('/ventas/voucher/{venta}', [VentaVoucherController::class, 'show'])
+    //    ->name('ventas.voucher');
 
 });
 

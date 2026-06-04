@@ -2,6 +2,7 @@
 
 namespace App\Services\Ventas;
 
+use Illuminate\Support\Collection;
 use TCPDF;
 
 class CotizacionVentaPdfService
@@ -14,7 +15,7 @@ class CotizacionVentaPdfService
 
         $pdf->SetCreator('Gnet System');
         $pdf->SetAuthor('Gnet System');
-        $pdf->SetTitle('Proforma');
+        $pdf->SetTitle('Cotización');
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
         $pdf->SetMargins(12, 10, 12);
@@ -24,77 +25,77 @@ class CotizacionVentaPdfService
         $this->encabezado($pdf, $payload);
         $this->tabla($pdf, $items);
         $this->totales($pdf, $payload);
-        $this->pie($pdf);
+        $this->firma($pdf);
 
-        return $pdf->Output('proforma.pdf', 'S');
+        return $pdf->Output('cotizacion.pdf', 'S');
     }
 
     private function encabezado(TCPDF $pdf, array $payload): void
     {
-        $logo = public_path('img/gnetlogo.png');
+        $logo = $this->logoPath();
 
-        if (file_exists($logo)) {
-            $pdf->Image($logo, 12, 10, 28, 28);
+        if ($logo) {
+            $pdf->Image($logo, 14, 12, 20, 20, '', '', '', false, 150);
         }
 
         $pdf->SetFillColor(46, 139, 192);
-        $pdf->SetTextColor(255, 255, 255);
-        $pdf->SetFont('helvetica', 'B', 18);
-        $pdf->Cell(0, 14, 'PROFORMA', 0, 1, 'R', true);
+        $pdf->Rect(42, 12, 157, 14, 'F');
 
-        $pdf->Ln(4);
+        $pdf->SetTextColor(255, 255, 255);
+        $pdf->SetFont('helvetica', 'B', 16);
+        $pdf->SetXY(42, 15);
+        $pdf->Cell(154, 8, 'COTIZACIÓN', 0, 1, 'R');
 
         $pdf->SetTextColor(26, 43, 66);
         $pdf->SetFont('helvetica', 'B', 13);
-        $pdf->Cell(0, 7, 'GNET SYSTEM', 0, 1, 'R');
+        $pdf->SetXY(42, 31);
+        $pdf->Cell(157, 6, 'GNET SYSTEM', 0, 1, 'R');
 
         $pdf->SetFont('helvetica', '', 8);
-        $pdf->Cell(0, 5, 'Parque Dario 1C. Norte y 20 vrs. Oeste, Matagalpa, Nicaragua', 0, 1, 'R');
-        $pdf->Cell(0, 5, 'Tel: 8737-1426 / Email: gnetservicomp@gmail.com', 0, 1, 'R');
+        $pdf->SetX(42);
+        $pdf->Cell(157, 5, 'Parque Dario 1C. Norte y 20 vrs. Oeste, Matagalpa, Nicaragua', 0, 1, 'R');
 
-        $pdf->Ln(6);
+        $pdf->SetX(42);
+        $pdf->Cell(157, 5, 'Tel: 8737-1426 / Email: gnetservicomp@gmail.com', 0, 1, 'R');
+
+        $pdf->Ln(7);
 
         $pdf->SetFillColor(240, 243, 247);
+        $pdf->SetDrawColor(215, 228, 243);
         $pdf->SetTextColor(26, 43, 66);
 
-        $pdf->SetFont('helvetica', 'B', 9);
-        $pdf->Cell(26, 8, 'Cliente:', 1, 0, 'L', true);
-        $pdf->SetFont('helvetica', '', 9);
-        $pdf->Cell(105, 8, (string) ($payload['cliente'] ?? 'Consumidor final'), 1, 0, 'L');
+        $pdf->SetFont('helvetica', 'B', 8);
+        $pdf->Cell(25, 8, 'Cliente:', 1, 0, 'L', true);
 
-        $pdf->SetFont('helvetica', 'B', 9);
+        $pdf->SetFont('helvetica', '', 8);
+        $pdf->Cell(95, 8, $this->cortar((string) ($payload['cliente'] ?? 'Consumidor final'), 55), 1, 0, 'L');
+
+        $pdf->SetFont('helvetica', 'B', 8);
         $pdf->Cell(22, 8, 'Fecha:', 1, 0, 'L', true);
-        $pdf->SetFont('helvetica', '', 9);
-        $pdf->Cell(37, 8, now()->format('d/m/Y'), 1, 1, 'L');
+
+        $pdf->SetFont('helvetica', '', 8);
+        $pdf->Cell(48, 8, now()->format('d/m/Y h:i A'), 1, 1, 'L');
+
+        $pdf->SetFont('helvetica', 'B', 8);
+        $pdf->Cell(25, 8, 'No.:', 1, 0, 'L', true);
+
+        $pdf->SetFont('helvetica', '', 8);
+        $pdf->Cell(165, 8, (string) ($payload['numero'] ?? 'PROFORMA'), 1, 1, 'L');
 
         if (! empty($payload['municipio'])) {
-            $pdf->SetFont('helvetica', 'B', 9);
-            $pdf->Cell(26, 8, 'Municipio:', 1, 0, 'L', true);
-            $pdf->SetFont('helvetica', '', 9);
-            $pdf->Cell(164, 8, (string) $payload['municipio'], 1, 1, 'L');
+            $pdf->SetFont('helvetica', 'B', 8);
+            $pdf->Cell(25, 8, 'Municipio:', 1, 0, 'L', true);
+
+            $pdf->SetFont('helvetica', '', 8);
+            $pdf->Cell(165, 8, $this->cortar((string) $payload['municipio'], 95), 1, 1, 'L');
         }
 
-        $pdf->Ln(6);
+        $pdf->Ln(5);
     }
 
-    private function tabla(TCPDF $pdf, $items): void
+    private function tabla(TCPDF $pdf, Collection $items): void
     {
-        $headers = [
-            ['Cant.', 18],
-            ['Descripcion', 104],
-            ['P/Unit', 32],
-            ['Subtotal', 36],
-        ];
-
-        $pdf->SetFillColor(46, 139, 192);
-        $pdf->SetTextColor(255, 255, 255);
-        $pdf->SetFont('helvetica', 'B', 9);
-
-        foreach ($headers as [$texto, $ancho]) {
-            $pdf->Cell($ancho, 8, $texto, 1, 0, 'C', true);
-        }
-
-        $pdf->Ln();
+        $this->tablaHeader($pdf);
 
         $pdf->SetTextColor(26, 43, 66);
         $pdf->SetFont('helvetica', '', 8);
@@ -105,26 +106,37 @@ class CotizacionVentaPdfService
             $precio = (float) ($item['precio_unitario'] ?? 0);
             $subtotal = (float) ($item['subtotal_valor'] ?? 0);
 
-            $y = $pdf->GetY();
-            $alto = max(9, ceil(mb_strlen($descripcion) / 55) * 5);
+            $alto = max(8, (int) ceil(mb_strlen($descripcion) / 58) * 5);
 
-            if ($y + $alto > 250) {
+            if ($pdf->GetY() + $alto > 246) {
                 $pdf->AddPage();
+                $this->tablaHeader($pdf);
             }
 
-            $x = $pdf->GetX();
+            $pdf->SetFillColor(255, 255, 255);
 
-            $pdf->MultiCell(18, $alto, (string) $cantidad, 1, 'C', false, 0);
-            $pdf->MultiCell(104, $alto, $descripcion, 1, 'L', false, 0);
-            $pdf->MultiCell(32, $alto, 'C$ ' . number_format($precio, 2), 1, 'R', false, 0);
-            $pdf->MultiCell(36, $alto, 'C$ ' . number_format($subtotal, 2), 1, 'R', false, 1);
-
-            $pdf->SetX($x);
+            $pdf->MultiCell(18, $alto, (string) $cantidad, 1, 'C', true, 0);
+            $pdf->MultiCell(104, $alto, $this->cortar($descripcion, 120), 1, 'L', true, 0);
+            $pdf->MultiCell(32, $alto, 'C$ ' . number_format($precio, 2), 1, 'R', true, 0);
+            $pdf->MultiCell(36, $alto, 'C$ ' . number_format($subtotal, 2), 1, 'R', true, 1);
         }
 
         if ($items->isEmpty()) {
-            $pdf->Cell(190, 10, 'No hay items agregados.', 1, 1, 'C');
+            $pdf->Cell(190, 9, 'No hay items agregados.', 1, 1, 'C');
         }
+    }
+
+    private function tablaHeader(TCPDF $pdf): void
+    {
+        $pdf->SetFillColor(46, 139, 192);
+        $pdf->SetDrawColor(215, 228, 243);
+        $pdf->SetTextColor(255, 255, 255);
+        $pdf->SetFont('helvetica', 'B', 8);
+
+        $pdf->Cell(18, 8, 'Cant.', 1, 0, 'C', true);
+        $pdf->Cell(104, 8, 'Descripción', 1, 0, 'C', true);
+        $pdf->Cell(32, 8, 'P/Unit', 1, 0, 'C', true);
+        $pdf->Cell(36, 8, 'Subtotal', 1, 1, 'C', true);
     }
 
     private function totales(TCPDF $pdf, array $payload): void
@@ -135,12 +147,11 @@ class CotizacionVentaPdfService
         $descuento = (float) ($payload['descuento'] ?? 0);
         $total = (float) ($payload['total'] ?? 0);
 
-        $pdf->SetFont('helvetica', '', 9);
+        $pdf->SetDrawColor(215, 228, 243);
         $pdf->SetTextColor(26, 43, 66);
-
-        $pdf->Cell(118, 8, 'Vigencia de la oferta: 5 dias', 0, 0, 'L');
-
         $pdf->SetFont('helvetica', 'B', 9);
+
+        $pdf->Cell(118, 8, '', 0, 0);
         $pdf->Cell(36, 8, 'Subtotal:', 1, 0, 'R');
         $pdf->Cell(36, 8, 'C$ ' . number_format($subtotal, 2), 1, 1, 'R');
 
@@ -150,24 +161,55 @@ class CotizacionVentaPdfService
 
         $pdf->SetFillColor(46, 139, 192);
         $pdf->SetTextColor(255, 255, 255);
+
         $pdf->Cell(118, 9, '', 0, 0);
         $pdf->Cell(36, 9, 'TOTAL:', 1, 0, 'R', true);
         $pdf->Cell(36, 9, 'C$ ' . number_format($total, 2), 1, 1, 'R', true);
     }
 
-    private function pie(TCPDF $pdf): void
+    private function firma(TCPDF $pdf): void
     {
-        $pdf->SetY(-42);
+        if ($pdf->GetY() > 220) {
+            $pdf->AddPage();
+        }
+
+        $pdf->SetY(235);
 
         $pdf->SetTextColor(26, 43, 66);
         $pdf->SetFont('helvetica', '', 9);
 
-        $pdf->Cell(95, 6, 'Elaborar CK a nombre de Luis Joel Garcia', 0, 0, 'L');
-        $pdf->Cell(95, 6, 'Gerente', 0, 1, 'R');
-
-        $pdf->Ln(10);
-
-        $pdf->Cell(95, 6, 'Ing. Luis J. Garcia B.', 0, 0, 'L');
+        $pdf->Cell(95, 6, 'Elaborado por GNET System', 0, 0, 'L');
         $pdf->Cell(95, 6, '____________________________', 0, 1, 'R');
+
+        $pdf->Cell(95, 6, '', 0, 0, 'L');
+        $pdf->Cell(95, 6, 'Autorizado', 0, 1, 'R');
+    }
+
+    private function logoPath(): ?string
+    {
+        $rutas = [
+            public_path('img/gnetlogo.png'),
+            public_path('img/gnetlogo.jpg'),
+            public_path('images/logo.png'),
+            public_path('img/logo.png'),
+            public_path('logo.png'),
+        ];
+
+        foreach ($rutas as $ruta) {
+            if (is_file($ruta)) {
+                return $ruta;
+            }
+        }
+
+        return null;
+    }
+
+    private function cortar(string $texto, int $limite): string
+    {
+        $texto = trim($texto);
+
+        return mb_strlen($texto) <= $limite
+            ? $texto
+            : mb_substr($texto, 0, $limite - 3) . '...';
     }
 }
