@@ -9,9 +9,12 @@ use App\Models\TasaCambio;
 use App\Models\Venta;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
+use Mary\Traits\Toast;
 
 new class extends Component
 {
+    use Toast;
+
     public bool $abrirCajaModal = false;
     public bool $registrarEgresoModal = false;
     public bool $modificarTasaModal = false;
@@ -24,6 +27,7 @@ new class extends Component
     public string $montoApertura = '0.00';
     public string $tasaOficial = '0.00';
     public string $nuevaTasaOficial = '';
+    public string $tasaCambioApertura = '';
 
     public string $monedaEgreso = 'cordoba';
     public string $montoEgresoCordobas = '';
@@ -39,9 +43,6 @@ new class extends Component
 
     public float $totalEgresoCordobas = 0;
     public float $totalEgresoDolares = 0;
-
-    public ?string $mensajeExito = null;
-    public string $tipoNotificacion = 'success';
 
     public array $monedasEgreso = [
         ['id' => 'cordoba', 'name' => 'Córdoba'],
@@ -111,23 +112,12 @@ new class extends Component
 
     private function notificar(string $mensaje, string $tipo = 'success'): void
     {
-        $this->mensajeExito = $mensaje;
-        $this->tipoNotificacion = $tipo;
-    }
-
-    public function cerrarNotificacion(): void
-    {
-        $this->mensajeExito = null;
-        $this->tipoNotificacion = 'success';
-    }
-
-    public function clasesNotificacion(): string
-    {
-        return match ($this->tipoNotificacion) {
-            'error' => 'border-red-200 bg-red-50 text-red-700',
-            'warning' => 'border-yellow-200 bg-yellow-50 text-yellow-700',
-            default => 'border-green-200 bg-green-50 text-green-700',
-        };
+        $this->toast(
+            type: $tipo,
+            title: $mensaje,
+            position: 'toast-top toast-end',
+            timeout: 3500
+        );
     }
 
     private function limpiarTotalesVenta(): void
@@ -376,7 +366,6 @@ new class extends Component
     public function abrirModalCaja(): void
     {
         $this->resetValidation();
-        $this->cerrarNotificacion();
 
         $usuarioId = $this->usuarioActualId();
 
@@ -394,20 +383,26 @@ new class extends Component
             return;
         }
 
+        $this->cargarTasaCambio();
+
         $this->caja = (string) AperturaCaja::siguienteNumeroCajaHoy();
-        $this->montoApertura = '0.00';
+        $this->montoApertura = '';
+        $this->tasaCambioApertura = '';
+
         $this->abrirCajaModal = true;
     }
 
     public function cerrarModalCaja(): void
     {
+        $this->resetValidation();
+
+        $this->tasaCambioApertura = '';
         $this->abrirCajaModal = false;
     }
 
     public function abrirModalEgreso(): void
     {
         $this->resetValidation();
-        $this->cerrarNotificacion();
 
         $this->cargarAperturaAbierta();
         $this->cargarAbonosCreditoHoy();
@@ -446,11 +441,15 @@ new class extends Component
     public function guardarApertura(): void
     {
         $this->validate([
-            'montoApertura' => ['required', 'numeric', 'min:0'],
+            'montoApertura' => ['required', 'numeric', 'min:0.01'],
+            'tasaCambioApertura' => ['nullable', 'numeric', 'min:0.01'],
         ], [
             'montoApertura.required' => 'El monto de apertura es obligatorio.',
             'montoApertura.numeric' => 'El monto de apertura debe ser numérico.',
-            'montoApertura.min' => 'El monto de apertura no puede ser negativo.',
+            'montoApertura.min' => 'El monto de apertura debe ser mayor a C$ 0.00.',
+
+            'tasaCambioApertura.numeric' => 'La tasa de cambio debe ser numérica.',
+            'tasaCambioApertura.min' => 'La tasa de cambio debe ser mayor a 0.',
         ]);
 
         $usuarioId = $this->usuarioActualId();
@@ -460,8 +459,11 @@ new class extends Component
             return;
         }
 
+        $tasaCambioApertura = trim($this->tasaCambioApertura);
+        $actualizoTasaCambio = $tasaCambioApertura !== '';
+
         try {
-            DB::transaction(function () use ($usuarioId) {
+            DB::transaction(function () use ($usuarioId, $tasaCambioApertura, $actualizoTasaCambio) {
                 $aperturaUsuario = AperturaCaja::query()
                     ->abierta()
                     ->deHoy()
@@ -484,6 +486,12 @@ new class extends Component
                     ? ((int) $ultimaCajaHoy->Numero_Caja + 1)
                     : 1;
 
+                if ($actualizoTasaCambio) {
+                    TasaCambio::create([
+                        'Valor_Cambio' => number_format((float) $tasaCambioApertura, 2, '.', ''),
+                    ]);
+                }
+
                 $apertura = AperturaCaja::create([
                     'Id_Usuario' => $usuarioId,
                     'Numero_Caja' => $numeroCaja,
@@ -499,14 +507,22 @@ new class extends Component
             });
 
             $this->abrirCajaModal = false;
+            $this->tasaCambioApertura = '';
 
+            $this->cargarTasaCambio();
             $this->cargarAbonosCreditoHoy();
             $this->cargarPagosVentaHoy();
             $this->cargarEgresosCaja();
 
-            $this->notificar('Caja abierta correctamente.', 'success');
+            $mensaje = $actualizoTasaCambio
+                ? 'Caja abierta correctamente y tasa de cambio actualizada.'
+                : 'Caja abierta correctamente.';
+
+            $this->notificar($mensaje, 'success');
         } catch (RuntimeException $e) {
             $this->abrirCajaModal = false;
+            $this->tasaCambioApertura = '';
+
             $this->cargarAperturaAbierta();
 
             $this->notificar($e->getMessage(), 'warning');
@@ -514,6 +530,8 @@ new class extends Component
             report($e);
 
             $this->abrirCajaModal = false;
+            $this->tasaCambioApertura = '';
+
             $this->cargarAperturaAbierta();
 
             $this->notificar('Ocurrió un error al abrir la caja.', 'error');
@@ -637,7 +655,6 @@ new class extends Component
     public function cerrarCaja(): void
     {
         $this->resetValidation();
-        $this->cerrarNotificacion();
 
         $usuarioId = $this->usuarioActualId();
 
@@ -729,9 +746,11 @@ new class extends Component
                     'Estado_Arqueo' => $estadoArqueo,
                 ]);
 
-                $apertura->update([
-                    'Estado_Apertura' => AperturaCaja::CERRADO,
-                ]);
+                AperturaCaja::query()
+                    ->where('Id_Apertura_Caja', $apertura->Id_Apertura_Caja)
+                    ->update([
+                        'Estado_Apertura' => AperturaCaja::CERRADO,
+                    ]);
             });
 
             $this->cajaAbierta = false;
@@ -849,6 +868,68 @@ new class extends Component
         return $sobrante > 0 ? $sobrante : 0;
     }
 
+    public function detalleDiferenciaCordobas(): array
+    {
+        $faltante = $this->faltanteCordobas();
+        $sobrante = $this->sobranteCordobas();
+
+        if ($faltante > 0) {
+            return [
+                'label' => 'Diferencia en C$',
+                'valor' => 'C$ ' . $this->formatear($faltante),
+                'tipo' => 'faltante',
+                'monto' => $faltante,
+            ];
+        }
+
+        if ($sobrante > 0) {
+            return [
+                'label' => 'Diferencia en C$',
+                'valor' => 'C$ ' . $this->formatear($sobrante),
+                'tipo' => 'sobrante',
+                'monto' => $sobrante,
+            ];
+        }
+
+        return [
+            'label' => 'Diferencia en C$',
+            'valor' => 'C$ 0.00',
+            'tipo' => 'cuadrado',
+            'monto' => 0,
+        ];
+    }
+
+    public function detalleDiferenciaDolares(): array
+    {
+        $faltante = $this->faltanteDolares();
+        $sobrante = $this->sobranteDolares();
+
+        if ($faltante > 0) {
+            return [
+                'label' => 'Diferencia en $',
+                'valor' => '$ ' . $this->formatear($faltante),
+                'tipo' => 'faltante',
+                'monto' => $faltante,
+            ];
+        }
+
+        if ($sobrante > 0) {
+            return [
+                'label' => 'Diferencia en $',
+                'valor' => '$ ' . $this->formatear($sobrante),
+                'tipo' => 'sobrante',
+                'monto' => $sobrante,
+            ];
+        }
+
+        return [
+            'label' => 'Diferencia en $',
+            'valor' => '$ 0.00',
+            'tipo' => 'cuadrado',
+            'monto' => 0,
+        ];
+    }
+
     public function formatear(float|int|string $valor): string
     {
         return number_format((float) $valor, 2, '.', ',');
@@ -869,97 +950,26 @@ new class extends Component
             ['label' => 'Total egresos C$', 'valor' => 'C$ ' . $this->formatear($this->totalEgresoCordobas)],
             ['label' => 'Total egresos $', 'valor' => '$ ' . $this->formatear($this->totalEgresoDolares)],
 
-            ['label' => 'Total en C$', 'valor' => 'C$ ' . $this->formatear($this->totalEsperadoCordobas())],
+            ['label' => 'Total esperado C$', 'valor' => 'C$ ' . $this->formatear($this->totalEsperadoCordobas())],
+            $this->detalleDiferenciaCordobas(),
 
-            [
-                'label' => 'Faltante en C$',
-                'valor' => 'C$ ' . $this->formatear($this->faltanteCordobas()),
-                'tipo' => 'faltante',
-                'monto' => $this->faltanteCordobas(),
-            ],
-
-            [
-                'label' => 'Sobrante en C$',
-                'valor' => 'C$ ' . $this->formatear($this->sobranteCordobas()),
-                'tipo' => 'sobrante',
-                'monto' => $this->sobranteCordobas(),
-            ],
-
-            ['label' => 'Total en $', 'valor' => '$ ' . $this->formatear($this->totalEsperadoDolares())],
-
-            [
-                'label' => 'Faltante en $',
-                'valor' => '$ ' . $this->formatear($this->faltanteDolares()),
-                'tipo' => 'faltante',
-                'monto' => $this->faltanteDolares(),
-            ],
-
-            [
-                'label' => 'Sobrante en $',
-                'valor' => '$ ' . $this->formatear($this->sobranteDolares()),
-                'tipo' => 'sobrante',
-                'monto' => $this->sobranteDolares(),
-            ],
+            ['label' => 'Total esperado $', 'valor' => '$ ' . $this->formatear($this->totalEsperadoDolares())],
+            $this->detalleDiferenciaDolares(),
         ];
     }
 };
+
 ?>
 
 <div class="flex min-h-screen w-full flex-col gap-6 bg-[#F0F3F7] p-4 md:p-6">
-    @once
-        <style>
-            @keyframes toastInRight {
-                from {
-                    opacity: 0;
-                    transform: translateX(120%);
-                }
-
-                to {
-                    opacity: 1;
-                    transform: translateX(0);
-                }
-            }
-        </style>
-    @endonce
-
     @php
         $cardClass = 'rounded-2xl border border-[#D7E4F3] bg-white shadow-sm';
         $softCardClass = 'rounded-xl border border-[#D7E4F3] bg-[#F8FAFC]';
         $inputReadonlyClass = 'w-full rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-[#1A2B42]';
         $inputEditableClass = 'w-full rounded-xl border-[#D7E4F3] bg-white text-[#1A2B42]';
+
+        $modalCloseStableClass = 'backdrop-blur-sm [&_.btn-circle]:!bg-[#F0F3F7] [&_.btn-circle]:!text-[#1A2B42] [&_.btn-circle]:!border-[#D7E4F3] [&_.btn-circle:hover]:!bg-[#F0F3F7] [&_.btn-circle:hover]:!text-[#1A2B42] [&_.btn-circle:hover]:!border-[#D7E4F3] [&_.btn-circle:focus]:!bg-[#F0F3F7] [&_.btn-circle:focus]:!text-[#1A2B42] [&_.btn-circle:focus]:!border-[#D7E4F3] [&_.btn-circle:active]:!bg-[#F0F3F7] [&_.btn-circle:active]:!text-[#1A2B42] [&_.btn-circle:active]:!border-[#D7E4F3]';
     @endphp
-
-    @if ($mensajeExito)
-        <div class="fixed right-4 top-6 z-[9999] w-[calc(100%-2rem)] max-w-sm md:right-6" aria-live="polite">
-            <div
-                class="{{ $this->clasesNotificacion() }} flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-xl"
-                style="animation: toastInRight 0.28s ease-out;"
-            >
-                <div class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/70">
-                    @if ($tipoNotificacion === 'error')
-                        !
-                    @elseif ($tipoNotificacion === 'warning')
-                        ?
-                    @else
-                        ✓
-                    @endif
-                </div>
-
-                <div class="flex-1">
-                    {{ $mensajeExito }}
-                </div>
-
-                <button
-                    type="button"
-                    wire:click="cerrarNotificacion"
-                    class="rounded-full px-2 text-lg leading-none hover:bg-white/70"
-                    aria-label="Cerrar notificación"
-                >
-                    ×
-                </button>
-            </div>
-        </div>
-    @endif
 
     <div class="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <div class="{{ $cardClass }} flex flex-col gap-5 p-5 lg:flex-row lg:items-center lg:justify-between">
@@ -976,7 +986,7 @@ new class extends Component
                 </div>
             </div>
 
-            <div class="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:max-w-md">
+            <div class="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:max-w-xl">
                 <div class="rounded-xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
                     <label class="mb-2 block text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
                         Caja
@@ -995,12 +1005,23 @@ new class extends Component
                         Tasa de cambio
                     </label>
 
-                    <x-input
-                        wire:model="tasaOficial"
-                        readonly
-                        prefix="TC"
-                        class="{{ $inputReadonlyClass }}"
-                    />
+                    <div class="flex items-center gap-2">
+                        <div class="min-w-0 flex-1">
+                            <x-input
+                                wire:model="tasaOficial"
+                                readonly
+                                prefix="TC"
+                                class="{{ $inputReadonlyClass }}"
+                            />
+                        </div>
+
+                        <x-button
+                            icon="o-pencil-square"
+                            wire:click="abrirModalTasa"
+                            title="Modificar tasa de cambio"
+                            class="h-12 min-h-0 rounded-xl border border-[#D7E4F3] bg-white text-[#0B6FE4] hover:bg-[#EAF2FB]"
+                        />
+                    </div>
                 </div>
             </div>
         </div>
@@ -1025,16 +1046,16 @@ new class extends Component
                             $montoDetalle = (float) ($detalle['monto'] ?? 0);
 
                             $valorClass = 'text-sm font-bold text-[#1A2B42]';
-                            $filaClass = 'flex items-center justify-between rounded-xl bg-[#F8FAFC] px-4 py-3';
+                            $filaClass = 'flex items-center justify-between gap-3 rounded-xl bg-[#F8FAFC] px-4 py-3';
 
                             if ($tipoDetalle === 'faltante' && $montoDetalle > 0) {
                                 $valorClass = 'text-sm font-extrabold text-red-600';
-                                $filaClass = 'flex items-center justify-between rounded-xl border border-red-100 bg-red-50 px-4 py-3';
+                                $filaClass = 'flex items-center justify-between gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3';
                             }
 
                             if ($tipoDetalle === 'sobrante' && $montoDetalle > 0) {
                                 $valorClass = 'text-sm font-extrabold text-green-600';
-                                $filaClass = 'flex items-center justify-between rounded-xl border border-green-100 bg-green-50 px-4 py-3';
+                                $filaClass = 'flex items-center justify-between gap-3 rounded-xl border border-green-100 bg-green-50 px-4 py-3';
                             }
                         @endphp
 
@@ -1043,7 +1064,7 @@ new class extends Component
                                 {{ $detalle['label'] }}
                             </span>
 
-                            <span class="{{ $valorClass }}">
+                            <span class="{{ $valorClass }} text-right">
                                 {{ $detalle['valor'] }}
                             </span>
                         </div>
@@ -1150,12 +1171,6 @@ new class extends Component
             />
 
             <x-button
-                label="Modificar tasa de cambio"
-                wire:click="abrirModalTasa"
-                class="border border-[#D7E4F3] bg-white text-[#000000] hover:bg-[#EAF2FB]"
-            />
-
-            <x-button
                 label="Cerrar caja"
                 wire:click="cerrarCaja"
                 class="border-0 bg-[#0B6FE4] text-white hover:opacity-95"
@@ -1165,7 +1180,7 @@ new class extends Component
 
     <x-modal
         wire:model="abrirCajaModal"
-        class="backdrop-blur-sm"
+        class="{{ $modalCloseStableClass }}"
         box-class="max-w-md rounded-2xl border border-[#D7E4F3] bg-white p-0 shadow-2xl"
     >
         <div class="p-6">
@@ -1179,7 +1194,7 @@ new class extends Component
 
                 <div class="text-center">
                     <h2 class="text-xl font-bold text-[#0B6FE4]">Apertura de Caja</h2>
-                    <p class="text-sm text-[#5F6B7A]">Ingresa el monto inicial de la caja</p>
+                    <p class="text-sm text-[#5F6B7A]">Ingresa el monto inicial y la tasa de cambio del día</p>
                 </div>
             </div>
 
@@ -1206,7 +1221,7 @@ new class extends Component
                         <x-input
                             type="number"
                             step="0.01"
-                            min="0"
+                            min="0.01"
                             wire:model="montoApertura"
                             placeholder="0.00"
                             prefix="C$"
@@ -1218,6 +1233,45 @@ new class extends Component
                                 {{ $message }}
                             </span>
                         @enderror
+                    </div>
+
+                    <div class="rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-4">
+                        <div class="grid grid-cols-1 gap-4">
+                            <div>
+                                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
+                                    Tasa actual
+                                </label>
+
+                                <x-input
+                                    wire:model="tasaOficial"
+                                    readonly
+                                    prefix="TC"
+                                    class="{{ $inputReadonlyClass }}"
+                                />
+                            </div>
+
+                            <div>
+                                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
+                                    Nueva tasa de cambio opcional
+                                </label>
+
+                                <x-input
+                                    type="number"
+                                    step="0.01"
+                                    min="0.01"
+                                    wire:model="tasaCambioApertura"
+                                    placeholder="Dejar vacío para no modificar"
+                                    prefix="TC"
+                                    class="{{ $inputEditableClass }}"
+                                />
+
+                                @error('tasaCambioApertura')
+                                    <span class="mt-2 block text-sm font-semibold text-red-600">
+                                        {{ $message }}
+                                    </span>
+                                @enderror
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1242,7 +1296,7 @@ new class extends Component
 
     <x-modal
         wire:model="modificarTasaModal"
-        class="backdrop-blur-sm"
+        class="{{ $modalCloseStableClass }}"
         box-class="max-w-md rounded-2xl border border-[#D7E4F3] bg-white p-0 shadow-2xl"
     >
         <div class="p-6">
@@ -1303,7 +1357,7 @@ new class extends Component
 
     <x-modal
         wire:model="registrarEgresoModal"
-        class="backdrop-blur-sm"
+        class="{{ $modalCloseStableClass }}"
         box-class="max-w-4xl rounded-2xl border border-[#D7E4F3] bg-white p-0 shadow-2xl"
     >
         <div class="p-6">
