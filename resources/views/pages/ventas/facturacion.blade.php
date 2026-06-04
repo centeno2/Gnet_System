@@ -7,7 +7,10 @@ use App\Models\TarifaCopia;
 use App\Models\TasaCambio;
 use App\Models\Usuario;
 use App\Models\Venta;
+use App\Services\Ventas\ThermalPrintService;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Mary\Traits\Toast;
@@ -631,14 +634,52 @@ new class extends Component
         $this->modalCobro = false;
     }
 
-    public function guardarVenta(): void
+    public function generarCotizacion()
+    {
+        $this->resetErrorBag();
+        $this->cargarTasaCambio();
+
+        if (! $this->tasaCambioValida()) {
+            $this->mostrarToast('Debe registrar una tasa de cambio válida antes de generar la cotización.', 'error');
+            return null;
+        }
+
+        if (count($this->detalleVenta) === 0) {
+            $this->mostrarToast('Agregue al menos un item para generar la cotización.', 'error');
+            return null;
+        }
+
+        if (! $this->clienteSeleccionadoValidoParaVenta()) {
+            $this->mostrarToast($this->mensajeClienteNoPermitido(), 'error');
+            return null;
+        }
+
+        $key = (string) Str::uuid();
+
+        Cache::put('cotizacion_venta_' . $key, [
+            'cliente' => $this->clienteNombre,
+            'municipio' => $this->tipoVenta === self::TIPO_CREDITO ? $this->departamentoMunicipio : '',
+            'tipo_venta' => $this->tipoVenta,
+            'tipo_cambio' => $this->tasaCambio(),
+            'subtotal' => $this->subtotalVenta(),
+            'descuento' => $this->descuentoVenta(),
+            'total' => $this->totalVenta(),
+            'items' => array_values($this->detalleVenta),
+        ], now()->addMinutes(20));
+
+        return redirect()->route('ventas.cotizacion', [
+            'key' => $key,
+        ]);
+    }
+
+    public function guardarVenta()
     {
         $this->resetErrorBag();
         $this->cargarTasaCambio();
 
         if (! $this->tasaCambioValida()) {
             $this->mostrarToast('Debe registrar una tasa de cambio válida desde Arqueo de caja antes de guardar la venta.', 'error');
-            return;
+            return null;
         }
 
         $total = $this->totalVenta();
@@ -654,7 +695,7 @@ new class extends Component
 
         if ($this->tipoVenta === self::TIPO_CONTADO && $totalPagado < $total) {
             $this->mostrarToast('El monto recibido no puede ser menor que el total.', 'error');
-            return;
+            return null;
         }
 
         if (
@@ -664,7 +705,7 @@ new class extends Component
             trim($this->referenciaCordobas) === ''
         ) {
             $this->mostrarToast('Ingrese el número de referencia del pago en córdobas.', 'error');
-            return;
+            return null;
         }
 
         if (
@@ -674,12 +715,12 @@ new class extends Component
             trim($this->referenciaDolares) === ''
         ) {
             $this->mostrarToast('Ingrese el número de referencia del pago en dólares.', 'error');
-            return;
+            return null;
         }
 
         if (! $this->clienteSeleccionadoValidoParaVenta()) {
             $this->mostrarToast($this->mensajeClienteNoPermitido(), 'error');
-            return;
+            return null;
         }
 
         try {
@@ -703,7 +744,7 @@ new class extends Component
                     'Id_Cliente' => $this->clienteId,
                     'Id_Usuario' => $idUsuario,
                     'Tipo_Venta' => $this->tipoVenta,
-                    'Estado' => Venta::ESTADO_ACTIVA ?? 1,
+                    'Estado' => defined(Venta::class . '::ESTADO_ACTIVA') ? Venta::ESTADO_ACTIVA : 1,
                     'Descuento' => $descuento,
                     'Total' => $total,
                     'Tipo_Cambio' => $this->tasaCambio(),
@@ -856,13 +897,38 @@ new class extends Component
             $this->limpiarVentaActual();
             $this->cerrarModalCobro();
 
-            $this->mostrarToast('Venta guardada correctamente. Factura: ' . $resultado['numero_factura']);
+            if ($this->impresionTermicaActiva()) {
+                try {
+                    app(ThermalPrintService::class)->imprimirVenta($resultado['id_venta']);
+
+                    $this->mostrarToast('Venta guardada y enviada a impresión. Factura: ' . $resultado['numero_factura']);
+                } catch (\Throwable $impresionError) {
+                    $this->mostrarToast(
+                        'Venta guardada, pero no se pudo imprimir el voucher: ' . $impresionError->getMessage(),
+                        'warning'
+                    );
+                }
+            } else {
+                $this->mostrarToast(
+                    'Venta guardada correctamente. Impresión térmica desactivada. Factura: ' . $resultado['numero_factura'],
+                    'warning'
+                );
+            }
+
+            return null;
         } catch (ValidationException $e) {
             $mensaje = collect($e->errors())->flatten()->first() ?: 'No se pudo guardar la venta.';
             $this->mostrarToast($mensaje, 'error');
+            return null;
         } catch (\Throwable $e) {
             $this->mostrarToast('Error al guardar la venta: ' . $e->getMessage(), 'error');
+            return null;
         }
+    }
+
+    protected function impresionTermicaActiva(): bool
+    {
+        return filter_var(env('THERMAL_PRINT_ENABLED', false), FILTER_VALIDATE_BOOLEAN);
     }
 
     protected function limpiarVentaActual(): void
@@ -1242,28 +1308,11 @@ new class extends Component
 
     protected function mostrarToast(string $mensaje, string $tipo = 'success'): void
     {
-        // MODIFICADO: ahora usa los toast temporales de MaryUI para que desaparezcan automáticamente.
         match ($tipo) {
-            'error' => $this->error(
-                $mensaje,
-                position: 'toast-top toast-end',
-                timeout: 3500
-            ),
-            'warning' => $this->warning(
-                $mensaje,
-                position: 'toast-top toast-end',
-                timeout: 3000
-            ),
-            'info' => $this->info(
-                $mensaje,
-                position: 'toast-top toast-end',
-                timeout: 2500
-            ),
-            default => $this->success(
-                $mensaje,
-                position: 'toast-top toast-end',
-                timeout: 2500
-            ),
+            'error' => $this->error($mensaje, position: 'toast-top toast-end', timeout: 3500),
+            'warning' => $this->warning($mensaje, position: 'toast-top toast-end', timeout: 3000),
+            'info' => $this->info($mensaje, position: 'toast-top toast-end', timeout: 2500),
+            default => $this->success($mensaje, position: 'toast-top toast-end', timeout: 2500),
         };
     }
 };
@@ -1282,13 +1331,9 @@ new class extends Component
             </div>
 
             <div class="flex flex-wrap gap-2">
-                @if ($ultimaVentaId && $ultimoTipoVenta === 'CONTADO' &&
-                \Illuminate\Support\Facades\Route::has('ventas.factura'))
-                <a href="{{ route('ventas.factura', $ultimaVentaId) }}" target="_blank"
-                    class="inline-flex h-10 items-center justify-center rounded-xl bg-[#0E48A1] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0B6FE4]">
-                    Imprimir última factura
-                </a>
-                @endif
+                <x-button icon="o-document-text" label="Cotización" wire:click="generarCotizacion"
+                    spinner="generarCotizacion"
+                    class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] shadow-sm hover:bg-[#F8FAFC]" />
 
                 <button type="button" wire:click="cambiarTipoVenta('CONTADO')"
                     class="{{ $tipoVenta === 'CONTADO' ? 'bg-[#0B6FE4] text-white shadow-sm' : 'bg-white text-[#1A2B42]' }} inline-flex h-10 items-center justify-center rounded-xl border border-[#D7E4F3] px-5 text-sm font-semibold transition">
@@ -1651,9 +1696,7 @@ new class extends Component
 
             @if (in_array($tipoPagoCordobas, ['TRANSFERENCIA', 'TARJETA'], true))
             <div class="md:col-span-2">
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                    Referencia C$
-                </label>
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Referencia C$</label>
                 <x-input wire:model.live.debounce.250ms="referenciaCordobas" type="text"
                     placeholder="{{ $tipoPagoCordobas === 'TRANSFERENCIA' ? 'Número de transferencia' : 'Número de autorización / voucher' }}"
                     class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
@@ -1678,9 +1721,7 @@ new class extends Component
 
             @if (in_array($tipoPagoDolares, ['TRANSFERENCIA', 'TARJETA'], true))
             <div class="md:col-span-2">
-                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
-                    Referencia US$
-                </label>
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Referencia US$</label>
                 <x-input wire:model.live.debounce.250ms="referenciaDolares" type="text"
                     placeholder="{{ $tipoPagoDolares === 'TRANSFERENCIA' ? 'Número de transferencia' : 'Número de autorización / voucher' }}"
                     class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />

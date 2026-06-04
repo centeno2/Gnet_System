@@ -9,6 +9,8 @@ use App\Http\Controllers\Reportes\OtrasSalidasReporteController;
 use App\Http\Controllers\Reportes\CreditosInstitucionalesReporteController;
 use App\Http\Controllers\Reportes\DevolucionesReporteController;
 use App\Http\Controllers\Reportes\ArqueosCajaReporteController;
+use App\Http\Controllers\Ventas\CotizacionVoucherController;
+use App\Http\Controllers\Ventas\VentaVoucherController;
 
 Route::get('/', function () {
     return auth()->check()
@@ -125,6 +127,13 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
 
     Route::get('/reportes/arqueos-caja/word', [ArqueosCajaReporteController::class, 'word'])
         ->name('reportes.arqueos-caja.word');
+
+    //vouchers
+    Route::get('/ventas/cotizacion/{key}', [CotizacionVoucherController::class, 'show'])
+        ->name('ventas.cotizacion');
+
+    Route::get('/ventas/voucher/{venta}', [VentaVoucherController::class, 'show'])
+        ->name('ventas.voucher');
 
 });
 
