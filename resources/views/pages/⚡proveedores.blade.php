@@ -6,9 +6,13 @@ use App\Models\Proveedor;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Symfony\Component\Intl\Countries;
+use Livewire\WithPagination;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 new class extends Component
 {
+    use WithPagination;
+
     public bool $esInstitucional = false;
 
     public string $nombres = '';
@@ -511,67 +515,70 @@ new class extends Component
             'texto' => $texto,
         ];
     }
+    public function proveedores(): LengthAwarePaginator
+{
+    return Proveedor::query()
+        ->with('persona')
+        ->when(filled($this->buscar), function ($query) {
+            $buscar = '%' . trim($this->buscar) . '%';
 
-    public function proveedores(): array
+            $query->where(function ($q) use ($buscar) {
+                $q->where('Empresa', 'like', $buscar)
+                    ->orWhere('Telefono_Empresa', 'like', $buscar)
+                    ->orWhere('Direccion_Empresa', 'like', $buscar)
+                    ->orWhere('Correo_Empresa', 'like', $buscar)
+                    ->orWhere('Codigo_Ruc', 'like', $buscar)
+                    ->orWhere('Nacionalidad', 'like', $buscar)
+                    ->orWhereHas('persona', function ($personaQuery) use ($buscar) {
+                        $personaQuery
+                            ->where('Primer_Nombre', 'like', $buscar)
+                            ->orWhere('Segundo_Nombre', 'like', $buscar)
+                            ->orWhere('Primer_Apellido', 'like', $buscar)
+                            ->orWhere('Segundo_Apellido', 'like', $buscar)
+                            ->orWhere('Telefono', 'like', $buscar)
+                            ->orWhere('Direccion', 'like', $buscar);
+                    });
+            });
+        })
+        ->orderByDesc('Id_Proveedor')
+        ->paginate(10)
+        ->through(function (Proveedor $proveedor) {
+            $esInstitucional = $proveedor->esEmpresa();
+            $persona = $proveedor->persona;
+
+            $nombreCompleto = $this->limpiarTexto(
+                trim(
+                    ($persona?->Primer_Nombre ?? '') . ' ' .
+                    ($persona?->Segundo_Nombre ?? '') . ' ' .
+                    ($persona?->Primer_Apellido ?? '') . ' ' .
+                    ($persona?->Segundo_Apellido ?? '')
+                )
+            );
+
+            return [
+                'id' => (int) $proveedor->Id_Proveedor,
+                'type' => $esInstitucional ? 'Institucional' : 'Personal',
+                'full_name' => $esInstitucional
+                    ? ($proveedor->Empresa ?: 'Sin institución')
+                    : ($nombreCompleto !== '' ? $nombreCompleto : 'Sin nombre'),
+                'phone' => $esInstitucional
+                    ? ($proveedor->Telefono_Empresa ?: '—')
+                    : ($persona?->Telefono ?: '—'),
+                'email' => $proveedor->Correo_Empresa ?: '—',
+                'address' => $esInstitucional
+                    ? ($proveedor->Direccion_Empresa ?: '—')
+                    : ($persona?->Direccion ?: '—'),
+                'ruc' => $proveedor->Codigo_Ruc ?? '—',
+                'nationality' => $proveedor->Nacionalidad ?? '—',
+                'status' => $proveedor->Estado ? 'Activo' : 'Inactivo',
+                'acciones' => '',
+            ];
+        });
+}        
+
+    public function updatedBuscar(): void
     {
-        return Proveedor::query()
-            ->with('persona')
-            ->when(filled($this->buscar), function ($query) {
-                $buscar = '%' . trim($this->buscar) . '%';
-
-                $query->where(function ($q) use ($buscar) {
-                    $q->where('Empresa', 'like', $buscar)
-                        ->orWhere('Telefono_Empresa', 'like', $buscar)
-                        ->orWhere('Direccion_Empresa', 'like', $buscar)
-                        ->orWhere('Correo_Empresa', 'like', $buscar)
-                        ->orWhere('Codigo_Ruc', 'like', $buscar)
-                        ->orWhere('Nacionalidad', 'like', $buscar)
-                        ->orWhereHas('persona', function ($personaQuery) use ($buscar) {
-                            $personaQuery
-                                ->where('Primer_Nombre', 'like', $buscar)
-                                ->orWhere('Segundo_Nombre', 'like', $buscar)
-                                ->orWhere('Primer_Apellido', 'like', $buscar)
-                                ->orWhere('Segundo_Apellido', 'like', $buscar)
-                                ->orWhere('Telefono', 'like', $buscar)
-                                ->orWhere('Direccion', 'like', $buscar);
-                        });
-                });
-            })
-            ->orderByDesc('Id_Proveedor')
-            ->get()
-            ->map(function (Proveedor $proveedor) {
-                $esInstitucional = $proveedor->esEmpresa();
-                $persona = $proveedor->persona;
-
-                $nombreCompleto = $this->limpiarTexto(
-                    trim(
-                        ($persona?->Primer_Nombre ?? '') . ' ' .
-                        ($persona?->Segundo_Nombre ?? '') . ' ' .
-                        ($persona?->Primer_Apellido ?? '') . ' ' .
-                        ($persona?->Segundo_Apellido ?? '')
-                    )
-                );
-
-                return [
-                    'id' => (int) $proveedor->Id_Proveedor,
-                    'type' => $esInstitucional ? 'Institucional' : 'Personal',
-                    'full_name' => $esInstitucional
-                        ? ($proveedor->Empresa ?: 'Sin institución')
-                        : ($nombreCompleto !== '' ? $nombreCompleto : 'Sin nombre'),
-                    'phone' => $esInstitucional
-                        ? ($proveedor->Telefono_Empresa ?: '—')
-                        : ($persona?->Telefono ?: '—'),
-                    'email' => $proveedor->Correo_Empresa ?: '—',
-                    'address' => $esInstitucional
-                        ? ($proveedor->Direccion_Empresa ?: '—')
-                        : ($persona?->Direccion ?: '—'),
-                    'ruc' => $proveedor->Codigo_Ruc ?? '—',
-                    'nationality' => $proveedor->Nacionalidad ?? '—',
-                    'status' => $proveedor->Estado ? 'Activo' : 'Inactivo',
-                    'acciones' => '',
-                ];
-            })
-            ->toArray();
+        $this->resetPage();
     }
 };
 ?>
@@ -773,7 +780,7 @@ new class extends Component
                 class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
         </div>
 
-        <x-table :headers="$headers" :rows="$proveedores"
+        <x-table :headers="$headers" :rows="$proveedores"     with-pagination
             class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr:hover]:bg-[#F7F9FC]">
             @scope('cell_full_name', $row)
             <span class="block min-w-[220px] whitespace-nowrap font-medium text-[#1A2B42]">
