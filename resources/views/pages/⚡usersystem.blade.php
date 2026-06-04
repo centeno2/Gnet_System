@@ -6,9 +6,12 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
+use Livewire\WithPagination;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 new class extends Component
 {
+    use WithPagination;
     public string $idTrabajador = '';
     public string $nombreUsuario = '';
     public string $correo = '';
@@ -30,7 +33,6 @@ new class extends Component
     public bool $mostrarToast = false;
 
     public array $trabajadores = [];
-    public array $usuarios = [];
 
     public array $headers = [
         ['key' => 'trabajador', 'label' => 'Trabajador'],
@@ -43,12 +45,11 @@ new class extends Component
     public function mount(): void
     {
         $this->cargarTrabajadores();
-        $this->cargarUsuarios();
     }
 
     public function updatedBuscar(): void
     {
-        $this->cargarUsuarios();
+        $this->resetPage();
     }
 
     public function updatedIdTrabajador(): void
@@ -151,7 +152,6 @@ new class extends Component
 
         $this->resetFormularioUsuario();
         $this->cargarTrabajadores();
-        $this->cargarUsuarios();
 
         $this->mostrarToast('Usuario guardado correctamente.');
     }
@@ -259,7 +259,6 @@ new class extends Component
         ]);
 
         $this->cerrarModalEditarUsuario();
-        $this->cargarUsuarios();
 
         $this->mostrarToast('Usuario actualizado correctamente.');
     }
@@ -275,8 +274,6 @@ new class extends Component
 
         $usuario->Estado = (int) $usuario->Estado === 1 ? 0 : 1;
         $usuario->save();
-
-        $this->cargarUsuarios();
 
         $mensaje = (int) $usuario->Estado === 1
             ? 'Usuario activado correctamente.'
@@ -323,34 +320,30 @@ new class extends Component
         }
     }
 
-    protected function cargarUsuarios(): void
+    public function usuarios(): LengthAwarePaginator
     {
         $busqueda = trim($this->buscar);
 
-        $query = Usuario::query()
+        return Usuario::query()
             ->with(['trabajador.persona', 'trabajador.cargo'])
-            ->orderByDesc('Id_Usuario');
-
-        if ($busqueda !== '') {
-            $query->where(function ($q) use ($busqueda) {
-                $q->where('Nombre_Usuario', 'like', "%{$busqueda}%")
-                    ->orWhere('Correo', 'like', "%{$busqueda}%")
-                    ->orWhereHas('trabajador.persona', function ($personaQuery) use ($busqueda) {
-                        $personaQuery->where('Primer_Nombre', 'like', "%{$busqueda}%")
-                            ->orWhere('Segundo_Nombre', 'like', "%{$busqueda}%")
-                            ->orWhere('Primer_Apellido', 'like', "%{$busqueda}%")
-                            ->orWhere('Segundo_Apellido', 'like', "%{$busqueda}%");
-                    })
-                    ->orWhereHas('trabajador.cargo', function ($cargoQuery) use ($busqueda) {
-                        $cargoQuery->where('Cargo_Asignado', 'like', "%{$busqueda}%");
-                    });
-            });
-        }
-
-        $this->usuarios = $query
-            ->limit(25)
-            ->get()
-            ->map(function ($usuario) {
+            ->when($busqueda !== '', function ($query) use ($busqueda) {
+                $query->where(function ($q) use ($busqueda) {
+                    $q->where('Nombre_Usuario', 'like', "%{$busqueda}%")
+                        ->orWhere('Correo', 'like', "%{$busqueda}%")
+                        ->orWhereHas('trabajador.persona', function ($personaQuery) use ($busqueda) {
+                            $personaQuery->where('Primer_Nombre', 'like', "%{$busqueda}%")
+                                ->orWhere('Segundo_Nombre', 'like', "%{$busqueda}%")
+                                ->orWhere('Primer_Apellido', 'like', "%{$busqueda}%")
+                                ->orWhere('Segundo_Apellido', 'like', "%{$busqueda}%");
+                        })
+                        ->orWhereHas('trabajador.cargo', function ($cargoQuery) use ($busqueda) {
+                            $cargoQuery->where('Cargo_Asignado', 'like', "%{$busqueda}%");
+                        });
+                });
+            })
+            ->orderByDesc('Id_Usuario')
+            ->paginate(10)
+            ->through(function (Usuario $usuario) {
                 return [
                     'id_usuario' => $usuario->Id_Usuario,
                     'trabajador' => $this->nombreTrabajador($usuario->trabajador),
@@ -359,8 +352,7 @@ new class extends Component
                     'correo' => $usuario->Correo ?: '—',
                     'status' => (int) $usuario->Estado === 1 ? 'Activo' : 'Inactivo',
                 ];
-            })
-            ->toArray();
+            });
     }
 
     protected function nombreTrabajador($trabajador): string
@@ -561,10 +553,15 @@ new class extends Component
             />
         </div>
 
+        @php
+            $usuarios = $this->usuarios();
+        @endphp
+
         <x-table
             :headers="$headers"
             :rows="$usuarios"
             no-hover
+            with-pagination
             show-empty-text
             empty-text="No hay usuarios registrados."
             class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr]:bg-white! [&_tbody_tr:nth-child(even)]:bg-[#F8FBFF]! [&_tbody_tr:hover]:bg-[#EAF4FD]! [&_tbody_tr]:text-[#1A2B42]!"
