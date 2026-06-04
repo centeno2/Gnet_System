@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use Mary\Traits\Toast;
 
@@ -10,6 +11,7 @@ new class extends Component
     public string $ventasDesde = '';
     public string $ventasHasta = '';
     public string $ventasUsuarioId = '';
+    public array $ventasUsuariosOpciones = [];
 
     public string $devDesde = '';
     public string $devHasta = '';
@@ -20,17 +22,18 @@ new class extends Component
 
     public string $arqDesde = '';
     public string $arqHasta = '';
-    public string $arqUsuarioId = '';
-
-    public string $morososFecha = '';
-    public string $morososMin = '1';
+    public string $arqUsuarioId = '0';
+    public array $arqCajerosOpciones = [];
 
     public string $salDesde = '';
     public string $salHasta = '';
-    public string $salMotivo = '';
+    public string $salTipoSalida = '';
+    public array $salTiposSalidaOpciones = [];
 
     public string $credDesde = '';
     public string $credHasta = '';
+    public string $credClienteId = '';
+    public array $credInstitucionesOpciones = [];
 
     public bool $visorActivo = false;
     public string $visorTitulo = '';
@@ -52,14 +55,137 @@ new class extends Component
 
         $this->arqDesde = $inicioMes;
         $this->arqHasta = $hoy;
-
-        $this->morososFecha = $hoy;
+        $this->arqUsuarioId = '0';
 
         $this->salDesde = $inicioMes;
         $this->salHasta = $hoy;
 
         $this->credDesde = $inicioMes;
         $this->credHasta = $hoy;
+
+        $this->cargarUsuariosVentas();
+        $this->cargarCajerosArqueo();
+        $this->cargarTiposSalidas();
+        $this->cargarInstitucionesCredito();
+    }
+
+    private function cargarUsuariosVentas(): void
+    {
+        $usuarios = DB::table('usuario as u')
+            ->join('trabajador as t', 't.Id_Trabajador', '=', 'u.Id_Trabajador')
+            ->join('cargo as ca', 'ca.Id_Cargo', '=', 't.Id_Cargo')
+            ->leftJoin('persona as p', 'p.Id_Persona', '=', 't.Id_Persona')
+            ->where('u.Estado', 1)
+            ->where('t.Estado', 1)
+            ->where('ca.Cargo_Asignado', 'like', 'Cajer%')
+            ->orderBy('u.Nombre_Usuario')
+            ->selectRaw("
+                u.Id_Usuario as id,
+                COALESCE(
+                    NULLIF(TRIM(CONCAT_WS(' ', p.Primer_Nombre, p.Segundo_Nombre, p.Primer_Apellido, p.Segundo_Apellido)), ''),
+                    u.Nombre_Usuario
+                ) as name
+            ")
+            ->get()
+            ->map(fn ($usuario) => [
+                'id' => (string) $usuario->id,
+                'name' => (string) $usuario->name,
+            ])
+            ->values()
+            ->toArray();
+
+        array_unshift($usuarios, [
+            'id' => '',
+            'name' => 'General / todos los cajeros',
+        ]);
+
+        $this->ventasUsuariosOpciones = $usuarios;
+    }
+
+    private function cargarCajerosArqueo(): void
+    {
+        $cajeros = DB::table('usuario as u')
+            ->join('trabajador as t', 't.Id_Trabajador', '=', 'u.Id_Trabajador')
+            ->join('cargo as ca', 'ca.Id_Cargo', '=', 't.Id_Cargo')
+            ->leftJoin('persona as p', 'p.Id_Persona', '=', 't.Id_Persona')
+            ->where('u.Estado', 1)
+            ->where('t.Estado', 1)
+            ->where('ca.Cargo_Asignado', 'like', 'Cajer%')
+            ->orderBy('u.Nombre_Usuario')
+            ->selectRaw("
+                u.Id_Usuario as id,
+                COALESCE(
+                    NULLIF(TRIM(CONCAT_WS(' ', p.Primer_Nombre, p.Segundo_Nombre, p.Primer_Apellido, p.Segundo_Apellido)), ''),
+                    u.Nombre_Usuario
+                ) as name
+            ")
+            ->get()
+            ->map(fn ($cajero) => [
+                'id' => (string) $cajero->id,
+                'name' => (string) $cajero->name,
+            ])
+            ->values()
+            ->toArray();
+
+        array_unshift($cajeros, [
+            'id' => '0',
+            'name' => 'General / todos los cajeros',
+        ]);
+
+        $this->arqCajerosOpciones = $cajeros;
+    }
+
+    private function cargarTiposSalidas(): void
+    {
+        try {
+            $tipos = DB::table('vw_reporte_otras_salidas')
+                ->select('Tipo_Movimiento as id', 'Tipo_Movimiento_Nombre as name')
+                ->distinct()
+                ->orderBy('Tipo_Movimiento_Nombre')
+                ->get()
+                ->map(fn ($tipo) => [
+                    'id' => (string) $tipo->id,
+                    'name' => (string) $tipo->name,
+                ])
+                ->values()
+                ->toArray();
+        } catch (\Throwable) {
+            $tipos = [];
+        }
+
+        array_unshift($tipos, [
+            'id' => '',
+            'name' => 'General / todos los tipos',
+        ]);
+
+        $this->salTiposSalidaOpciones = $tipos;
+    }
+
+    private function cargarInstitucionesCredito(): void
+    {
+        $instituciones = DB::table('cliente as c')
+            ->where('c.Estado', 1)
+            ->where('c.Tipo_Cliente', 2)
+            ->where('c.Tipo_pago', 2)
+            ->orderBy('c.Institucion')
+            ->selectRaw("
+                c.Id_Cliente as id,
+                COALESCE(NULLIF(TRIM(c.Institucion), ''), CONCAT('Institución #', c.Id_Cliente)) as name
+            ")
+            ->get()
+            ->map(fn ($institucion) => [
+                'id' => (string) $institucion->id,
+                'name' => (string) $institucion->name,
+            ])
+            ->values()
+            ->toArray();
+
+        array_unshift($instituciones, [
+            'id' => '',
+            'name' => 'Selecciona una institución',
+        ]);
+
+        $this->credInstitucionesOpciones = $instituciones;
     }
 
     public function generarReporte(string $reporte, string $formato = 'pdf')
@@ -69,10 +195,9 @@ new class extends Component
             'devoluciones' => $this->generarDevoluciones($formato),
             'proveedores' => $this->generarProveedores($formato),
             'arqueo' => $this->generarArqueo($formato),
-            'morosos' => $this->generarMorosos($formato),
             'inventario' => $this->generarInventario($formato),
+            'stock-proximo' => $this->generarStockProximoAgotarse($formato),
             'salidas' => $this->generarSalidas($formato),
-            'agotados' => $this->generarAgotados($formato),
             'creditos' => $this->generarCreditos($formato),
             default => $this->mostrarToast('Reporte no disponible.', 'error'),
         };
@@ -84,9 +209,9 @@ new class extends Component
 
         $this->ventasUsuarioId = '';
         $this->provFiltro = '';
-        $this->arqUsuarioId = '';
-        $this->morososMin = '1';
-        $this->salMotivo = '';
+        $this->arqUsuarioId = '0';
+        $this->salTipoSalida = '';
+        $this->credClienteId = '';
 
         $this->cerrarVisor();
 
@@ -106,20 +231,26 @@ new class extends Component
             [
                 'id' => 'ventas',
                 'titulo' => 'Ventas',
-                'descripcion' => 'Ventas por fecha y usuario.',
+                'descripcion' => 'Ventas por periodo y cajero.',
                 'icono' => 'o-chart-bar',
                 'color' => 'azul',
                 'boton' => 'Generar',
                 'campos' => [
                     ['tipo' => 'date', 'label' => 'Inicial', 'model' => 'ventasDesde'],
                     ['tipo' => 'date', 'label' => 'Final', 'model' => 'ventasHasta'],
-                    ['tipo' => 'text', 'label' => 'Usuario', 'model' => 'ventasUsuarioId', 'placeholder' => 'ID opcional', 'span' => 'sm:col-span-2'],
+                    [
+                        'tipo' => 'select',
+                        'label' => 'Cajero',
+                        'model' => 'ventasUsuarioId',
+                        'opciones' => 'ventasUsuariosOpciones',
+                        'span' => 'sm:col-span-2',
+                    ],
                 ],
             ],
             [
                 'id' => 'devoluciones',
                 'titulo' => 'Devoluciones',
-                'descripcion' => 'Control de devoluciones.',
+                'descripcion' => 'Devoluciones por rango de fechas.',
                 'icono' => 'o-arrow-path',
                 'color' => 'azul',
                 'boton' => 'Generar',
@@ -138,32 +269,32 @@ new class extends Component
                 'campos' => [
                     ['tipo' => 'date', 'label' => 'Inicial', 'model' => 'provDesde'],
                     ['tipo' => 'date', 'label' => 'Final', 'model' => 'provHasta'],
-                    ['tipo' => 'text', 'label' => 'Proveedor', 'model' => 'provFiltro', 'placeholder' => 'Nombre o RUC', 'span' => 'sm:col-span-2'],
+                    [
+                        'tipo' => 'text',
+                        'label' => 'Proveedor',
+                        'model' => 'provFiltro',
+                        'placeholder' => 'Nombre o RUC',
+                        'span' => 'sm:col-span-2',
+                    ],
                 ],
             ],
             [
                 'id' => 'arqueo',
                 'titulo' => 'Arqueos de caja',
-                'descripcion' => 'Caja por fecha y usuario.',
+                'descripcion' => 'Caja por periodo y cajero.',
                 'icono' => 'o-banknotes',
                 'color' => 'azul',
                 'boton' => 'Generar',
                 'campos' => [
                     ['tipo' => 'date', 'label' => 'Inicial', 'model' => 'arqDesde'],
                     ['tipo' => 'date', 'label' => 'Final', 'model' => 'arqHasta'],
-                    ['tipo' => 'text', 'label' => 'Usuario', 'model' => 'arqUsuarioId', 'placeholder' => 'ID opcional', 'span' => 'sm:col-span-2'],
-                ],
-            ],
-            [
-                'id' => 'morosos',
-                'titulo' => 'Clientes morosos',
-                'descripcion' => 'Créditos pendientes.',
-                'icono' => 'o-exclamation-triangle',
-                'color' => 'rojo',
-                'boton' => 'Generar',
-                'campos' => [
-                    ['tipo' => 'date', 'label' => 'Corte', 'model' => 'morososFecha'],
-                    ['tipo' => 'number', 'label' => 'Días mora', 'model' => 'morososMin', 'placeholder' => '1'],
+                    [
+                        'tipo' => 'select',
+                        'label' => 'Cajero',
+                        'model' => 'arqUsuarioId',
+                        'opciones' => 'arqCajerosOpciones',
+                        'span' => 'sm:col-span-2',
+                    ],
                 ],
             ],
             [
@@ -177,47 +308,139 @@ new class extends Component
                 'campos' => [],
             ],
             [
+                'id' => 'stock-proximo',
+                'titulo' => 'Stock próximo',
+                'descripcion' => 'Productos con stock igual o menor al mínimo.',
+                'icono' => 'o-exclamation-triangle',
+                'color' => 'ambar',
+                'boton' => 'Generar',
+                'sin_filtros' => 'Productos próximos a agotarse',
+                'campos' => [],
+            ],
+            [
                 'id' => 'salidas',
                 'titulo' => 'Otras salidas',
-                'descripcion' => 'Salidas por motivo.',
+                'descripcion' => 'Salidas por fecha y tipo de movimiento.',
                 'icono' => 'o-arrow-up-tray',
                 'color' => 'azul',
                 'boton' => 'Generar',
                 'campos' => [
                     ['tipo' => 'date', 'label' => 'Inicial', 'model' => 'salDesde'],
                     ['tipo' => 'date', 'label' => 'Final', 'model' => 'salHasta'],
-                    ['tipo' => 'text', 'label' => 'Motivo', 'model' => 'salMotivo', 'placeholder' => 'Vacío = todos', 'span' => 'sm:col-span-2'],
+                    [
+                        'tipo' => 'select',
+                        'label' => 'Tipo movimiento',
+                        'model' => 'salTipoSalida',
+                        'opciones' => 'salTiposSalidaOpciones',
+                        'span' => 'sm:col-span-2',
+                    ],
                 ],
             ],
             [
-                'id' => 'agotados',
-                'titulo' => 'Stock',
-                'descripcion' => 'Productos agotados.',
-                'icono' => 'o-archive-box',
-                'color' => 'ambar',
-                'boton' => 'Generar',
-                'sin_filtros' => 'Todos / Agotados',
-                'campos' => [],
-            ],
-            [
                 'id' => 'creditos',
-                'titulo' => 'Ventas al crédito',
-                'descripcion' => 'Créditos por periodo.',
+                'titulo' => 'Créditos institucionales',
+                'descripcion' => 'Detalle por institución y periodo.',
                 'icono' => 'o-credit-card',
                 'color' => 'azul',
                 'boton' => 'Generar',
                 'campos' => [
                     ['tipo' => 'date', 'label' => 'Inicial', 'model' => 'credDesde'],
                     ['tipo' => 'date', 'label' => 'Final', 'model' => 'credHasta'],
+                    [
+                        'tipo' => 'select',
+                        'label' => 'Institución',
+                        'model' => 'credClienteId',
+                        'opciones' => 'credInstitucionesOpciones',
+                        'span' => 'sm:col-span-2',
+                    ],
                 ],
             ],
         ];
     }
 
+    private function generarVentas(string $formato)
+    {
+        if (! $this->rangoValido($this->ventasDesde, $this->ventasHasta, 'ventas')) {
+            return null;
+        }
+
+        if (trim($this->ventasUsuarioId) !== '' && ! ctype_digit(trim($this->ventasUsuarioId))) {
+            $this->mostrarToast('Seleccione un cajero válido.', 'error');
+            return null;
+        }
+
+        $parametros = $this->parametrosLimpios([
+            'desde' => $this->ventasDesde,
+            'hasta' => $this->ventasHasta,
+            'usuarioId' => trim($this->ventasUsuarioId),
+        ]);
+
+        return match ($formato) {
+            'pdf' => $this->abrirVisor(
+                'Ventas por periodo',
+                route('reportes.ventas-periodo.pdf', $parametros) . '#toolbar=1&navpanes=0&view=FitH'
+            ),
+            'excel' => redirect()->to(route('reportes.ventas-periodo.excel', $parametros)),
+            'word' => redirect()->to(route('reportes.ventas-periodo.word', $parametros)),
+            default => $this->mostrarToast('Formato no disponible.', 'error'),
+        };
+    }
+
+    private function generarDevoluciones(string $formato)
+    {
+        if (! $this->rangoValido($this->devDesde, $this->devHasta, 'devoluciones')) {
+            return null;
+        }
+
+        $parametros = $this->parametrosLimpios([
+            'desde' => $this->devDesde,
+            'hasta' => $this->devHasta,
+        ]);
+
+        return match ($formato) {
+            'pdf' => $this->abrirVisor(
+                'Devoluciones',
+                route('reportes.devoluciones.pdf', $parametros) . '#toolbar=1&navpanes=0&view=FitH'
+            ),
+            'excel' => redirect()->to(route('reportes.devoluciones.excel', $parametros)),
+            'word' => redirect()->to(route('reportes.devoluciones.word', $parametros)),
+            default => $this->mostrarToast('Formato no disponible.', 'error'),
+        };
+    }
+
+    private function generarArqueo(string $formato)
+    {
+        if (! $this->rangoValido($this->arqDesde, $this->arqHasta, 'arqueo de caja')) {
+            return null;
+        }
+
+        $usuarioId = trim($this->arqUsuarioId);
+
+        if ($usuarioId !== '' && $usuarioId !== '0' && ! ctype_digit($usuarioId)) {
+            $this->mostrarToast('Seleccione un cajero válido.', 'error');
+            return null;
+        }
+
+        $parametros = $this->parametrosLimpios([
+            'desde' => $this->arqDesde,
+            'hasta' => $this->arqHasta,
+            'usuarioId' => $usuarioId !== '0' ? $usuarioId : '',
+        ]);
+
+        return match ($formato) {
+            'pdf' => $this->abrirVisor(
+                'Arqueos de caja',
+                route('reportes.arqueos-caja.pdf', $parametros) . '#toolbar=1&navpanes=0&view=FitH'
+            ),
+            'excel' => redirect()->to(route('reportes.arqueos-caja.excel', $parametros)),
+            'word' => redirect()->to(route('reportes.arqueos-caja.word', $parametros)),
+            default => $this->mostrarToast('Formato no disponible.', 'error'),
+        };
+    }
+
     private function generarInventario(string $formato)
     {
         return match ($formato) {
-            // MODIFICADO: parámetros del visor PDF para reducir panel lateral/miniaturas cuando el navegador los respeta.
             'pdf' => $this->abrirVisor(
                 'Inventario',
                 route('reportes.inventario.pdf') . '#toolbar=1&navpanes=0&view=FitH'
@@ -228,42 +451,73 @@ new class extends Component
         };
     }
 
-    private function generarVentas(string $formato)
+    private function generarStockProximoAgotarse(string $formato)
     {
-        if (! $this->soloPdfDisponible($formato)) {
-            return null;
-        }
-
-        if (! $this->rangoValido($this->ventasDesde, $this->ventasHasta, 'ventas')) {
-            return null;
-        }
-
-        if (trim($this->ventasUsuarioId) !== '' && ! ctype_digit(trim($this->ventasUsuarioId))) {
-            $this->mostrarToast('El usuario de ventas debe ser un ID numérico.', 'error');
-            return null;
-        }
-
-        return $this->irViewer('Ventas', '/api/reportes/ventas', [
-            'fechaInicio' => $this->ventasDesde,
-            'fechaFin' => $this->ventasHasta,
-            'usuarioId' => trim($this->ventasUsuarioId),
-        ]);
+        return match ($formato) {
+            'pdf' => $this->abrirVisor(
+                'Stock próximo a agotarse',
+                route('reportes.stock-proximo-agotarse.pdf') . '#toolbar=1&navpanes=0&view=FitH'
+            ),
+            'excel' => redirect()->to(route('reportes.stock-proximo-agotarse.excel')),
+            'word' => redirect()->to(route('reportes.stock-proximo-agotarse.word')),
+            default => $this->mostrarToast('Formato no disponible.', 'error'),
+        };
     }
 
-    private function generarDevoluciones(string $formato)
+    private function generarSalidas(string $formato)
     {
-        if (! $this->soloPdfDisponible($formato)) {
+        if (! $this->rangoValido($this->salDesde, $this->salHasta, 'otras salidas')) {
             return null;
         }
 
-        if (! $this->rangoValido($this->devDesde, $this->devHasta, 'devoluciones')) {
-            return null;
-        }
-
-        return $this->irViewer('Devoluciones', '/api/reportes/devoluciones', [
-            'desde' => $this->devDesde,
-            'hasta' => $this->devHasta,
+        $parametros = $this->parametrosLimpios([
+            'desde' => $this->salDesde,
+            'hasta' => $this->salHasta,
+            'tipoSalida' => trim($this->salTipoSalida),
         ]);
+
+        return match ($formato) {
+            'pdf' => $this->abrirVisor(
+                'Otras salidas',
+                route('reportes.otras-salidas.pdf', $parametros) . '#toolbar=1&navpanes=0&view=FitH'
+            ),
+            'excel' => redirect()->to(route('reportes.otras-salidas.excel', $parametros)),
+            'word' => redirect()->to(route('reportes.otras-salidas.word', $parametros)),
+            default => $this->mostrarToast('Formato no disponible.', 'error'),
+        };
+    }
+
+    private function generarCreditos(string $formato)
+    {
+        if (! $this->rangoValido($this->credDesde, $this->credHasta, 'créditos institucionales')) {
+            return null;
+        }
+
+        if (trim($this->credClienteId) === '') {
+            $this->mostrarToast('Selecciona una institución para generar el reporte.', 'error');
+            return null;
+        }
+
+        if (! ctype_digit(trim($this->credClienteId))) {
+            $this->mostrarToast('La institución seleccionada no es válida.', 'error');
+            return null;
+        }
+
+        $parametros = $this->parametrosLimpios([
+            'desde' => $this->credDesde,
+            'hasta' => $this->credHasta,
+            'clienteId' => trim($this->credClienteId),
+        ]);
+
+        return match ($formato) {
+            'pdf' => $this->abrirVisor(
+                'Créditos institucionales',
+                route('reportes.creditos-institucionales.pdf', $parametros) . '#toolbar=1&navpanes=0&view=FitH'
+            ),
+            'excel' => redirect()->to(route('reportes.creditos-institucionales.excel', $parametros)),
+            'word' => redirect()->to(route('reportes.creditos-institucionales.word', $parametros)),
+            default => $this->mostrarToast('Formato no disponible.', 'error'),
+        };
     }
 
     private function generarProveedores(string $formato)
@@ -283,88 +537,6 @@ new class extends Component
         ]);
     }
 
-    private function generarArqueo(string $formato)
-    {
-        if (! $this->soloPdfDisponible($formato)) {
-            return null;
-        }
-
-        if (! $this->rangoValido($this->arqDesde, $this->arqHasta, 'arqueo de caja')) {
-            return null;
-        }
-
-        if (trim($this->arqUsuarioId) !== '' && ! ctype_digit(trim($this->arqUsuarioId))) {
-            $this->mostrarToast('El usuario del arqueo debe ser un ID numérico.', 'error');
-            return null;
-        }
-
-        return $this->irViewer('Arqueo de caja', '/api/reportes/arqueo', [
-            'desde' => $this->arqDesde,
-            'hasta' => $this->arqHasta,
-            'usuarioId' => trim($this->arqUsuarioId),
-        ]);
-    }
-
-    private function generarMorosos(string $formato)
-    {
-        if (! $this->soloPdfDisponible($formato)) {
-            return null;
-        }
-
-        if ($this->morososMin === '' || (int) $this->morososMin < 1) {
-            $this->morososMin = '1';
-        }
-
-        return $this->irViewer('Clientes morosos', '/api/reportes/morosos', [
-            'fechaCorte' => $this->morososFecha,
-            'minDiasMora' => max(1, (int) $this->morososMin),
-        ]);
-    }
-
-    private function generarSalidas(string $formato)
-    {
-        if (! $this->soloPdfDisponible($formato)) {
-            return null;
-        }
-
-        if (! $this->rangoValido($this->salDesde, $this->salHasta, 'otras salidas')) {
-            return null;
-        }
-
-        return $this->irViewer('Otras salidas', '/api/reportes/salidas', [
-            'desde' => $this->salDesde,
-            'hasta' => $this->salHasta,
-            'motivo' => trim($this->salMotivo),
-        ]);
-    }
-
-    private function generarAgotados(string $formato)
-    {
-        if (! $this->soloPdfDisponible($formato)) {
-            return null;
-        }
-
-        return $this->irViewer('Agotados', '/api/reportes/agotados', [
-            'format' => 'PDF',
-        ]);
-    }
-
-    private function generarCreditos(string $formato)
-    {
-        if (! $this->soloPdfDisponible($formato)) {
-            return null;
-        }
-
-        if (! $this->rangoValido($this->credDesde, $this->credHasta, 'ventas al crédito')) {
-            return null;
-        }
-
-        return $this->irViewer('Créditos cancelados', '/api/reportes/creditos', [
-            'desde' => $this->credDesde,
-            'hasta' => $this->credHasta,
-        ]);
-    }
-
     private function soloPdfDisponible(string $formato): bool
     {
         if ($formato === 'pdf') {
@@ -372,7 +544,7 @@ new class extends Component
         }
 
         $this->mostrarToast(
-            'Por ahora Excel y Word solo están habilitados para el reporte de inventario.',
+            'Por ahora Excel y Word están habilitados para Inventario, Stock próximo, Ventas, Otras salidas, Créditos institucionales, Devoluciones y Arqueos de caja.',
             'warning'
         );
 
@@ -478,7 +650,7 @@ new class extends Component
             </div>
 
             <div wire:ignore class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-[#F7F9FC]">
-                <iframe src="{{ $visorUrl }}" class="h-[calc(100vh-210px)] min-h-120 w-full bg-white"></iframe>
+                <iframe src="{{ $visorUrl }}" class="h-[calc(100vh-210px)] min-h-[480px] w-full bg-white"></iframe>
             </div>
         </section>
         @else
@@ -519,10 +691,25 @@ new class extends Component
                             {{ $campo['label'] }}
                         </label>
 
+                        @if (($campo['tipo'] ?? '') === 'select')
+                        @php
+                        $opcionesCampo = $campo['opciones'] ?? '';
+                        $opcionesSelect = [];
+
+                        if (is_string($opcionesCampo) && property_exists($this, $opcionesCampo)) {
+                        $opcionesSelect = $this->{$opcionesCampo};
+                        }
+                        @endphp
+
+                        <x-select wire:model="{{ $campo['model'] }}" :options="$opcionesSelect" option-value="id"
+                            option-label="name"
+                            class="h-9 min-h-9 rounded-xl bg-[#F7F9FC] text-xs font-bold text-[#1A2B42]" />
+                        @else
                         <input type="{{ $campo['tipo'] }}" wire:model="{{ $campo['model'] }}"
                             placeholder="{{ $campo['placeholder'] ?? '' }}" @if(($campo['tipo'] ?? '' )==='number' )
                             min="1" @endif
                             class="h-9 min-h-9 w-full rounded-xl border border-[#D7E4F3] bg-[#F7F9FC] px-3 text-xs font-bold text-[#1A2B42] outline-none transition scheme-light placeholder:text-[#7B8794] focus:border-[#2E8BC0] focus:bg-white focus:ring-2 focus:ring-[#2E8BC0]/15" />
+                        @endif
                     </div>
                     @endforeach
                 </div>
