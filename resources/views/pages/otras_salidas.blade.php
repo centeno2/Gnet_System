@@ -91,6 +91,11 @@ new class extends Component
         ];
     }
 
+    public function paginationView(): string
+{
+    return 'vendor.pagination.gnet';
+}
+
     protected function messages(): array
     {
         return [
@@ -1044,26 +1049,26 @@ new class extends Component
 
             <div class="overflow-hidden rounded-2xl border border-[#D7E4F3]">
                 <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-[#D7E4F3] text-sm">
-                        <thead class="bg-[#2E8BC0] text-white">
+                    <table class="min-w-[980px] w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
+                        <thead class="sticky top-0 z-10">
                             <tr>
-                                <th class="px-4 py-3 text-left font-semibold">Fecha</th>
-                                <th class="px-4 py-3 text-left font-semibold">Producto</th>
-                                <th class="px-4 py-3 text-left font-semibold">Serie</th>
-                                <th class="px-4 py-3 text-left font-semibold">Tipo</th>
-                                <th class="px-4 py-3 text-center font-semibold">Cant.</th>
-                                <th class="px-4 py-3 text-left font-semibold">Motivo</th>
+                                <th class="rounded-tl-xl bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white whitespace-nowrap">Fecha</th>
+                                <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white whitespace-nowrap">Producto</th>
+                                <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white whitespace-nowrap">Serie</th>
+                                <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white whitespace-nowrap">Tipo</th>
+                                <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white whitespace-nowrap">Cant.</th>
+                                <th class="rounded-tr-xl bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white whitespace-nowrap">Motivo</th>
                             </tr>
                         </thead>
 
-                        <tbody class="divide-y divide-[#E6EEF7] bg-white">
+                        <tbody>
                             @forelse ($salidas as $salida)
-                                <tr class="transition hover:bg-[#F7F9FC]">
-                                    <td class="whitespace-nowrap px-4 py-3 text-[#5F6B7A]">
+                                <tr class="odd:bg-white even:bg-[#F8FBFF] hover:bg-[#EAF4FD]">
+                                    <td class="px-3 py-3 align-middle whitespace-nowrap text-[#5F6B7A]">
                                         {{ $salida->Fecha_Movimiento?->format('d/m/Y h:i A') }}
                                     </td>
 
-                                    <td class="px-4 py-3">
+                                    <td class="px-3 py-3 align-middle">
                                         <p class="font-semibold text-[#1A2B42]">
                                             {{ $salida->producto?->Nombre_Producto ?? 'Producto no disponible' }}
                                         </p>
@@ -1077,7 +1082,7 @@ new class extends Component
                                         </p>
                                     </td>
 
-                                    <td class="whitespace-nowrap px-4 py-3">
+                                    <td class="px-3 py-3 align-middle whitespace-nowrap">
                                         @if ($salida->productoSerie)
                                             <p class="font-semibold text-[#1A2B42]">
                                                 {{ $salida->productoSerie->Numero_Serie }}
@@ -1090,23 +1095,23 @@ new class extends Component
                                         @endif
                                     </td>
 
-                                    <td class="px-4 py-3">
+                                    <td class="px-3 py-3 align-middle">
                                         <span class="inline-flex rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-semibold text-[#1A2B42]">
                                             {{ $tipoMovimientoLabels[$salida->Tipo_Movimiento] ?? $salida->Tipo_Movimiento }}
                                         </span>
                                     </td>
 
-                                    <td class="px-4 py-3 text-center font-semibold text-[#1A2B42]">
+                                    <td class="px-3 py-3 text-center align-middle font-semibold text-[#1A2B42] whitespace-nowrap">
                                         {{ number_format((int) $salida->Cantidad) }}
                                     </td>
 
-                                    <td class="max-w-sm px-4 py-3 text-[#5F6B7A]">
+                                    <td class="max-w-sm px-3 py-3 align-middle text-[#5F6B7A]">
                                         {{ $salida->Motivo_Movimiento ?: 'Sin motivo registrado' }}
                                     </td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="6" class="px-4 py-8 text-center text-[#5F6B7A]">
+                                    <td colspan="6" class="px-4 py-8 text-center text-sm text-[#7B8794]">
                                         No hay salidas de inventario registradas.
                                     </td>
                                 </tr>
