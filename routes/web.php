@@ -11,6 +11,7 @@ use App\Http\Controllers\Reportes\DevolucionesReporteController;
 use App\Http\Controllers\Reportes\ArqueosCajaReporteController;
 use App\Http\Controllers\Ventas\CotizacionVoucherController;
 use App\Http\Controllers\Ventas\VentaVoucherController;
+use App\Http\Controllers\Reportes\ComprasProveedorReporteController;
 
 Route::get('/', function () {
     return auth()->check()
@@ -134,6 +135,16 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
 
     Route::get('/ventas/voucher/{venta}', [VentaVoucherController::class, 'show'])
         ->name('ventas.voucher');
+        
+    Route::get('/reportes/compras-proveedor/pdf', [ComprasProveedorReporteController::class, 'pdf'])
+    ->name('reportes.compras-proveedor.pdf');
+
+    Route::get('/reportes/compras-proveedor/excel', [ComprasProveedorReporteController::class, 'excel'])
+        ->name('reportes.compras-proveedor.excel');
+
+    Route::get('/reportes/compras-proveedor/word', [ComprasProveedorReporteController::class, 'word'])
+        ->name('reportes.compras-proveedor.word');
+
 
 });
 
