@@ -250,6 +250,11 @@ new class extends Component
         ];
     }
 
+    public function paginationView(): string
+{
+    return 'vendor.pagination.gnet';
+}
+
     public function guardarProveedor(): void
     {
         $this->validate($this->rules(), $this->messages());
@@ -765,7 +770,8 @@ new class extends Component
         </div>
 
         <x-table :headers="$headers" :rows="$proveedores" with-pagination
-            class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr:hover]:bg-[#F7F9FC]">
+            no-hover
+            class="[&_table]:min-w-[980px] [&_table]:w-full [&_table]:border-separate [&_table]:border-spacing-0 [&_table]:text-[13px] [&_table]:text-[#1A2B42] [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:px-3 [&_thead_th]:py-3 [&_thead_th]:font-semibold [&_thead_th]:text-white [&_thead_th]:whitespace-nowrap [&_thead_th:first-child]:rounded-tl-xl [&_thead_th:last-child]:rounded-tr-xl [&_tbody_tr:nth-child(odd)]:bg-white! [&_tbody_tr:nth-child(even)]:bg-[#F8FBFF]! [&_tbody_tr:hover]:!bg-[#EAF4FD] [&_tbody_td]:border-0 [&_tbody_td]:px-3 [&_tbody_td]:py-3 [&_tbody_td]:align-middle [&_tbody_td]:text-[#1A2B42]">
             @scope('cell_full_name', $row)
                 <span class="block min-w-[220px] whitespace-nowrap font-medium text-[#1A2B42]">
                     {{ $row['full_name'] }}

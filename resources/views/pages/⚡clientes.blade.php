@@ -102,6 +102,11 @@ new class extends Component
         $this->direccion = '';
     }
 
+    public function paginationView(): string
+{
+    return 'vendor.pagination.gnet';
+}
+
     public function updatedTelefono(): void
     {
         $this->telefono = $this->limpiarSoloDigitos($this->telefono);
@@ -1158,7 +1163,7 @@ new class extends Component
                         :rows="$clientes"
                         with-pagination
                         no-hover
-                        class="min-w-[980px] [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:font-semibold [&_thead_th]:text-white [&_tbody_td]:border-[#D7E4F3] [&_tbody_td]:text-[#1A2B42] [&_tbody_tr:hover]:!bg-[#EAF4FD]"
+                        class="[&_table]:min-w-[980px] [&_table]:w-full [&_table]:border-separate [&_table]:border-spacing-0 [&_table]:text-[13px] [&_table]:text-[#1A2B42] [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:px-3 [&_thead_th]:py-3 [&_thead_th]:font-semibold [&_thead_th]:text-white [&_thead_th]:whitespace-nowrap [&_thead_th:first-child]:rounded-tl-xl [&_thead_th:last-child]:rounded-tr-xl [&_tbody_tr:nth-child(odd)]:bg-white! [&_tbody_tr:nth-child(even)]:bg-[#F8FBFF]! [&_tbody_tr:hover]:!bg-[#EAF4FD] [&_tbody_td]:border-0 [&_tbody_td]:px-3 [&_tbody_td]:py-3 [&_tbody_td]:align-middle [&_tbody_td]:text-[#1A2B42]"
                     >
                         @scope('cell_full_name', $cliente)
                             <span class="block max-w-[240px] truncate font-semibold" title="{{ $cliente['full_name'] }}">
