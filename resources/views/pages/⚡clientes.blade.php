@@ -1210,7 +1210,7 @@ new class extends Component
                                     spinner="cargarCliente({{ $cliente['id'] }})"
                                     title="Editar cliente"
                                     aria-label="Editar cliente"
-                                    class="btn-sm rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB] hover:text-[#0B6FE4]"
+                                    class="btn-sm h-10 w-10 min-h-0 rounded-xl border border-[#0B6FE4] bg-[#0B6FE4] p-0 text-white shadow-sm hover:bg-[#2E8BC0] hover:text-white"
                                 />
 
                                 <x-button

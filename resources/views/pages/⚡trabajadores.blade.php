@@ -968,7 +968,7 @@ new class extends Component
                     tooltip="Editar trabajador"
                     type="button"
                     wire:click="editarTrabajador({{ data_get($trabajador, 'id') }})"
-                    class="h-9 min-h-9 rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB]"
+                    class="btn-sm h-10 w-10 min-h-0 rounded-xl border border-[#0B6FE4] bg-[#0B6FE4] p-0 text-white shadow-sm hover:bg-[#2E8BC0] hover:text-white"
                 />
             @endscope
         </x-table>

@@ -578,10 +578,11 @@ new class extends Component
             @scope('actions', $usuario)
                 <div class="flex items-center justify-end gap-2">
                     <x-button
-                        label="Editar"
                         icon="o-pencil-square"
                         wire:click="abrirModalEditarUsuario({{ $usuario['id_usuario'] }})"
-                        class="h-8 min-h-8 border-0 bg-[#2E8BC0] px-3 text-xs text-white hover:bg-[#0B6FE4]"
+                        title="Editar usuario"
+                        aria-label="Editar usuario"
+                        class="btn-sm h-10 w-10 min-h-0 rounded-xl border border-[#0B6FE4] bg-[#0B6FE4] p-0 text-white shadow-sm hover:bg-[#2E8BC0] hover:text-white"
                     />
 
                     <x-button
