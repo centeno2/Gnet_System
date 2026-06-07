@@ -129,11 +129,13 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
         ->name('reportes.arqueos-caja.word');
 
     //vouchers
+
+
     Route::get('/ventas/cotizacion/{key}', [CotizacionVoucherController::class, 'show'])
         ->name('ventas.cotizacion');
 
-    //Route::get('/ventas/voucher/{venta}', [VentaVoucherController::class, 'show'])
-    //    ->name('ventas.voucher');
+    Route::get('/ventas/voucher/{venta}', [VentaVoucherController::class, 'show'])
+        ->name('ventas.voucher');
 
 });
 
@@ -150,6 +152,8 @@ Route ::middleware (['auth', 'cargo: 1, 2'])->group(function () {
     Route::livewire('/productos', 'pages::productos')->name('productos.index');
     Route::livewire('/productos/listado', 'pages::components.productos.listado')->name('productos.listado');
 
+
+
 });
 Route::middleware(['auth', 'cargo: 1,2,3'])->group(function () {
 
@@ -160,5 +164,11 @@ Route::middleware(['auth', 'cargo: 1,2,3'])->group(function () {
     Route::livewire('/clientes', 'pages::clientes')->name('clientes');
     Route::livewire('/devoluciones', 'pages::devoluciones')->name('devoluciones');
     Route::livewire('/arqueodecaja', 'pages::arqueodecaja')->name('arqueodecaja');
+
+    Route::get('/ventas/cotizacion/{key}', [CotizacionVoucherController::class, 'show'])
+        ->name('ventas.cotizacion');
+
+    Route::get('/ventas/voucher/{venta}', [VentaVoucherController::class, 'show'])
+        ->name('ventas.voucher');
 
 });

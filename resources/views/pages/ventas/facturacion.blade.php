@@ -75,9 +75,34 @@ new class extends Component
 
     public ?int $copiaRapidaId = null;
     public string $cantidadCopiaRapida = '1';
+    public string $precioCopiaRapida = '';
     public array $copiasRapidas = [];
 
+    public bool $modalNuevaCopiaRapida = false;
+    public string $nuevaCopiaNombre = '';
+    public string $nuevaCopiaTipoColor = 'BN';
+    public string $nuevaCopiaFormato = 'CARTA';
+    public string $nuevaCopiaLados = 'UNA_CARA';
+
+    public array $opcionesTipoColorCopia = [
+        ['id' => 'BN', 'name' => 'Blanco y negro'],
+        ['id' => 'COLOR', 'name' => 'Color'],
+    ];
+
+    public array $opcionesFormatoCopia = [
+        ['id' => 'CARTA', 'name' => 'Carta'],
+        ['id' => 'OFICIO', 'name' => 'Oficio'],
+        ['id' => 'A4', 'name' => 'A4'],
+        ['id' => 'LEGAL', 'name' => 'Legal'],
+    ];
+
+    public array $opcionesLadosCopia = [
+        ['id' => 'UNA_CARA', 'name' => 'Una cara'],
+        ['id' => 'DOBLE_CARA', 'name' => 'Doble cara'],
+    ];
+
     public array $detalleVenta = [];
+    public string $observacionVenta = '';
 
     public string $pagoCordobas = '0';
     public string $pagoDolares = '0';
@@ -87,6 +112,15 @@ new class extends Component
     public ?int $ultimaVentaId = null;
     public string $ultimaFacturaNumero = '';
     public string $ultimoTipoVenta = '';
+
+    public bool $modalVoucherVenta = false;
+    public ?int $voucherVentaId = null;
+    public string $voucherPreviewUrl = '';
+
+    public bool $modalCotizacionRapida = false;
+    public string $cotizacionPreviewUrl = '';
+    public string $cotizacionNumero = '';
+    public array $cotizacionPreview = [];
 
     public function mount(): void
     {
@@ -133,6 +167,11 @@ new class extends Component
     public function updatedDescuentoItem($value): void
     {
         $this->descuentoItem = $this->formatearMonto((string) $value);
+    }
+
+    public function updatedPrecioCopiaRapida($value): void
+    {
+        $this->precioCopiaRapida = $this->formatearMonto((string) $value);
     }
 
     public function updatedPagoCordobas($value): void
@@ -297,6 +336,16 @@ new class extends Component
             ->with('marca')
             ->where('Estado', true)
             ->where('Stock_Actual', '>', 0)
+            // Evita mostrar productos seriados cuando todas sus series disponibles ya fueron agregadas al detalle.
+            ->where(function ($query) use ($seriesUsadas) {
+                $query->whereDoesntHave('series')
+                    ->orWhereHas('series', function ($serie) use ($seriesUsadas) {
+                        $serie->where('Estado', self::ESTADO_SERIE_DISPONIBLE)
+                            ->when(count($seriesUsadas) > 0, function ($query) use ($seriesUsadas) {
+                                $query->whereNotIn('id_producto_serie', $seriesUsadas);
+                            });
+                    });
+            })
             ->where(function ($query) use ($busqueda, $seriesUsadas) {
                 $query->where('Nombre_Producto', 'like', "%{$busqueda}%")
                     ->orWhere('Modelo', 'like', "%{$busqueda}%")
@@ -368,8 +417,8 @@ new class extends Component
                     'serie_id' => null,
                     'titulo' => $tarifa->Nombre_Tarifa,
                     'subtitulo' => $tarifa->Tipo_Color . ' · ' . $tarifa->Formato . ' · ' . $tarifa->Lados,
-                    'precio' => (float) $tarifa->Precio_Unitario,
-                    'precio_texto' => 'C$ ' . number_format((float) $tarifa->Precio_Unitario, 0, '.', ','),
+                    'precio' => 0,
+                    'precio_texto' => 'Precio manual',
                 ];
             })
             ->toArray();
@@ -391,7 +440,10 @@ new class extends Component
             ->get()
             ->map(fn (TarifaCopia $tarifa) => [
                 'id' => (int) $tarifa->Id_Tarifa_Copia,
-                'name' => $tarifa->Nombre_Tarifa . ' · C$ ' . number_format((float) $tarifa->Precio_Unitario, 0, '.', ','),
+                // Solo mostramos el nombre limpio de la copia en el combo.
+                // No se concatena color/formato/lados para evitar textos duplicados como:
+                // "Fotocopia B/N Carta doble cara · BN · CARTA · DOBLE_CARA".
+                'name' => trim((string) $tarifa->Nombre_Tarifa),
             ])
             ->toArray();
     }
@@ -492,7 +544,8 @@ new class extends Component
             $this->seriesDisponibles = [];
             $this->serieProductoId = null;
             $this->productoUsaSerie = false;
-            $this->precioItem = number_format((float) $tarifa->Precio_Unitario, 0, '.', ',');
+
+            $this->precioItem = '';
             $this->cantidadItem = '1';
         }
 
@@ -508,13 +561,137 @@ new class extends Component
             return;
         }
 
+        $precioCopiaRapida = $this->limpiarMonto($this->precioCopiaRapida);
+
+        if ($precioCopiaRapida <= 0) {
+            $this->mostrarToast('Ingrese el precio unitario de la copia rápida.', 'error');
+            return;
+        }
+
         $this->descuentoItem = '0';
         $this->seleccionarItem(self::TIPO_COPIA, (int) $this->copiaRapidaId);
         $this->cantidadItem = (string) max(1, (int) $this->cantidadCopiaRapida);
+        $this->precioItem = number_format($precioCopiaRapida, 0, '.', ',');
         $this->agregarItem();
 
         $this->copiaRapidaId = null;
         $this->cantidadCopiaRapida = '1';
+        $this->precioCopiaRapida = '';
+    }
+
+    public function abrirModalNuevaCopiaRapida(): void
+    {
+        $this->limpiarNuevaCopiaRapida();
+        $this->modalNuevaCopiaRapida = true;
+    }
+
+    public function cerrarModalNuevaCopiaRapida(): void
+    {
+        $this->modalNuevaCopiaRapida = false;
+        $this->limpiarNuevaCopiaRapida();
+    }
+
+    public function guardarNuevaCopiaRapida(): void
+    {
+        $nombre = trim($this->nuevaCopiaNombre);
+
+        if (strlen($nombre) < 3) {
+            $this->mostrarToast('Ingrese un nombre válido para la copia rápida.', 'error');
+            return;
+        }
+
+        if (! in_array($this->nuevaCopiaTipoColor, ['BN', 'COLOR'], true)) {
+            $this->mostrarToast('Seleccione un tipo de color válido.', 'error');
+            return;
+        }
+
+        if (! in_array($this->nuevaCopiaFormato, ['CARTA', 'OFICIO', 'A4', 'LEGAL'], true)) {
+            $this->mostrarToast('Seleccione un formato válido.', 'error');
+            return;
+        }
+
+        if (! in_array($this->nuevaCopiaLados, ['UNA_CARA', 'DOBLE_CARA'], true)) {
+            $this->mostrarToast('Seleccione un tipo de lado válido.', 'error');
+            return;
+        }
+
+        try {
+            $idTarifaCopia = DB::transaction(function () use ($nombre) {
+                $idServicio = $this->obtenerServicioCopiaId();
+
+                $tarifaExistente = TarifaCopia::query()
+                    ->where('Id_Servicio', $idServicio)
+                    ->where('Tipo_Color', $this->nuevaCopiaTipoColor)
+                    ->where('Formato', $this->nuevaCopiaFormato)
+                    ->where('Lados', $this->nuevaCopiaLados)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($tarifaExistente) {
+                    $tarifaExistente->forceFill([
+                        'Nombre_Tarifa' => Str::limit($nombre, 150, ''),
+                        'Precio_Unitario' => 0,
+                        'Estado' => true,
+                    ])->save();
+
+                    return (int) $tarifaExistente->Id_Tarifa_Copia;
+                }
+
+                return (int) DB::table('tarifa_copia')->insertGetId([
+                    'Id_Servicio' => $idServicio,
+                    'Nombre_Tarifa' => Str::limit($nombre, 150, ''),
+                    'Tipo_Color' => $this->nuevaCopiaTipoColor,
+                    'Formato' => $this->nuevaCopiaFormato,
+                    'Lados' => $this->nuevaCopiaLados,
+                    'Precio_Unitario' => 0,
+                    'Estado' => true,
+                    'Fecha_Registro' => now(),
+                ]);
+            });
+
+            $this->cargarCopiasRapidas();
+            $this->copiaRapidaId = $idTarifaCopia;
+            $this->modalNuevaCopiaRapida = false;
+            $this->limpiarNuevaCopiaRapida();
+
+            $this->mostrarToast('Copia rápida guardada y seleccionada. Recuerde ingresar precio unitario al venderla.');
+        } catch (\Throwable $e) {
+            $this->mostrarToast('No se pudo guardar la copia rápida: ' . $e->getMessage(), 'error');
+        }
+    }
+
+    protected function limpiarNuevaCopiaRapida(): void
+    {
+        $this->nuevaCopiaNombre = '';
+        $this->nuevaCopiaTipoColor = 'BN';
+        $this->nuevaCopiaFormato = 'CARTA';
+        $this->nuevaCopiaLados = 'UNA_CARA';
+    }
+
+    protected function obtenerServicioCopiaId(): int
+    {
+        $idServicio = DB::table('servicio')
+            ->where('Tipo_Servicio', self::SERVICIO_COPIA)
+            ->where('Estado', true)
+            ->value('Id_Servicio');
+
+        if ($idServicio) {
+            return (int) $idServicio;
+        }
+
+        return (int) DB::table('servicio')->insertGetId([
+            'Nombre_Servicio' => 'Fotocopias',
+            'Descripcion' => 'Servicio de fotocopias e impresiones por cantidad.',
+            'Precio_Base' => 0,
+            'Requiere_Contrato' => false,
+            'Requiere_Anticipo' => false,
+            'Porcentaje_Anticipo' => 0,
+            'Garantia' => false,
+            'Estado' => true,
+            'Tipo_Servicio' => self::SERVICIO_COPIA,
+            'Unidad_Medida' => 'COPIA',
+            'Permite_Credito' => true,
+        ]);
     }
 
     public function agregarItem(): void
@@ -528,7 +705,12 @@ new class extends Component
         $cantidad = max(1, (int) $this->cantidadItem);
 
         if ($precio <= 0) {
-            $this->mostrarToast('El precio debe ser mayor a cero.', 'error');
+            $this->mostrarToast(
+                $this->itemSeleccionado['tipo'] === self::TIPO_COPIA
+                    ? 'Ingrese el precio unitario de la copia.'
+                    : 'El precio debe ser mayor a cero.',
+                'error'
+            );
             return;
         }
 
@@ -570,6 +752,32 @@ new class extends Component
         $descuentoItem = min($this->limpiarMonto($this->descuentoItem), $subtotalBruto);
         $subtotal = $subtotalBruto - $descuentoItem;
 
+        $indiceDetalleExistente = $this->indiceDetalleExistente(
+            $this->itemSeleccionado['tipo'],
+            $this->itemSeleccionado['id_producto'],
+            $this->itemSeleccionado['id_tarifa_copia'],
+            $this->serieProductoId ? (int) $this->serieProductoId : null,
+            $precio
+        );
+
+        if ($indiceDetalleExistente !== null) {
+            $cantidadActualizada = (int) $this->detalleVenta[$indiceDetalleExistente]['cantidad'] + $cantidad;
+            $subtotalBrutoActualizado = $cantidadActualizada * $precio;
+            $descuentoActualizado = min(
+                (float) $this->detalleVenta[$indiceDetalleExistente]['descuento_valor'] + $descuentoItem,
+                $subtotalBrutoActualizado
+            );
+
+            $this->detalleVenta[$indiceDetalleExistente]['cantidad'] = $cantidadActualizada;
+            $this->detalleVenta[$indiceDetalleExistente]['subtotal_bruto_valor'] = $subtotalBrutoActualizado;
+            $this->detalleVenta[$indiceDetalleExistente]['descuento_valor'] = $descuentoActualizado;
+            $this->detalleVenta[$indiceDetalleExistente]['subtotal_valor'] = $subtotalBrutoActualizado - $descuentoActualizado;
+
+            $this->mostrarToast('Item sumado al detalle existente.', 'info');
+            $this->limpiarItemSeleccionado();
+            return;
+        }
+
         $this->detalleVenta[] = [
             'uid' => uniqid('det_', true),
             'tipo' => $this->itemSeleccionado['tipo'],
@@ -591,6 +799,38 @@ new class extends Component
         ];
 
         $this->limpiarItemSeleccionado();
+    }
+
+    protected function indiceDetalleExistente(
+        string $tipo,
+        ?int $idProducto,
+        ?int $idTarifaCopia,
+        ?int $idProductoSerie,
+        float $precioUnitario
+    ): ?int {
+        if ($idProductoSerie) {
+            return null;
+        }
+
+        foreach ($this->detalleVenta as $indice => $item) {
+            if ($item['tipo'] !== $tipo) {
+                continue;
+            }
+
+            if ((float) $item['precio_unitario'] !== (float) $precioUnitario) {
+                continue;
+            }
+
+            if ($tipo === self::TIPO_PRODUCTO && empty($item['id_producto_serie']) && (int) $item['id_producto'] === (int) $idProducto) {
+                return $indice;
+            }
+
+            if ($tipo === self::TIPO_COPIA && (int) $item['id_tarifa_copia'] === (int) $idTarifaCopia) {
+                return $indice;
+            }
+        }
+
+        return null;
     }
 
     public function eliminarDetalle(string $uid): void
@@ -639,28 +879,31 @@ new class extends Component
         $this->resetErrorBag();
         $this->cargarTasaCambio();
 
+        $this->modalCotizacionRapida = false;
+        $this->cotizacionPreviewUrl = '';
+        $this->cotizacionNumero = '';
+        $this->cotizacionPreview = [];
+
         if (! $this->tasaCambioValida()) {
-            $this->cerrarPestanaCotizacionVacia();
             $this->mostrarToast('Debe registrar una tasa de cambio válida antes de generar la cotización.', 'error');
             return null;
         }
 
         if (count($this->detalleVenta) === 0) {
-            $this->cerrarPestanaCotizacionVacia();
             $this->mostrarToast('Agregue al menos un item para generar la cotización.', 'error');
             return null;
         }
 
         if (! $this->clienteSeleccionadoValidoParaVenta()) {
-            $this->cerrarPestanaCotizacionVacia();
             $this->mostrarToast($this->mensajeClienteNoPermitido(), 'error');
             return null;
         }
 
         $key = (string) Str::uuid();
+        $numeroCotizacion = 'PRO-' . now()->format('Ymd-His');
 
         Cache::put('cotizacion_venta_' . $key, [
-            'numero' => 'PRO-' . now()->format('Ymd-His'),
+            'numero' => $numeroCotizacion,
             'cliente' => $this->clienteNombre,
             'municipio' => $this->tipoVenta === self::TIPO_CREDITO ? $this->departamentoMunicipio : '',
             'tipo_venta' => $this->tipoVenta,
@@ -668,31 +911,25 @@ new class extends Component
             'subtotal' => $this->subtotalVenta(),
             'descuento' => $this->descuentoVenta(),
             'total' => $this->totalVenta(),
+            'observacion' => $this->observacionVentaNormalizada(),
             'items' => array_values($this->detalleVenta),
         ], now()->addMinutes(20));
 
-        $url = route('ventas.cotizacion', ['key' => $key]);
+        $this->cotizacionNumero = $numeroCotizacion;
+        $this->cotizacionPreviewUrl = route('ventas.cotizacion', ['key' => $key]);
+        $this->modalCotizacionRapida = true;
 
-        $this->js(
-            'if (window.gnetCotizacionTab && !window.gnetCotizacionTab.closed) {
-                window.gnetCotizacionTab.location.href = ' . json_encode($url) . ';
-            } else {
-                window.gnetCotizacionTab = window.open(' . json_encode($url) . ', "_blank");
-            }'
-        );
-
-        $this->mostrarToast('Cotización generada correctamente.');
+        $this->mostrarToast('Cotización PDF generada correctamente.', 'info');
 
         return null;
     }
 
-    private function cerrarPestanaCotizacionVacia(): void
+    public function cerrarModalCotizacionRapida(): void
     {
-        $this->js(
-            'if (window.gnetCotizacionTab && !window.gnetCotizacionTab.closed) {
-                window.gnetCotizacionTab.close();
-            }'
-        );
+        $this->modalCotizacionRapida = false;
+        $this->cotizacionPreviewUrl = '';
+        $this->cotizacionNumero = '';
+        $this->cotizacionPreview = [];
     }
 
     public function guardarVenta()
@@ -747,6 +984,8 @@ new class extends Component
             return null;
         }
 
+        $ventaIncluyeProductos = $this->ventaTieneProductos();
+
         try {
             $tipoVentaActual = $this->tipoVenta;
 
@@ -762,7 +1001,7 @@ new class extends Component
                 $numeroFactura = $this->generarNumeroFactura();
 
                 $venta = new Venta();
-                $venta->forceFill([
+                $datosVenta = [
                     'Numero_Factura' => $numeroFactura,
                     'Fecha_venta' => now(),
                     'Id_Cliente' => $this->clienteId,
@@ -773,7 +1012,10 @@ new class extends Component
                     'Total' => $total,
                     'Tipo_Cambio' => $this->tasaCambio(),
                     'Cambio_Entregado_Cordobas' => $cambioEntregadoCordobas,
-                ]);
+                ];
+
+
+                $venta->forceFill($datosVenta);
                 $venta->save();
 
                 foreach ($this->detalleVenta as $item) {
@@ -831,7 +1073,7 @@ new class extends Component
                         'Precio_Unitario' => $item['precio_unitario'],
                         'Subtotal' => $item['subtotal_valor'],
                         'Descuento' => $item['descuento_valor'],
-                        'Observacion' => null,
+                        'Observacion' => $this->observacionVentaNormalizada(),
                     ]);
                 }
 
@@ -922,22 +1164,11 @@ new class extends Component
             $this->limpiarVentaActual();
             $this->cerrarModalCobro();
 
-            if ($this->impresionTermicaActiva()) {
-                try {
-                    app(ThermalPrintService::class)->imprimirVenta($resultado['id_venta']);
-
-                    $this->mostrarToast('Venta guardada e impresa correctamente. Factura: ' . $resultado['numero_factura']);
-                } catch (\Throwable $impresionError) {
-                    $this->mostrarToast(
-                        'Venta guardada, pero no se pudo imprimir el voucher: ' . $impresionError->getMessage(),
-                        'warning'
-                    );
-                }
+            if ($ventaIncluyeProductos) {
+                $this->prepararVoucherVenta((int) $resultado['id_venta']);
+                $this->mostrarToast('Venta guardada. Revise el voucher antes de imprimir. Factura: ' . $resultado['numero_factura'], 'info');
             } else {
-                $this->mostrarToast(
-                    'Venta guardada correctamente. Impresión térmica desactivada. Factura: ' . $resultado['numero_factura'],
-                    'warning'
-                );
+                $this->mostrarToast('Venta de copias guardada correctamente. Factura: ' . $resultado['numero_factura']);
             }
 
             return null;
@@ -949,6 +1180,54 @@ new class extends Component
             $this->mostrarToast('Error al guardar la venta: ' . $e->getMessage(), 'error');
             return null;
         }
+    }
+
+    protected function ventaTieneProductos(): bool
+    {
+        return collect($this->detalleVenta)
+            ->contains(fn ($item) => ($item['tipo'] ?? null) === self::TIPO_PRODUCTO);
+    }
+
+    protected function prepararVoucherVenta(int $ventaId): void
+    {
+        $this->voucherVentaId = $ventaId;
+        $this->voucherPreviewUrl = route('ventas.voucher', ['venta' => $ventaId, 'ancho' => 80]);
+        $this->modalVoucherVenta = true;
+    }
+
+    public function cerrarModalVoucherVenta(): void
+    {
+        $this->modalVoucherVenta = false;
+        $this->voucherVentaId = null;
+        $this->voucherPreviewUrl = '';
+    }
+
+    public function imprimirVoucherVenta(): void
+    {
+        if (! $this->voucherVentaId) {
+            $this->mostrarToast('No hay una venta seleccionada para imprimir.', 'error');
+            return;
+        }
+
+        if (! $this->impresionTermicaActiva()) {
+            $this->mostrarToast('La impresión térmica está desactivada en el archivo .env.', 'warning');
+            return;
+        }
+
+        try {
+            app(ThermalPrintService::class)->imprimirVenta((int) $this->voucherVentaId);
+            $this->mostrarToast('Voucher enviado a impresión correctamente.');
+            $this->cerrarModalVoucherVenta();
+        } catch (\Throwable $e) {
+            $this->mostrarToast('No se pudo imprimir el voucher: ' . $e->getMessage(), 'error');
+        }
+    }
+
+    public function observacionVentaNormalizada(): ?string
+    {
+        $observacion = trim($this->observacionVenta);
+
+        return $observacion !== '' ? Str::limit($observacion, 255, '') : null;
     }
 
     protected function impresionTermicaActiva(): bool
@@ -975,6 +1254,14 @@ new class extends Component
 
         $this->copiaRapidaId = null;
         $this->cantidadCopiaRapida = '1';
+        $this->precioCopiaRapida = '';
+        $this->modalNuevaCopiaRapida = false;
+        $this->limpiarNuevaCopiaRapida();
+        $this->observacionVenta = '';
+        $this->modalCotizacionRapida = false;
+        $this->cotizacionPreviewUrl = '';
+        $this->cotizacionNumero = '';
+        $this->cotizacionPreview = [];
     }
 
     public function cancelarVenta(): void
@@ -1356,8 +1643,7 @@ new class extends Component
             </div>
 
             <div class="flex flex-wrap gap-2">
-                <x-button icon="o-document-text" label="Cotización"
-                    onclick="window.gnetCotizacionTab = window.open('', '_blank')" wire:click="generarCotizacion"
+                <x-button icon="o-document-text" label="Cotización" wire:click="generarCotizacion"
                     spinner="generarCotizacion"
                     class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] shadow-sm hover:bg-[#F8FAFC]" />
 
@@ -1434,6 +1720,14 @@ new class extends Component
                         </div>
                         @endif
                     </div>
+
+                    <div class="mt-3">
+                        <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Observación de la venta</label>
+                        <x-textarea wire:model.live.debounce.300ms="observacionVenta" rows="2" maxlength="255"
+                            placeholder="Ejemplo: entrega pendiente, observación del cliente o detalle interno"
+                            class="min-h-20 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+                        <p class="mt-1 text-xs text-[#5F6B7A]">Opcional, máximo 255 caracteres.</p>
+                    </div>
                 </x-card>
 
                 <x-card class="rounded-2xl border border-[#D7E4F3] bg-white p-4 shadow-sm">
@@ -1496,6 +1790,7 @@ new class extends Component
                         <div class="min-w-0 xl:col-span-1">
                             <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Precio</label>
                             <x-input wire:model.live.debounce.250ms="precioItem" type="text" inputmode="numeric"
+                                placeholder="{{ $tipoItemSeleccionado === 'COPIA' ? 'Manual' : '0' }}"
                                 class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
                         </div>
 
@@ -1526,17 +1821,30 @@ new class extends Component
 
                     <div class="mt-4 rounded-2xl border border-[#E3EDF8] bg-[#F8FBFF] p-3">
                         <div class="grid grid-cols-1 gap-3 xl:grid-cols-12">
-                            <div class="min-w-0 xl:col-span-8">
+                            <div class="min-w-0 xl:col-span-4">
                                 <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Copia rápida</label>
                                 <x-select wire:model.live="copiaRapidaId" :options="$copiasRapidas" option-value="id"
-                                    option-label="name" placeholder="Seleccione una tarifa de copia"
+                                    option-label="name" placeholder="Seleccione una copia"
                                     class="h-11 min-h-11 w-full rounded-xl border-0 bg-white text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div class="xl:col-span-2">
+                                <label class="mb-1.5 block text-sm font-semibold text-transparent">Nueva</label>
+                                <x-button icon="o-plus" label="Nueva copia" wire:click="abrirModalNuevaCopiaRapida"
+                                    class="h-11 min-h-11 w-full rounded-xl border border-[#D7E4F3] bg-white text-sm font-semibold text-[#1A2B42] shadow-sm hover:bg-[#F8FAFC]" />
                             </div>
 
                             <div class="min-w-0 xl:col-span-2">
                                 <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Cantidad</label>
                                 <x-input wire:model="cantidadCopiaRapida" type="number" min="1"
                                     class="h-11 min-h-11 w-full rounded-xl border-0 bg-white text-center text-sm text-[#1A2B42]" />
+                            </div>
+
+                            <div class="min-w-0 xl:col-span-2">
+                                <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Precio unit.</label>
+                                <x-input wire:model.live.debounce.250ms="precioCopiaRapida" type="text"
+                                    inputmode="numeric" placeholder="Ej. 2"
+                                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-white text-sm text-[#1A2B42]" />
                             </div>
 
                             <div class="xl:col-span-2">
@@ -1673,6 +1981,126 @@ new class extends Component
         </div>
     </div>
 
+    <x-modal wire:model="modalNuevaCopiaRapida" class="backdrop-blur-sm"
+        box-class="w-full max-w-xl rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
+
+        <div class="mb-5">
+            <h3 class="text-2xl font-bold text-[#1A2B42]">Nueva copia rápida</h3>
+            <p class="mt-1 text-sm text-[#5F6B7A]">
+                Se guardará en la base de datos para volver a usarla después. El precio se ingresa manualmente al
+                vender.
+            </p>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div class="md:col-span-2">
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Nombre</label>
+                <x-input wire:model.live.debounce.250ms="nuevaCopiaNombre" type="text" maxlength="150"
+                    placeholder="Ej. Copia tamaño carta"
+                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+            </div>
+
+            <div>
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Color</label>
+                <x-select wire:model="nuevaCopiaTipoColor" :options="$opcionesTipoColorCopia" option-value="id"
+                    option-label="name"
+                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+            </div>
+
+            <div>
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Formato</label>
+                <x-select wire:model="nuevaCopiaFormato" :options="$opcionesFormatoCopia" option-value="id"
+                    option-label="name"
+                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+            </div>
+
+            <div class="md:col-span-2">
+                <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Lados</label>
+                <x-select wire:model="nuevaCopiaLados" :options="$opcionesLadosCopia" option-value="id"
+                    option-label="name"
+                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                <p class="mt-2 rounded-xl bg-[#F8FBFF] px-3 py-2 text-xs text-[#5F6B7A]">
+                    Si ya existe una copia con el mismo color, formato y lados, se actualizará su nombre y quedará
+                    activa.
+                </p>
+            </div>
+        </div>
+
+        <x-slot:actions>
+            <x-button label="Cancelar" type="button" wire:click="cerrarModalNuevaCopiaRapida"
+                class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]" />
+
+            <x-button label="Guardar copia" type="button" wire:click="guardarNuevaCopiaRapida"
+                class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]" />
+        </x-slot:actions>
+    </x-modal>
+
+
+    <x-modal wire:model="modalCotizacionRapida" class="backdrop-blur-sm"
+        box-class="w-full max-w-6xl rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
+
+        <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div class="min-w-0">
+                <h3 class="text-2xl font-bold text-[#1A2B42]">Vista previa de cotización</h3>
+                <p class="mt-1 text-sm text-[#5F6B7A]">
+                    {{ $cotizacionNumero ?: 'Cotización' }} · Revise antes de compartir o imprimir.
+                </p>
+            </div>
+
+            @if ($cotizacionPreviewUrl !== '')
+            <a href="{{ $cotizacionPreviewUrl }}" target="_blank"
+                class="inline-flex h-10 shrink-0 items-center justify-center rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] shadow-sm hover:bg-[#F8FAFC]">
+                Abrir en pestaña
+            </a>
+            @endif
+        </div>
+
+        <div class="overflow-hidden rounded-2xl border border-[#D7E4F3] bg-[#F8FBFF]">
+            @if ($cotizacionPreviewUrl !== '')
+            <iframe src="{{ $cotizacionPreviewUrl }}#toolbar=0&navpanes=0&scrollbar=1&view=FitH" loading="eager"
+                class="h-[76vh] w-full bg-white"></iframe>
+            @else
+            <div class="px-4 py-16 text-center text-sm text-[#7B8794]">
+                No hay cotización para mostrar.
+            </div>
+            @endif
+        </div>
+
+        <x-slot:actions>
+            <x-button label="Cerrar" type="button" wire:click="cerrarModalCotizacionRapida"
+                class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]" />
+        </x-slot:actions>
+    </x-modal>
+
+    <x-modal wire:model="modalVoucherVenta" class="backdrop-blur-sm"
+        box-class="w-full max-w-md rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
+
+        <div class="mb-4">
+            <h3 class="text-2xl font-bold text-[#1A2B42]">Voucher de venta</h3>
+            <p class="mt-1 text-sm text-[#5F6B7A]">
+                Revise el voucher. Solo se imprimirá si confirma la impresión.
+            </p>
+        </div>
+
+        <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-[#F8FBFF]">
+            @if ($voucherPreviewUrl !== '')
+            <iframe src="{{ $voucherPreviewUrl }}" class="h-[68vh] w-full bg-white"></iframe>
+            @else
+            <div class="px-4 py-12 text-center text-sm text-[#7B8794]">
+                No hay voucher para mostrar.
+            </div>
+            @endif
+        </div>
+
+        <x-slot:actions>
+            <x-button label="No imprimir" type="button" wire:click="cerrarModalVoucherVenta"
+                class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]" />
+
+            <x-button label="Imprimir voucher" type="button" wire:click="imprimirVoucherVenta"
+                class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]" />
+        </x-slot:actions>
+    </x-modal>
+
     <x-modal wire:model="modalCobro" class="backdrop-blur-sm"
         box-class="w-full max-w-2xl rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
 
@@ -1803,6 +2231,10 @@ new class extends Component
             <div class="md:col-span-2">
                 <div class="rounded-xl bg-[#F8FBFF] px-4 py-3 text-sm text-[#1A2B42]">
                     Cliente: <strong>{{ $clienteNombre }}</strong><br>
+
+                    @if ($this->observacionVentaNormalizada())
+                    Observación: <strong>{{ $this->observacionVentaNormalizada() }}</strong><br>
+                    @endif
 
                     @if ($tipoVenta === 'CREDITO')
                     Municipio: <strong>{{ $departamentoMunicipio ?: 'No especificado' }}</strong><br>

@@ -32,6 +32,9 @@ class ThermalPrintService
             ? Carbon::parse($venta->Fecha_venta)->format('d/m/Y h:i A')
             : now()->format('d/m/Y h:i A');
 
+        $detalles = $this->detallesVenta($venta);
+        $observacion = $this->observacionDetalleVenta($detalles);
+
         $ticket = '';
 
         // Inicializar impresora ESC/POS
@@ -49,10 +52,10 @@ class ThermalPrintService
         $ticket .= $this->texto("Tipo: {$venta->Tipo_Venta}") . "\n";
         $ticket .= $this->linea() . "\n";
 
-        $ticket .= $this->texto("DETALLE") . "\n";
+        $ticket .= $this->texto('DETALLE') . "\n";
         $ticket .= $this->linea() . "\n";
 
-        foreach ($this->detallesVenta($venta) as $detalle) {
+        foreach ($detalles as $detalle) {
             $descripcion = $this->limpiarTexto((string) $detalle->Descripcion);
 
             foreach ($this->envolver($descripcion, $this->anchoPapel()) as $lineaDescripcion) {
@@ -67,10 +70,19 @@ class ThermalPrintService
             $ticket .= $this->texto("{$cantidad} x C$ " . number_format($precio, 2)) . "\n";
 
             if ($descuento > 0) {
-                $ticket .= $this->texto("Desc: C$ " . number_format($descuento, 2)) . "\n";
+                $ticket .= $this->texto('Desc: C$ ' . number_format($descuento, 2)) . "\n";
             }
 
             $ticket .= $this->derecha('C$ ' . number_format($subtotal, 2)) . "\n";
+        }
+
+        if ($observacion !== '') {
+            $ticket .= $this->linea() . "\n";
+            $ticket .= $this->texto('OBSERVACION') . "\n";
+
+            foreach ($this->envolver($observacion, $this->anchoPapel()) as $lineaObservacion) {
+                $ticket .= $this->texto($lineaObservacion) . "\n";
+            }
         }
 
         $ticket .= $this->linea() . "\n";
@@ -123,6 +135,7 @@ class ThermalPrintService
     {
         return DB::table('detalle_venta as dv')
             ->leftJoin('producto as p', 'p.Id_Producto', '=', 'dv.Id_Producto')
+            ->leftJoin('producto_serie as ps', 'ps.id_producto_serie', '=', 'dv.Id_Producto_serie')
             ->leftJoin('tarifa_copia as tc', 'tc.Id_Tarifa_Copia', '=', 'dv.Id_Tarifa_Copia')
             ->where('dv.Id_Venta', $venta->Id_Venta)
             ->selectRaw("
@@ -130,9 +143,28 @@ class ThermalPrintService
                 dv.Precio_Unitario,
                 dv.Descuento,
                 dv.Subtotal,
-                COALESCE(p.Nombre_Producto, dv.Nombre_Formato, tc.Nombre_Tarifa, 'Item') as Descripcion
+                dv.Observacion,
+                COALESCE(
+                    NULLIF(TRIM(CONCAT_WS(' ', p.Nombre_Producto, CASE WHEN ps.Numero_Serie IS NOT NULL THEN CONCAT('Serie:', ps.Numero_Serie) ELSE NULL END)), ''),
+                    dv.Nombre_Formato,
+                    tc.Nombre_Tarifa,
+                    'Item'
+                ) as Descripcion
             ")
             ->get();
+    }
+
+    private function observacionDetalleVenta($detalles): string
+    {
+        foreach ($detalles as $detalle) {
+            $observacion = trim((string) ($detalle->Observacion ?? ''));
+
+            if ($observacion !== '') {
+                return $this->limpiarTexto($observacion);
+            }
+        }
+
+        return '';
     }
 
     private function pagosVenta(Venta $venta)
