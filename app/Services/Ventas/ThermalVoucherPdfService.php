@@ -15,6 +15,7 @@ class ThermalVoucherPdfService
 
         $detalles = DB::table('detalle_venta as dv')
             ->leftJoin('producto as p', 'p.Id_Producto', '=', 'dv.Id_Producto')
+            ->leftJoin('producto_serie as ps', 'ps.id_producto_serie', '=', 'dv.Id_Producto_serie')
             ->leftJoin('tarifa_copia as tc', 'tc.Id_Tarifa_Copia', '=', 'dv.Id_Tarifa_Copia')
             ->where('dv.Id_Venta', $venta->Id_Venta)
             ->selectRaw("
@@ -23,7 +24,13 @@ class ThermalVoucherPdfService
                 dv.Precio_Unitario,
                 dv.Descuento,
                 dv.Subtotal,
-                COALESCE(p.Nombre_Producto, dv.Nombre_Formato, tc.Nombre_Tarifa, 'Item') as Descripcion
+                dv.Observacion,
+                COALESCE(
+                    NULLIF(TRIM(CONCAT_WS(' ', p.Nombre_Producto, CASE WHEN ps.Numero_Serie IS NOT NULL THEN CONCAT('Serie:', ps.Numero_Serie) ELSE NULL END)), ''),
+                    dv.Nombre_Formato,
+                    tc.Nombre_Tarifa,
+                    'Item'
+                ) as Descripcion
             ")
             ->get();
 
@@ -31,7 +38,8 @@ class ThermalVoucherPdfService
             ->where('Id_Venta', $venta->Id_Venta)
             ->get();
 
-        $alto = $this->altoVenta($detalles, $pagos, $ancho);
+        $observacion = $this->observacionDetalle($detalles);
+        $alto = $this->altoVenta($detalles, $pagos, $observacion, $ancho);
 
         $pdf = $this->pdf($ancho, $alto);
 
@@ -59,6 +67,14 @@ class ThermalVoucherPdfService
             'descuento_valor' => (float) $d->Descuento,
             'subtotal_valor' => (float) $d->Subtotal,
         ]));
+
+        if ($observacion !== '') {
+            $this->linea($pdf, $ancho);
+            $pdf->SetFont('helvetica', 'B', 7);
+            $pdf->Cell(0, 4, 'OBSERVACION', 0, 1, 'L');
+            $pdf->SetFont('helvetica', '', 7);
+            $pdf->MultiCell(0, 4, $this->cortar($observacion, $ancho === 58 ? 90 : 140), 0, 'L');
+        }
 
         $this->linea($pdf, $ancho);
 
@@ -115,7 +131,7 @@ class ThermalVoucherPdfService
         return $pdf;
     }
 
-    private function altoVenta($detalles, $pagos, int $ancho): int
+    private function altoVenta($detalles, $pagos, string $observacion, int $ancho): int
     {
         $caracteresLinea = $ancho === 58 ? 28 : 42;
 
@@ -130,6 +146,11 @@ class ThermalVoucherPdfService
             }
         }
 
+        if ($observacion !== '') {
+            $lineasObservacion = max(1, (int) ceil(mb_strlen($observacion) / $caracteresLinea));
+            $alto += 9 + ($lineasObservacion * 4);
+        }
+
         $alto += 18;
 
         if ($pagos->isNotEmpty()) {
@@ -137,6 +158,19 @@ class ThermalVoucherPdfService
         }
 
         return max(95, min($alto + 14, 500));
+    }
+
+    private function observacionDetalle($detalles): string
+    {
+        foreach ($detalles as $detalle) {
+            $observacion = trim((string) ($detalle->Observacion ?? ''));
+
+            if ($observacion !== '') {
+                return $observacion;
+            }
+        }
+
+        return '';
     }
 
     private function titulo(TCPDF $pdf, int $ancho, string $titulo): void
