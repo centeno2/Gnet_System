@@ -18,6 +18,7 @@ class AbonoCredito extends Model
 
     protected $fillable = [
         'Id_Credito',
+        'Id_Usuario',
         'Fecha_Abono',
         'Moneda',
         'Monto',
@@ -30,6 +31,7 @@ class AbonoCredito extends Model
     protected $casts = [
         'Id_Abono_Credito' => 'integer',
         'Id_Credito' => 'integer',
+        'Id_Usuario' => 'integer',
         'Fecha_Abono' => 'datetime',
         'Monto' => 'decimal:2',
         'Tipo_Cambio' => 'decimal:4',
@@ -41,8 +43,13 @@ class AbonoCredito extends Model
         return $this->belongsTo(Credito::class, 'Id_Credito', 'Id_Credito');
     }
 
+    public function usuario(): BelongsTo
+    {
+        return $this->belongsTo(Usuario::class, 'Id_Usuario', 'Id_Usuario');
+    }
+
     public function getMonedaNombreAttribute(): string
     {
-        return strtoupper((string) $this->Moneda) === self::MONEDA_DOLAR ? 'USD' : 'NIO';
+        return strtoupper(trim((string) $this->Moneda)) === self::MONEDA_DOLAR ? 'USD' : 'NIO';
     }
 }

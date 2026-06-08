@@ -279,25 +279,27 @@ new class extends Component
 
     public function cargarAbonosCreditoHoy(): void
     {
-        $rangoCaja = $this->rangoCajaActual();
+        $usuarioId = $this->usuarioActualId();
 
-        if (! $rangoCaja) {
+        if (! $usuarioId) {
             $this->totalAbonoCordobas = 0;
             $this->totalAbonoDolares = 0;
             return;
         }
 
-        [$inicioCaja, $finCaja] = $rangoCaja;
+        $fechaHoy = now()->toDateString();
 
-        $this->totalAbonoCordobas = (float) DB::table('abono_credito')
-            ->whereBetween('Fecha_Abono', [$inicioCaja, $finCaja])
-            ->whereRaw('UPPER(Moneda) = ?', ['NIO'])
-            ->sum('Monto');
+        $baseAbonos = DB::table('abono_credito')
+            ->where('Id_Usuario', $usuarioId)
+            ->whereDate('Fecha_Abono', $fechaHoy);
 
-        $this->totalAbonoDolares = (float) DB::table('abono_credito')
-            ->whereBetween('Fecha_Abono', [$inicioCaja, $finCaja])
-            ->whereRaw('UPPER(Moneda) = ?', ['USD'])
-            ->sum('Monto');
+        $this->totalAbonoCordobas = round((float) (clone $baseAbonos)
+            ->whereRaw('UPPER(TRIM(Moneda)) = ?', ['NIO'])
+            ->sum('Monto'), 2);
+
+        $this->totalAbonoDolares = round((float) (clone $baseAbonos)
+            ->whereRaw('UPPER(TRIM(Moneda)) = ?', ['USD'])
+            ->sum('Monto'), 2);
     }
 
     public function cargarPagosVentaHoy(): void
