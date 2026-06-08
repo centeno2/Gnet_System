@@ -38,6 +38,11 @@ new class extends Component
 
     public ?int $formTrabajadorId = null;
 
+    // Búsqueda liviana para modales: no guardar catálogos grandes en propiedades públicas de Livewire.
+    public string $busquedaTrabajadorModal = '';
+    public int $trabajadoresPorPagina = 25;
+    public int $detallesPorPagina = 25;
+
     public string $fechaIncentivo = '';
     public string $conceptoIncentivo = '';
     public string|float $montoIncentivo = 0;
@@ -153,13 +158,14 @@ new class extends Component
         if ($existente) {
             $this->planillaActualId = $existente->Id_Planilla;
             $this->previewPlanillaId = $existente->Id_Planilla;
+            $this->resetPage('comprobantePage');
             $this->modalComprobante = true;
 
             $this->notificar('info', 'Planilla existente', 'Ya existe una planilla para el periodo actual. Se cargó el comprobante.');
             return;
         }
 
-        if ($this->trabajadoresParaPlanilla()->isEmpty()) {
+        if (! $this->trabajadoresQuery()->exists()) {
             $this->notificar('warning', 'Sin trabajadores', 'No hay trabajadores activos disponibles para generar la planilla.');
             return;
         }
@@ -179,6 +185,7 @@ new class extends Component
 
         if ($existente) {
             $this->previewPlanillaId = $existente->Id_Planilla;
+            $this->resetPage('comprobantePage');
             $this->modalComprobante = true;
 
             $this->notificar('info', 'Aguinaldo existente', 'Ya existe el pago de aguinaldo para este periodo.');
@@ -198,17 +205,19 @@ new class extends Component
         if ($existente) {
             $this->modalConfirmarPlanilla = false;
             $this->previewPlanillaId = $existente->Id_Planilla;
+            $this->resetPage('comprobantePage');
             $this->modalComprobante = true;
 
             if ($tipo === Planilla::TIPO_NORMAL) {
                 $this->planillaActualId = $existente->Id_Planilla;
+                $this->resetPage('detallesPage');
             }
 
             $this->notificar('info', 'Planilla existente', 'No se duplicó el periodo. Se cargó el comprobante.');
             return;
         }
 
-        $ids = $this->trabajadoresParaPlanilla()
+        $ids = $this->trabajadoresQuery()
             ->pluck('Id_Trabajador')
             ->map(fn ($id) => (int) $id)
             ->values()
@@ -224,9 +233,11 @@ new class extends Component
 
         if ($tipo === Planilla::TIPO_NORMAL) {
             $this->planillaActualId = $planilla->Id_Planilla;
+            $this->resetPage('detallesPage');
         }
 
         $this->previewPlanillaId = $planilla->Id_Planilla;
+        $this->resetPage('comprobantePage');
         $this->modalConfirmarPlanilla = false;
         $this->modalComprobante = true;
 
@@ -255,14 +266,16 @@ new class extends Component
                 'Observacion' => null,
             ]);
 
-            foreach ($this->trabajadoresPorIds($ids) as $trabajador) {
-                $detalle = $this->crearDetallePlanilla($planilla, $trabajador, $desde, $hasta, $tipo);
-                $this->crearPagoAutomatico($detalle);
+            foreach (array_chunk($ids, 250) as $bloqueIds) {
+                foreach ($this->trabajadoresPorIds($bloqueIds) as $trabajador) {
+                    $detalle = $this->crearDetallePlanilla($planilla, $trabajador, $desde, $hasta, $tipo);
+                    $this->crearPagoAutomatico($detalle);
+                }
             }
 
             $this->actualizarTotalesPlanilla($planilla);
 
-            return $planilla->fresh(['detalles.trabajador.persona', 'detalles.trabajador.cargo']);
+            return $planilla->fresh();
         });
     }
 
@@ -467,11 +480,12 @@ new class extends Component
                 'Motivo_Salida' => $this->liquidacionMotivo,
             ]);
 
-            return $planilla->fresh(['detalles.trabajador.persona', 'detalles.trabajador.cargo']);
+            return $planilla->fresh();
         });
 
         $this->modalLiquidacion = false;
         $this->previewPlanillaId = $planilla->Id_Planilla;
+        $this->resetPage('comprobantePage');
         $this->modalComprobante = true;
 
         $this->notificar('success', 'Liquidación generada', 'La liquidación fue generada de forma individual y el trabajador quedó inactivo.');
@@ -654,6 +668,7 @@ new class extends Component
         }
 
         $this->resetValidation();
+        $this->busquedaTrabajadorModal = '';
         $this->formTrabajadorId = $trabajadorId;
         $this->fechaIncentivo = $this->fechaDentroPeriodo(Carbon::now());
         $this->conceptoIncentivo = '';
@@ -669,6 +684,7 @@ new class extends Component
         }
 
         $this->resetValidation();
+        $this->busquedaTrabajadorModal = '';
         $this->formTrabajadorId = $trabajadorId;
         $this->fechaDeduccion = $this->fechaDentroPeriodo(Carbon::now());
         $this->conceptoDeduccion = '';
@@ -684,6 +700,7 @@ new class extends Component
         }
 
         $this->resetValidation();
+        $this->busquedaTrabajadorModal = '';
         $this->formTrabajadorId = $trabajadorId;
         $this->vacacionFechaInicio = $this->fechaDentroPeriodo(Carbon::now());
         $this->vacacionFechaFin = $this->fechaDentroPeriodo(Carbon::now());
@@ -700,6 +717,7 @@ new class extends Component
         }
 
         $this->resetValidation();
+        $this->busquedaTrabajadorModal = '';
         $this->formTrabajadorId = $trabajadorId;
         $this->liquidacionFechaSalida = Carbon::now()->format('Y-m-d');
         $this->liquidacionMotivo = 'RENUNCIA';
@@ -723,6 +741,7 @@ new class extends Component
         }
 
         $this->previewPlanillaId = $planilla->Id_Planilla;
+        $this->resetPage('comprobantePage');
         $this->modalComprobante = true;
     }
 
@@ -733,7 +752,11 @@ new class extends Component
 
     public function exportarComprobanteCsv()
     {
-        $planilla = $this->previewPlanilla();
+        $planilla = $this->previewPlanillaId
+            ? Planilla::query()
+                ->with(['detalles.trabajador.persona', 'detalles.trabajador.cargo'])
+                ->find($this->previewPlanillaId)
+            : null;
 
         if (! $planilla) {
             $this->notificar('warning', 'Sin comprobante', 'No hay comprobante disponible para exportar.');
@@ -865,20 +888,60 @@ new class extends Component
 
     public function trabajadores()
     {
-        return $this->trabajadoresQuery()->paginate(10);
+        return $this->trabajadoresQuery()
+            ->paginate($this->trabajadoresPorPagina, ['*'], 'trabajadoresPage');
     }
 
     public function trabajadoresOptions(): array
     {
-        return $this->trabajadoresQuery()
-            ->limit(250)
-            ->get()
-            ->map(fn (Trabajador $trabajador) => [
-                'id' => $trabajador->Id_Trabajador,
-                'name' => $this->nombreTrabajador($trabajador),
-            ])
+        $busqueda = trim($this->busquedaTrabajadorModal);
+
+        $seleccionado = collect();
+
+        if ($this->formTrabajadorId) {
+            $seleccionado = Trabajador::query()
+                ->with(['persona', 'cargo'])
+                ->where('Id_Trabajador', $this->formTrabajadorId)
+                ->get();
+        }
+
+        $resultados = $this->trabajadoresQuery()
+            ->when($busqueda !== '', function ($query) use ($busqueda) {
+                $query->where(function ($query) use ($busqueda) {
+                    $query
+                        ->where('Id_Trabajador', 'like', "%{$busqueda}%")
+                        ->orWhereHas('persona', function ($persona) use ($busqueda) {
+                            $persona
+                                ->where('Primer_Nombre', 'like', "%{$busqueda}%")
+                                ->orWhere('Segundo_Nombre', 'like', "%{$busqueda}%")
+                                ->orWhere('Primer_Apellido', 'like', "%{$busqueda}%")
+                                ->orWhere('Segundo_Apellido', 'like', "%{$busqueda}%")
+                                ->orWhere('Telefono', 'like', "%{$busqueda}%")
+                                ->orWhere('Cedula', 'like', "%{$busqueda}%");
+                        });
+                });
+            })
+            ->limit($busqueda === '' ? 25 : 50)
+            ->get();
+
+        return $resultados
+            ->merge($seleccionado)
+            ->unique('Id_Trabajador')
+            ->map(fn (Trabajador $trabajador) => $this->trabajadorOption($trabajador))
             ->values()
             ->all();
+    }
+
+    private function trabajadorOption(Trabajador $trabajador): array
+    {
+        $nombre = $this->nombreTrabajador($trabajador);
+        $cargo = $this->cargoTrabajador($trabajador);
+
+        return [
+            'id' => $trabajador->Id_Trabajador,
+            'name' => "#{$trabajador->Id_Trabajador} - {$nombre} - {$cargo}",
+            'search' => strtolower("{$trabajador->Id_Trabajador} {$nombre} {$cargo}"),
+        ];
     }
 
     public function totalTrabajadoresActivos(): int
@@ -900,9 +963,7 @@ new class extends Component
     public function planillaActual(): ?Planilla
     {
         if ($this->planillaActualId) {
-            return Planilla::query()
-                ->with(['detalles.trabajador.persona', 'detalles.trabajador.cargo'])
-                ->find($this->planillaActualId);
+            return Planilla::query()->find($this->planillaActualId);
         }
 
         return null;
@@ -914,9 +975,7 @@ new class extends Component
             return null;
         }
 
-        return Planilla::query()
-            ->with(['detalles.trabajador.persona', 'detalles.trabajador.cargo'])
-            ->find($this->previewPlanillaId);
+        return Planilla::query()->find($this->previewPlanillaId);
     }
 
     public function resumen(): array
@@ -950,15 +1009,30 @@ new class extends Component
         ];
     }
 
-    public function detallePlanillaRows(): array
+    public function detallePlanillaRows()
     {
-        $planilla = $this->planillaActual();
-
-        if (! $planilla) {
-            return [];
+        if (! $this->planillaActualId) {
+            return collect();
         }
 
-        return $this->mapDetalles($planilla);
+        return DetallePlanilla::query()
+            ->with(['trabajador.persona', 'trabajador.cargo'])
+            ->where('Id_Planilla', $this->planillaActualId)
+            ->orderBy('Id_Detalle_Planilla')
+            ->paginate($this->detallesPorPagina, ['*'], 'detallesPage');
+    }
+
+    public function comprobanteDetalleRows()
+    {
+        if (! $this->previewPlanillaId) {
+            return collect();
+        }
+
+        return DetallePlanilla::query()
+            ->with(['trabajador.persona', 'trabajador.cargo'])
+            ->where('Id_Planilla', $this->previewPlanillaId)
+            ->orderBy('Id_Detalle_Planilla')
+            ->paginate($this->detallesPorPagina, ['*'], 'comprobantePage');
     }
 
     public function mapDetalles(Planilla $planilla): array
@@ -1349,6 +1423,19 @@ new class extends Component
         return round((float) str_replace(',', '', (string) $value), 2);
     }
 
+    public function fechaFormato($fecha, string $formato = 'd/m/Y'): string
+    {
+        if (! $fecha) {
+            return 'Sin fecha';
+        }
+
+        try {
+            return Carbon::parse($fecha)->format($formato);
+        } catch (\Throwable) {
+            return 'Sin fecha';
+        }
+    }
+
     private function notificar(string $type, string $title, string $description): void
     {
         if (function_exists('toast')) {
@@ -1371,31 +1458,42 @@ new class extends Component
 
 <div class="min-h-screen bg-[#F0F3F7] p-4 md:p-6 space-y-5 text-[#111827]">
     @php
-        $trabajadores = $this->trabajadores();
-        $trabajadorOptions = $this->trabajadoresOptions();
-        $resumen = $this->resumen();
-        $detalles = $this->detallePlanillaRows();
-        $planillaActual = $this->planillaActual();
-        $previewPlanilla = $this->previewPlanilla();
-        $reporteRows = $this->reporteAnualRows();
-        $reporteResumen = $this->reporteAnualResumen();
-        $totalActivos = $this->totalTrabajadoresActivos();
+    $trabajadores = $this->trabajadores();
+    $modalTrabajadorAbierto = $modalIncentivo || $modalDeduccion || $modalVacaciones || $modalLiquidacion;
+    $trabajadorOptions = $modalTrabajadorAbierto ? $this->trabajadoresOptions() : [];
+    $resumen = $this->resumen();
+    $planillaActual = $this->planillaActual();
+    $detalles = $planillaActual ? $this->detallePlanillaRows() : collect();
+    $previewPlanilla = $modalComprobante ? $this->previewPlanilla() : null;
+    $comprobanteDetalles = $modalComprobante ? $this->comprobanteDetalleRows() : collect();
+    $reporteRows = $modalReporteAnual ? $this->reporteAnualRows() : [];
+    $reporteResumen = $modalReporteAnual ? $this->reporteAnualResumen() : [
+    'cantidad' => 0,
+    'bruto' => $this->money(0),
+    'incentivos' => $this->money(0),
+    'vacaciones' => $this->money(0),
+    'aguinaldo' => $this->money(0),
+    'indemnizacion' => $this->money(0),
+    'deducciones' => $this->money(0),
+    'neto' => $this->money(0),
+    ];
+    $totalActivos = $this->totalTrabajadoresActivos();
 
-        $estadoVacacionOptions = [
-            ['id' => 'SOLICITADA', 'name' => 'Solicitada'],
-            ['id' => 'APROBADA', 'name' => 'Aprobada'],
-            ['id' => 'PAGADA', 'name' => 'Pagada'],
-            ['id' => 'ANULADA', 'name' => 'Anulada'],
-            ['id' => 'RECHAZADA', 'name' => 'Rechazada'],
-        ];
+    $estadoVacacionOptions = [
+    ['id' => 'SOLICITADA', 'name' => 'Solicitada'],
+    ['id' => 'APROBADA', 'name' => 'Aprobada'],
+    ['id' => 'PAGADA', 'name' => 'Pagada'],
+    ['id' => 'ANULADA', 'name' => 'Anulada'],
+    ['id' => 'RECHAZADA', 'name' => 'Rechazada'],
+    ];
 
-        $motivoLiquidacionOptions = [
-            ['id' => 'RENUNCIA', 'name' => 'Renuncia'],
-            ['id' => 'MUTUO_ACUERDO', 'name' => 'Mutuo acuerdo'],
-            ['id' => 'DESPIDO_INJUSTIFICADO', 'name' => 'Despido injustificado'],
-            ['id' => 'DESPIDO_JUSTIFICADO', 'name' => 'Despido justificado'],
-            ['id' => 'FIN_CONTRATO', 'name' => 'Fin de contrato'],
-        ];
+    $motivoLiquidacionOptions = [
+    ['id' => 'RENUNCIA', 'name' => 'Renuncia'],
+    ['id' => 'MUTUO_ACUERDO', 'name' => 'Mutuo acuerdo'],
+    ['id' => 'DESPIDO_INJUSTIFICADO', 'name' => 'Despido injustificado'],
+    ['id' => 'DESPIDO_JUSTIFICADO', 'name' => 'Despido justificado'],
+    ['id' => 'FIN_CONTRATO', 'name' => 'Fin de contrato'],
+    ];
     @endphp
 
     <div class="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
@@ -1408,16 +1506,20 @@ new class extends Component
 
         <div class="flex flex-wrap gap-2">
             @if($planillaActual)
-                <x-button label="Ver comprobante" icon="o-document-text" wire:click="abrirComprobanteActual" class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
+            <x-button label="Ver comprobante" icon="o-document-text" wire:click="abrirComprobanteActual"
+                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
             @else
-                <x-button label="Generar planilla" icon="o-calculator" wire:click="solicitarGenerarPlanilla" class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
+            <x-button label="Generar planilla" icon="o-calculator" wire:click="solicitarGenerarPlanilla"
+                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
             @endif
 
             @if($this->puedeGenerarAguinaldo())
-                <x-button label="Aguinaldo" icon="o-banknotes" wire:click="solicitarGenerarAguinaldo" class="border-0 bg-[#E67E22] text-white hover:opacity-90" spinner />
+            <x-button label="Aguinaldo" icon="o-banknotes" wire:click="solicitarGenerarAguinaldo"
+                class="border-0 bg-[#E67E22] text-white hover:opacity-90" spinner />
             @endif
 
-            <x-button label="Reporte anual" icon="o-document-text" wire:click="abrirReporteAnual" class="border border-[#D7E4F3] bg-white text-[#111827] hover:bg-[#F0F3F7]" spinner />
+            <x-button label="Reporte anual" icon="o-document-text" wire:click="abrirReporteAnual"
+                class="border border-[#D7E4F3] bg-white text-[#111827] hover:bg-[#F0F3F7]" spinner />
         </div>
     </div>
 
@@ -1488,94 +1590,134 @@ new class extends Component
                 </h2>
                 <p class="text-sm text-[#5F6B7A]">
                     @if($planillaActual)
-                        {{ 'Planilla #' . $planillaActual->Id_Planilla . ' - ' . $planillaActual->Estado }}
+                    {{ 'Planilla #' . $planillaActual->Id_Planilla . ' - ' . $planillaActual->Estado }}
                     @else
-                        La planilla normal incluirá automáticamente a todos los trabajadores activos.
+                    La planilla normal incluirá automáticamente a todos los trabajadores activos.
                     @endif
                 </p>
             </div>
 
             <div class="flex flex-wrap gap-2">
-                <x-button label="Incentivo" icon="o-plus" wire:click="abrirIncentivo" class="{{ $this->claseAccionPrimaria() }}" spinner />
-                <x-button label="Deducción" icon="o-minus" wire:click="abrirDeduccion" class="{{ $this->claseAccionPrimaria() }}" spinner />
-                <x-button label="Vacaciones" icon="o-sun" wire:click="abrirVacaciones" class="{{ $this->claseAccionSecundaria() }}" spinner />
-                <x-button label="Liquidar" icon="o-user-minus" wire:click="abrirLiquidacion" class="{{ $this->claseLiquidar() }}" spinner />
+                <x-button label="Incentivo" icon="o-plus" wire:click="abrirIncentivo"
+                    class="{{ $this->claseAccionPrimaria() }}" spinner />
+                <x-button label="Deducción" icon="o-minus" wire:click="abrirDeduccion"
+                    class="{{ $this->claseAccionPrimaria() }}" spinner />
+                <x-button label="Vacaciones" icon="o-sun" wire:click="abrirVacaciones"
+                    class="{{ $this->claseAccionSecundaria() }}" spinner />
+                <x-button label="Liquidar" icon="o-user-minus" wire:click="abrirLiquidacion"
+                    class="{{ $this->claseLiquidar() }}" spinner />
             </div>
         </div>
 
         <div class="overflow-x-auto">
             @if($planillaActual)
-                <x-table
-                    :headers="$this->headersDetalle()"
-                    :rows="$detalles"
-                    class="[&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr:hover]:bg-[#F7F9FC]"
-                >
-                    @scope('cell_empleado', $row)
-                        <span class="font-semibold text-[#111827]">{{ $row['empleado'] }}</span>
-                    @endscope
+            <x-table :headers="$this->headersDetalle()" :rows="$detalles" with-pagination
+                class="[&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr:hover]:bg-[#F7F9FC]">
+                @scope('cell_empleado', $detalle)
+                @php($trabajador = $detalle->trabajador)
+                <span class="font-semibold text-[#111827]">
+                    {{ $trabajador ? $this->nombreTrabajador($trabajador) : 'Sin trabajador' }}
+                </span>
+                @endscope
 
-                    @scope('cell_cargo', $row)
-                        <span class="inline-flex rounded-full bg-[#D7E4F3] px-3 py-1 text-xs font-semibold text-[#111827]">
-                            {{ $row['cargo'] }}
-                        </span>
-                    @endscope
+                @scope('cell_cargo', $detalle)
+                @php($trabajador = $detalle->trabajador)
+                <span class="inline-flex rounded-full bg-[#D7E4F3] px-3 py-1 text-xs font-semibold text-[#111827]">
+                    {{ $trabajador ? $this->cargoTrabajador($trabajador) : 'Sin cargo' }}
+                </span>
+                @endscope
 
-                    @scope('cell_total', $row)
-                        <span class="font-bold text-[#0E48A1]">{{ $row['total'] }}</span>
-                    @endscope
+                @scope('cell_salario', $detalle)
+                <span class="font-semibold text-[#111827]">{{ $this->money($detalle->Salario_Base) }}</span>
+                @endscope
 
-                    @scope('cell_estado', $row)
-                        <span class="inline-flex rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
-                            {{ $row['estado'] }}
-                        </span>
-                    @endscope
-                </x-table>
+                @scope('cell_dias', $detalle)
+                <span class="text-[#111827]">{{ $this->numero($detalle->Dias_Trabajados) }}</span>
+                @endscope
+
+                @scope('cell_vacaciones', $detalle)
+                <span class="text-[#111827]">{{ $this->numero($detalle->Dias_Vacaciones) }}</span>
+                @endscope
+
+                @scope('cell_monto_vacaciones', $detalle)
+                <span class="text-[#111827]">{{ $this->money($detalle->Monto_Vacaciones) }}</span>
+                @endscope
+
+                @scope('cell_incentivo', $detalle)
+                <span class="text-[#111827]">{{ $this->money($detalle->Monto_Incentivo) }}</span>
+                @endscope
+
+                @scope('cell_aguinaldo', $detalle)
+                <span class="text-[#111827]">{{ $this->money($detalle->Monto_Aguinaldo) }}</span>
+                @endscope
+
+                @scope('cell_indemnizacion', $detalle)
+                <span class="text-[#111827]">{{ $this->money($detalle->Monto_Indemnizacion ?? 0) }}</span>
+                @endscope
+
+                @scope('cell_deduccion', $detalle)
+                <span class="text-[#111827]">{{ $this->money($detalle->Monto_Deduccion) }}</span>
+                @endscope
+
+                @scope('cell_total', $detalle)
+                <span class="font-bold text-[#0E48A1]">{{ $this->money($detalle->Total_Neto) }}</span>
+                @endscope
+
+                @scope('cell_estado', $detalle)
+                <span class="inline-flex rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
+                    {{ $detalle->Estado_Pago }}
+                </span>
+                @endscope
+            </x-table>
             @else
-                <x-table
-                    :headers="$this->headersTrabajadores()"
-                    :rows="$trabajadores"
-                    with-pagination
-                    class="[&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr:hover]:bg-[#F7F9FC]"
-                >
-                    @scope('cell_empleado', $trabajador)
-                        <div>
-                            <p class="font-semibold text-[#111827]">{{ $this->nombreTrabajador($trabajador) }}</p>
-                            <p class="text-xs text-[#5F6B7A]">Ingreso: {{ optional($trabajador->Fecha_Ingreso)->format('d/m/Y') ?? 'Sin fecha' }}</p>
-                        </div>
-                    @endscope
+            <x-table :headers="$this->headersTrabajadores()" :rows="$trabajadores" with-pagination
+                class="[&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr:hover]:bg-[#F7F9FC]">
+                @scope('cell_empleado', $trabajador)
+                <div>
+                    <p class="font-semibold text-[#111827]">{{ $this->nombreTrabajador($trabajador) }}</p>
+                    <p class="text-xs text-[#5F6B7A]">Ingreso: {{ $this->fechaFormato($trabajador->Fecha_Ingreso) }}</p>
+                </div>
+                @endscope
 
-                    @scope('cell_cargo', $trabajador)
-                        <span class="inline-flex rounded-full bg-[#D7E4F3] px-3 py-1 text-xs font-semibold text-[#111827]">
-                            {{ $this->cargoTrabajador($trabajador) }}
-                        </span>
-                    @endscope
+                @scope('cell_cargo', $trabajador)
+                <span class="inline-flex rounded-full bg-[#D7E4F3] px-3 py-1 text-xs font-semibold text-[#111827]">
+                    {{ $this->cargoTrabajador($trabajador) }}
+                </span>
+                @endscope
 
-                    @scope('cell_salario', $trabajador)
-                        <span class="font-semibold text-[#111827]">{{ $this->money($trabajador->Salario) }}</span>
-                    @endscope
+                @scope('cell_salario', $trabajador)
+                <span class="font-semibold text-[#111827]">{{ $this->money($trabajador->Salario) }}</span>
+                @endscope
 
-                    @scope('cell_vacaciones', $trabajador)
-                        <span class="font-semibold text-[#0E48A1]">{{ $this->saldoVacaciones($trabajador->Id_Trabajador) }} días</span>
-                    @endscope
+                @scope('cell_vacaciones', $trabajador)
+                <span class="font-semibold text-[#0E48A1]">{{ $this->saldoVacaciones($trabajador->Id_Trabajador) }}
+                    días</span>
+                @endscope
 
-                    @scope('actions', $trabajador)
-                        <div class="flex flex-wrap gap-1">
-                            <x-button icon="o-plus" wire:click="abrirIncentivo({{ $trabajador->Id_Trabajador }})" class="btn-sm {{ $this->claseAccionSecundaria() }}" spinner />
-                            <x-button icon="o-minus" wire:click="abrirDeduccion({{ $trabajador->Id_Trabajador }})" class="btn-sm {{ $this->claseAccionSecundaria() }}" spinner />
-                            <x-button icon="o-sun" wire:click="abrirVacaciones({{ $trabajador->Id_Trabajador }})" class="btn-sm {{ $this->claseAccionSecundaria() }}" spinner />
-                            <x-button icon="o-user-minus" wire:click="abrirLiquidacion({{ $trabajador->Id_Trabajador }})" class="btn-sm {{ $this->claseLiquidar() }}" spinner />
-                        </div>
-                    @endscope
-                </x-table>
+                @scope('actions', $trabajador)
+                <div class="flex flex-wrap gap-1">
+                    <x-button icon="o-plus" wire:click="abrirIncentivo({{ $trabajador->Id_Trabajador }})"
+                        class="btn-sm {{ $this->claseAccionSecundaria() }}" spinner />
+                    <x-button icon="o-minus" wire:click="abrirDeduccion({{ $trabajador->Id_Trabajador }})"
+                        class="btn-sm {{ $this->claseAccionSecundaria() }}" spinner />
+                    <x-button icon="o-sun" wire:click="abrirVacaciones({{ $trabajador->Id_Trabajador }})"
+                        class="btn-sm {{ $this->claseAccionSecundaria() }}" spinner />
+                    <x-button icon="o-user-minus" wire:click="abrirLiquidacion({{ $trabajador->Id_Trabajador }})"
+                        class="btn-sm {{ $this->claseLiquidar() }}" spinner />
+                </div>
+                @endscope
+            </x-table>
             @endif
         </div>
     </x-card>
 
-    <x-modal wire:model="modalConfirmarPlanilla" title="Confirmar generación de planilla" separator box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
+    <x-modal wire:model="modalConfirmarPlanilla" title="Confirmar generación de planilla" separator
+        box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
         <div class="space-y-4 text-[#111827]">
             <x-alert icon="o-exclamation-triangle" class="alert-warning">
                 <span>
-                    Al confirmar, la planilla será generada como <strong>PAGADA</strong>. No se podrán registrar incentivos, deducciones ni cambios sobre este mismo periodo después de generarla.
+                    Al confirmar, la planilla será generada como <strong>PAGADA</strong>. No se podrán registrar
+                    incentivos, deducciones ni cambios sobre este mismo periodo después de generarla.
                 </span>
             </x-alert>
 
@@ -1594,86 +1736,115 @@ new class extends Component
 
         <x-slot:actions>
             <x-button label="Cancelar" wire:click="$set('modalConfirmarPlanilla', false)" />
-            <x-button label="Confirmar y generar" icon="o-check" wire:click="confirmarGeneracionPlanilla" class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
+            <x-button label="Confirmar y generar" icon="o-check" wire:click="confirmarGeneracionPlanilla"
+                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
         </x-slot:actions>
     </x-modal>
 
-    <x-modal wire:model="modalComprobante" title="Comprobante de planilla" separator box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl max-w-6xl">
+    <x-modal wire:model="modalComprobante" title="Comprobante de planilla" separator
+        box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl max-w-6xl">
         @if($previewPlanilla)
-            <div class="space-y-5 text-[#111827]">
-                <div class="flex flex-col gap-2 border-b border-[#D7E4F3] pb-4 md:flex-row md:items-end md:justify-between">
-                    <div>
-                        <h2 class="text-2xl font-bold text-[#1A2B42]">Comprobante de planilla</h2>
-                        <p class="text-sm text-[#5F6B7A]">
-                            Planilla #{{ $previewPlanilla->Id_Planilla }} · {{ $previewPlanilla->Tipo_Planilla }} · {{ $previewPlanilla->Estado }}
-                        </p>
-                    </div>
-
-                    <div class="text-sm text-[#111827]">
-                        <p><strong>Generada:</strong> {{ optional($previewPlanilla->Fecha_Generacion)->format('d/m/Y H:i') }}</p>
-                        <p><strong>Periodo:</strong> {{ optional($previewPlanilla->Fecha_Inicio_Corte)->format('d/m/Y') }} - {{ optional($previewPlanilla->Fecha_Fin_Corte)->format('d/m/Y') }}</p>
-                    </div>
+        <div class="space-y-5 text-[#111827]">
+            <div class="flex flex-col gap-2 border-b border-[#D7E4F3] pb-4 md:flex-row md:items-end md:justify-between">
+                <div>
+                    <h2 class="text-2xl font-bold text-[#1A2B42]">Comprobante de planilla</h2>
+                    <p class="text-sm text-[#5F6B7A]">
+                        Planilla #{{ $previewPlanilla->Id_Planilla }} · {{ $previewPlanilla->Tipo_Planilla }} · {{
+                        $previewPlanilla->Estado }}
+                    </p>
                 </div>
 
-                <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
-                    <div class="rounded-xl bg-[#F0F3F7] p-4">
-                        <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Bruto</p>
-                        <p class="text-lg font-bold text-[#1A2B42]">{{ $this->money($previewPlanilla->Total_Bruto) }}</p>
-                    </div>
-                    <div class="rounded-xl bg-[#F0F3F7] p-4">
-                        <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Incentivos</p>
-                        <p class="text-lg font-bold text-[#1A2B42]">{{ $this->money($previewPlanilla->Total_Incentivos) }}</p>
-                    </div>
-                    <div class="rounded-xl bg-[#F0F3F7] p-4">
-                        <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Deducciones</p>
-                        <p class="text-lg font-bold text-[#1A2B42]">{{ $this->money($previewPlanilla->Total_Deducciones) }}</p>
-                    </div>
-                    <div class="rounded-xl bg-[#EAF2FB] p-4">
-                        <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Total pagado</p>
-                        <p class="text-lg font-bold text-[#0E48A1]">{{ $this->money($previewPlanilla->Total_Neto) }}</p>
-                    </div>
+                <div class="text-sm text-[#111827]">
+                    <p><strong>Generada:</strong> {{ $this->fechaFormato($previewPlanilla->Fecha_Generacion, 'd/m/Y
+                        H:i') }}</p>
+                    <p><strong>Periodo:</strong> {{ $this->fechaFormato($previewPlanilla->Fecha_Inicio_Corte) }} - {{
+                        $this->fechaFormato($previewPlanilla->Fecha_Fin_Corte) }}</p>
                 </div>
+            </div>
 
-                <div class="overflow-x-auto">
-                    <x-table
-                        :headers="[
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
+                <div class="rounded-xl bg-[#F0F3F7] p-4">
+                    <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Bruto</p>
+                    <p class="text-lg font-bold text-[#1A2B42]">{{ $this->money($previewPlanilla->Total_Bruto) }}</p>
+                </div>
+                <div class="rounded-xl bg-[#F0F3F7] p-4">
+                    <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Incentivos</p>
+                    <p class="text-lg font-bold text-[#1A2B42]">{{ $this->money($previewPlanilla->Total_Incentivos) }}
+                    </p>
+                </div>
+                <div class="rounded-xl bg-[#F0F3F7] p-4">
+                    <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Deducciones</p>
+                    <p class="text-lg font-bold text-[#1A2B42]">{{ $this->money($previewPlanilla->Total_Deducciones) }}
+                    </p>
+                </div>
+                <div class="rounded-xl bg-[#EAF2FB] p-4">
+                    <p class="text-xs font-semibold uppercase text-[#5F6B7A]">Total pagado</p>
+                    <p class="text-lg font-bold text-[#0E48A1]">{{ $this->money($previewPlanilla->Total_Neto) }}</p>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <x-table :headers="[
                             ['key' => 'empleado', 'label' => 'Empleado'],
                             ['key' => 'cargo', 'label' => 'Cargo'],
                             ['key' => 'salario', 'label' => 'Salario'],
                             ['key' => 'incentivo', 'label' => 'Incentivo'],
                             ['key' => 'deduccion', 'label' => 'Deducción'],
                             ['key' => 'total', 'label' => 'Total'],
-                        ]"
-                        :rows="$this->mapDetalles($previewPlanilla)"
-                        class="[&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_tr:hover]:bg-[#F7F9FC]"
-                    >
-                        @scope('cell_empleado', $row)
-                            <span class="font-semibold text-[#111827]">{{ $row['empleado'] }}</span>
-                        @endscope
+                        ]" :rows="$comprobanteDetalles" with-pagination
+                    class="[&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_tr:hover]:bg-[#F7F9FC]">
+                    @scope('cell_empleado', $detalle)
+                    @php($trabajador = $detalle->trabajador)
+                    <span class="font-semibold text-[#111827]">{{ $trabajador ? $this->nombreTrabajador($trabajador) :
+                        'Sin trabajador' }}</span>
+                    @endscope
 
-                        @scope('cell_cargo', $row)
-                            <span class="text-[#111827]">{{ $row['cargo'] }}</span>
-                        @endscope
+                    @scope('cell_cargo', $detalle)
+                    @php($trabajador = $detalle->trabajador)
+                    <span class="text-[#111827]">{{ $trabajador ? $this->cargoTrabajador($trabajador) : 'Sin cargo'
+                        }}</span>
+                    @endscope
 
-                        @scope('cell_total', $row)
-                            <span class="font-bold text-[#0E48A1]">{{ $row['total'] }}</span>
-                        @endscope
-                    </x-table>
-                </div>
+                    @scope('cell_salario', $detalle)
+                    <span class="text-[#111827]">{{ $this->money($detalle->Salario_Base) }}</span>
+                    @endscope
+
+                    @scope('cell_incentivo', $detalle)
+                    <span class="text-[#111827]">{{ $this->money($detalle->Monto_Incentivo) }}</span>
+                    @endscope
+
+                    @scope('cell_deduccion', $detalle)
+                    <span class="text-[#111827]">{{ $this->money($detalle->Monto_Deduccion) }}</span>
+                    @endscope
+
+                    @scope('cell_total', $detalle)
+                    <span class="font-bold text-[#0E48A1]">{{ $this->money($detalle->Total_Neto) }}</span>
+                    @endscope
+                </x-table>
             </div>
+        </div>
         @endif
 
         <x-slot:actions>
             <x-button label="Cerrar" wire:click="$set('modalComprobante', false)" />
-            <x-button label="Exportar CSV" icon="o-arrow-down-tray" wire:click="exportarComprobanteCsv" class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
+            <x-button label="Exportar CSV" icon="o-arrow-down-tray" wire:click="exportarComprobanteCsv"
+                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
         </x-slot:actions>
     </x-modal>
 
-    <x-modal wire:model="modalIncentivo" title="Registrar incentivo" separator box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
+    <x-modal wire:model="modalIncentivo" title="Registrar incentivo" separator
+        box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2 text-[#111827]">
             <div class="md:col-span-2">
                 <p class="mb-2 text-sm font-semibold text-[#1A2B42]">Trabajador</p>
-                <x-select :options="$trabajadorOptions" option-value="id" option-label="name" wire:model="formTrabajadorId" placeholder="Seleccione un trabajador" class="bg-[#F0F3F7] text-[#111827]" />
+                <x-input wire:model.live.debounce.300ms="busquedaTrabajadorModal"
+                    placeholder="Filtrar por código, nombre o cargo" class="mb-2 bg-[#F0F3F7] text-[#111827]" />
+                <x-select :options="$trabajadorOptions" option-value="id" option-label="name"
+                    wire:model="formTrabajadorId" placeholder="Seleccione un trabajador"
+                    class="bg-[#F0F3F7] text-[#111827]" />
+                <p class="mt-1 text-xs text-[#5F6B7A]">
+                    Escriba para buscar; solo se envían resultados pequeños a Livewire.
+                </p>
                 @error('formTrabajadorId') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
 
@@ -1685,34 +1856,46 @@ new class extends Component
 
             <div>
                 <p class="mb-2 text-sm font-semibold text-[#1A2B42]">Monto</p>
-                <x-input type="number" step="0.01" min="0" wire:model="montoIncentivo" prefix="C$" class="bg-[#F0F3F7] text-[#111827]" />
+                <x-input type="number" step="0.01" min="0" wire:model="montoIncentivo" prefix="C$"
+                    class="bg-[#F0F3F7] text-[#111827]" />
                 @error('montoIncentivo') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
 
             <div class="md:col-span-2">
                 <p class="mb-2 text-sm font-semibold text-[#1A2B42]">Concepto</p>
-                <x-input wire:model="conceptoIncentivo" placeholder="Bono, comisión u horas extra" class="bg-[#F0F3F7] text-[#111827]" />
+                <x-input wire:model="conceptoIncentivo" placeholder="Bono, comisión u horas extra"
+                    class="bg-[#F0F3F7] text-[#111827]" />
                 @error('conceptoIncentivo') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
 
             <div class="md:col-span-2">
                 <p class="mb-2 text-sm font-semibold text-[#1A2B42]">Observación</p>
-                <x-textarea wire:model="observacionIncentivo" rows="3" placeholder="Opcional" class="bg-[#F0F3F7] text-[#111827]" />
+                <x-textarea wire:model="observacionIncentivo" rows="3" placeholder="Opcional"
+                    class="bg-[#F0F3F7] text-[#111827]" />
                 @error('observacionIncentivo') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
         </div>
 
         <x-slot:actions>
             <x-button label="Cancelar" wire:click="$set('modalIncentivo', false)" />
-            <x-button label="Guardar" icon="o-check" wire:click="registrarIncentivo" class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
+            <x-button label="Guardar" icon="o-check" wire:click="registrarIncentivo"
+                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
         </x-slot:actions>
     </x-modal>
 
-    <x-modal wire:model="modalDeduccion" title="Registrar deducción" separator box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
+    <x-modal wire:model="modalDeduccion" title="Registrar deducción" separator
+        box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2 text-[#111827]">
             <div class="md:col-span-2">
                 <p class="mb-2 text-sm font-semibold text-[#1A2B42]">Trabajador</p>
-                <x-select :options="$trabajadorOptions" option-value="id" option-label="name" wire:model="formTrabajadorId" placeholder="Seleccione un trabajador" class="bg-[#F0F3F7] text-[#111827]" />
+                <x-input wire:model.live.debounce.300ms="busquedaTrabajadorModal"
+                    placeholder="Filtrar por código, nombre o cargo" class="mb-2 bg-[#F0F3F7] text-[#111827]" />
+                <x-select :options="$trabajadorOptions" option-value="id" option-label="name"
+                    wire:model="formTrabajadorId" placeholder="Seleccione un trabajador"
+                    class="bg-[#F0F3F7] text-[#111827]" />
+                <p class="mt-1 text-xs text-[#5F6B7A]">
+                    Escriba para buscar; solo se envían resultados pequeños a Livewire.
+                </p>
                 @error('formTrabajadorId') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
 
@@ -1724,34 +1907,46 @@ new class extends Component
 
             <div>
                 <p class="mb-2 text-sm font-semibold text-[#1A2B42]">Monto</p>
-                <x-input type="number" step="0.01" min="0" wire:model="montoDeduccion" prefix="C$" class="bg-[#F0F3F7] text-[#111827]" />
+                <x-input type="number" step="0.01" min="0" wire:model="montoDeduccion" prefix="C$"
+                    class="bg-[#F0F3F7] text-[#111827]" />
                 @error('montoDeduccion') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
 
             <div class="md:col-span-2">
                 <p class="mb-2 text-sm font-semibold text-[#1A2B42]">Concepto</p>
-                <x-input wire:model="conceptoDeduccion" placeholder="Préstamo, ausencia o ajuste" class="bg-[#F0F3F7] text-[#111827]" />
+                <x-input wire:model="conceptoDeduccion" placeholder="Préstamo, ausencia o ajuste"
+                    class="bg-[#F0F3F7] text-[#111827]" />
                 @error('conceptoDeduccion') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
 
             <div class="md:col-span-2">
                 <p class="mb-2 text-sm font-semibold text-[#1A2B42]">Observación</p>
-                <x-textarea wire:model="observacionDeduccion" rows="3" placeholder="Opcional" class="bg-[#F0F3F7] text-[#111827]" />
+                <x-textarea wire:model="observacionDeduccion" rows="3" placeholder="Opcional"
+                    class="bg-[#F0F3F7] text-[#111827]" />
                 @error('observacionDeduccion') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
         </div>
 
         <x-slot:actions>
             <x-button label="Cancelar" wire:click="$set('modalDeduccion', false)" />
-            <x-button label="Guardar" icon="o-check" wire:click="registrarDeduccion" class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
+            <x-button label="Guardar" icon="o-check" wire:click="registrarDeduccion"
+                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
         </x-slot:actions>
     </x-modal>
 
-    <x-modal wire:model="modalVacaciones" title="Registrar vacaciones" separator box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
+    <x-modal wire:model="modalVacaciones" title="Registrar vacaciones" separator
+        box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2 text-[#111827]">
             <div class="md:col-span-2">
                 <p class="mb-2 text-sm font-semibold text-[#1A2B42]">Trabajador</p>
-                <x-select :options="$trabajadorOptions" option-value="id" option-label="name" wire:model="formTrabajadorId" placeholder="Seleccione un trabajador" class="bg-[#F0F3F7] text-[#111827]" />
+                <x-input wire:model.live.debounce.300ms="busquedaTrabajadorModal"
+                    placeholder="Filtrar por código, nombre o cargo" class="mb-2 bg-[#F0F3F7] text-[#111827]" />
+                <x-select :options="$trabajadorOptions" option-value="id" option-label="name"
+                    wire:model="formTrabajadorId" placeholder="Seleccione un trabajador"
+                    class="bg-[#F0F3F7] text-[#111827]" />
+                <p class="mt-1 text-xs text-[#5F6B7A]">
+                    Escriba para buscar; solo se envían resultados pequeños a Livewire.
+                </p>
                 @error('formTrabajadorId') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
 
@@ -1775,28 +1970,39 @@ new class extends Component
 
             <div>
                 <p class="mb-2 text-sm font-semibold text-[#1A2B42]">Estado</p>
-                <x-select :options="$estadoVacacionOptions" option-value="id" option-label="name" wire:model="vacacionEstado" class="bg-[#F0F3F7] text-[#111827]" />
+                <x-select :options="$estadoVacacionOptions" option-value="id" option-label="name"
+                    wire:model="vacacionEstado" class="bg-[#F0F3F7] text-[#111827]" />
                 @error('vacacionEstado') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
 
             <div class="md:col-span-2">
                 <p class="mb-2 text-sm font-semibold text-[#1A2B42]">Observación</p>
-                <x-textarea wire:model="vacacionObservacion" rows="3" placeholder="Opcional" class="bg-[#F0F3F7] text-[#111827]" />
+                <x-textarea wire:model="vacacionObservacion" rows="3" placeholder="Opcional"
+                    class="bg-[#F0F3F7] text-[#111827]" />
                 @error('vacacionObservacion') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
         </div>
 
         <x-slot:actions>
             <x-button label="Cancelar" wire:click="$set('modalVacaciones', false)" />
-            <x-button label="Guardar" icon="o-check" wire:click="registrarVacaciones" class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
+            <x-button label="Guardar" icon="o-check" wire:click="registrarVacaciones"
+                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
         </x-slot:actions>
     </x-modal>
 
-    <x-modal wire:model="modalLiquidacion" title="Liquidar trabajador" separator box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
+    <x-modal wire:model="modalLiquidacion" title="Liquidar trabajador" separator
+        box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2 text-[#111827]">
             <div class="md:col-span-2">
                 <p class="mb-2 text-sm font-semibold text-[#1A2B42]">Trabajador</p>
-                <x-select :options="$trabajadorOptions" option-value="id" option-label="name" wire:model="formTrabajadorId" placeholder="Seleccione un trabajador" class="bg-[#F0F3F7] text-[#111827]" />
+                <x-input wire:model.live.debounce.300ms="busquedaTrabajadorModal"
+                    placeholder="Filtrar por código, nombre o cargo" class="mb-2 bg-[#F0F3F7] text-[#111827]" />
+                <x-select :options="$trabajadorOptions" option-value="id" option-label="name"
+                    wire:model="formTrabajadorId" placeholder="Seleccione un trabajador"
+                    class="bg-[#F0F3F7] text-[#111827]" />
+                <p class="mt-1 text-xs text-[#5F6B7A]">
+                    Escriba para buscar; solo se envían resultados pequeños a Livewire.
+                </p>
                 @error('formTrabajadorId') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
 
@@ -1808,29 +2014,36 @@ new class extends Component
 
             <div>
                 <p class="mb-2 text-sm font-semibold text-[#1A2B42]">Motivo</p>
-                <x-select :options="$motivoLiquidacionOptions" option-value="id" option-label="name" wire:model.live="liquidacionMotivo" class="bg-[#F0F3F7] text-[#111827]" />
+                <x-select :options="$motivoLiquidacionOptions" option-value="id" option-label="name"
+                    wire:model.live="liquidacionMotivo" class="bg-[#F0F3F7] text-[#111827]" />
                 @error('liquidacionMotivo') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
 
-            <label class="md:col-span-2 flex items-center gap-3 rounded-2xl border border-[#D7E4F3] bg-[#F0F3F7] p-4 text-sm font-semibold text-[#111827]">
-                <input type="checkbox" wire:model.live="liquidacionIncluirIndemnizacion" class="checkbox checkbox-sm border-[#2E8BC0]" @disabled($liquidacionMotivo === 'DESPIDO_JUSTIFICADO')>
+            <label
+                class="md:col-span-2 flex items-center gap-3 rounded-2xl border border-[#D7E4F3] bg-[#F0F3F7] p-4 text-sm font-semibold text-[#111827]">
+                <input type="checkbox" wire:model.live="liquidacionIncluirIndemnizacion"
+                    class="checkbox checkbox-sm border-[#2E8BC0]" @disabled($liquidacionMotivo==='DESPIDO_JUSTIFICADO'
+                    )>
                 Incluir indemnización por antigüedad
             </label>
 
             <div class="md:col-span-2">
                 <p class="mb-2 text-sm font-semibold text-[#1A2B42]">Observación</p>
-                <x-textarea wire:model="liquidacionObservacion" rows="3" placeholder="Opcional" class="bg-[#F0F3F7] text-[#111827]" />
+                <x-textarea wire:model="liquidacionObservacion" rows="3" placeholder="Opcional"
+                    class="bg-[#F0F3F7] text-[#111827]" />
                 @error('liquidacionObservacion') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
         </div>
 
         <x-slot:actions>
             <x-button label="Cancelar" wire:click="$set('modalLiquidacion', false)" />
-            <x-button label="Generar liquidación" icon="o-check" wire:click="liquidarTrabajador" class="border-0 bg-[#E67E22] text-white hover:opacity-90" spinner />
+            <x-button label="Generar liquidación" icon="o-check" wire:click="liquidarTrabajador"
+                class="border-0 bg-[#E67E22] text-white hover:opacity-90" spinner />
         </x-slot:actions>
     </x-modal>
 
-    <x-modal wire:model="modalReporteAnual" title="Reporte anual de planillas" separator box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl max-w-6xl">
+    <x-modal wire:model="modalReporteAnual" title="Reporte anual de planillas" separator
+        box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl max-w-6xl">
         <div class="space-y-5 text-[#111827]">
             <div class="flex flex-col gap-1 border-b border-[#D7E4F3] pb-4">
                 <h2 class="text-2xl font-bold text-[#1A2B42]">Reporte anual de planillas</h2>
@@ -1856,8 +2069,7 @@ new class extends Component
                 </div>
             </div>
 
-            <x-table
-                :headers="[
+            <x-table :headers="[
                     ['key' => 'id', 'label' => 'Planilla'],
                     ['key' => 'periodo', 'label' => 'Periodo'],
                     ['key' => 'tipo', 'label' => 'Tipo'],
@@ -1865,23 +2077,22 @@ new class extends Component
                     ['key' => 'bruto', 'label' => 'Bruto'],
                     ['key' => 'deducciones', 'label' => 'Deducciones'],
                     ['key' => 'neto', 'label' => 'Neto'],
-                ]"
-                :rows="$reporteRows"
-                class="[&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_tr:hover]:bg-[#F7F9FC]"
-            >
+                ]" :rows="$reporteRows"
+                class="[&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_tr:hover]:bg-[#F7F9FC]">
                 @scope('cell_id', $row)
-                    <span class="font-semibold text-[#111827]">#{{ $row['id'] }}</span>
+                <span class="font-semibold text-[#111827]">#{{ $row['id'] }}</span>
                 @endscope
 
                 @scope('cell_neto', $row)
-                    <span class="font-bold text-[#0E48A1]">{{ $row['neto'] }}</span>
+                <span class="font-bold text-[#0E48A1]">{{ $row['neto'] }}</span>
                 @endscope
             </x-table>
         </div>
 
         <x-slot:actions>
             <x-button label="Cerrar" wire:click="$set('modalReporteAnual', false)" />
-            <x-button label="Exportar CSV" icon="o-arrow-down-tray" wire:click="exportarReporteAnualCsv" class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
+            <x-button label="Exportar CSV" icon="o-arrow-down-tray" wire:click="exportarReporteAnualCsv"
+                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
         </x-slot:actions>
     </x-modal>
 </div>
