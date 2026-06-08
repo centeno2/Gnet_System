@@ -6,9 +6,12 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
+use Livewire\WithPagination;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 new class extends Component
 {
+    use WithPagination;
     public string $idTrabajador = '';
     public string $nombreUsuario = '';
     public string $correo = '';
@@ -30,7 +33,6 @@ new class extends Component
     public bool $mostrarToast = false;
 
     public array $trabajadores = [];
-    public array $usuarios = [];
 
     public array $headers = [
         ['key' => 'trabajador', 'label' => 'Trabajador'],
@@ -40,15 +42,19 @@ new class extends Component
         ['key' => 'status', 'label' => 'Estado'],
     ];
 
+    public function paginationView(): string
+{
+    return 'vendor.pagination.gnet';
+}
+
     public function mount(): void
     {
         $this->cargarTrabajadores();
-        $this->cargarUsuarios();
     }
 
     public function updatedBuscar(): void
     {
-        $this->cargarUsuarios();
+        $this->resetPage();
     }
 
     public function updatedIdTrabajador(): void
@@ -151,7 +157,6 @@ new class extends Component
 
         $this->resetFormularioUsuario();
         $this->cargarTrabajadores();
-        $this->cargarUsuarios();
 
         $this->mostrarToast('Usuario guardado correctamente.');
     }
@@ -259,7 +264,6 @@ new class extends Component
         ]);
 
         $this->cerrarModalEditarUsuario();
-        $this->cargarUsuarios();
 
         $this->mostrarToast('Usuario actualizado correctamente.');
     }
@@ -275,8 +279,6 @@ new class extends Component
 
         $usuario->Estado = (int) $usuario->Estado === 1 ? 0 : 1;
         $usuario->save();
-
-        $this->cargarUsuarios();
 
         $mensaje = (int) $usuario->Estado === 1
             ? 'Usuario activado correctamente.'
@@ -323,34 +325,30 @@ new class extends Component
         }
     }
 
-    protected function cargarUsuarios(): void
+    public function usuarios(): LengthAwarePaginator
     {
         $busqueda = trim($this->buscar);
 
-        $query = Usuario::query()
+        return Usuario::query()
             ->with(['trabajador.persona', 'trabajador.cargo'])
-            ->orderByDesc('Id_Usuario');
-
-        if ($busqueda !== '') {
-            $query->where(function ($q) use ($busqueda) {
-                $q->where('Nombre_Usuario', 'like', "%{$busqueda}%")
-                    ->orWhere('Correo', 'like', "%{$busqueda}%")
-                    ->orWhereHas('trabajador.persona', function ($personaQuery) use ($busqueda) {
-                        $personaQuery->where('Primer_Nombre', 'like', "%{$busqueda}%")
-                            ->orWhere('Segundo_Nombre', 'like', "%{$busqueda}%")
-                            ->orWhere('Primer_Apellido', 'like', "%{$busqueda}%")
-                            ->orWhere('Segundo_Apellido', 'like', "%{$busqueda}%");
-                    })
-                    ->orWhereHas('trabajador.cargo', function ($cargoQuery) use ($busqueda) {
-                        $cargoQuery->where('Cargo_Asignado', 'like', "%{$busqueda}%");
-                    });
-            });
-        }
-
-        $this->usuarios = $query
-            ->limit(25)
-            ->get()
-            ->map(function ($usuario) {
+            ->when($busqueda !== '', function ($query) use ($busqueda) {
+                $query->where(function ($q) use ($busqueda) {
+                    $q->where('Nombre_Usuario', 'like', "%{$busqueda}%")
+                        ->orWhere('Correo', 'like', "%{$busqueda}%")
+                        ->orWhereHas('trabajador.persona', function ($personaQuery) use ($busqueda) {
+                            $personaQuery->where('Primer_Nombre', 'like', "%{$busqueda}%")
+                                ->orWhere('Segundo_Nombre', 'like', "%{$busqueda}%")
+                                ->orWhere('Primer_Apellido', 'like', "%{$busqueda}%")
+                                ->orWhere('Segundo_Apellido', 'like', "%{$busqueda}%");
+                        })
+                        ->orWhereHas('trabajador.cargo', function ($cargoQuery) use ($busqueda) {
+                            $cargoQuery->where('Cargo_Asignado', 'like', "%{$busqueda}%");
+                        });
+                });
+            })
+            ->orderByDesc('Id_Usuario')
+            ->paginate(10)
+            ->through(function (Usuario $usuario) {
                 return [
                     'id_usuario' => $usuario->Id_Usuario,
                     'trabajador' => $this->nombreTrabajador($usuario->trabajador),
@@ -359,8 +357,7 @@ new class extends Component
                     'correo' => $usuario->Correo ?: '—',
                     'status' => (int) $usuario->Estado === 1 ? 'Activo' : 'Inactivo',
                 ];
-            })
-            ->toArray();
+            });
     }
 
     protected function nombreTrabajador($trabajador): string
@@ -561,13 +558,18 @@ new class extends Component
             />
         </div>
 
+        @php
+            $usuarios = $this->usuarios();
+        @endphp
+
         <x-table
             :headers="$headers"
             :rows="$usuarios"
             no-hover
+            with-pagination
             show-empty-text
             empty-text="No hay usuarios registrados."
-            class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr]:bg-white! [&_tbody_tr:nth-child(even)]:bg-[#F8FBFF]! [&_tbody_tr:hover]:bg-[#EAF4FD]! [&_tbody_tr]:text-[#1A2B42]!"
+            class="[&_table]:min-w-[980px] [&_table]:w-full [&_table]:border-separate [&_table]:border-spacing-0 [&_table]:text-[13px] [&_table]:text-[#1A2B42] [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:px-3 [&_thead_th]:py-3 [&_thead_th]:font-semibold [&_thead_th]:text-white [&_thead_th]:whitespace-nowrap [&_thead_th:first-child]:rounded-tl-xl [&_thead_th:last-child]:rounded-tr-xl [&_tbody_tr:nth-child(odd)]:bg-white! [&_tbody_tr:nth-child(even)]:bg-[#F8FBFF]! [&_tbody_tr:hover]:!bg-[#EAF4FD] [&_tbody_td]:border-0 [&_tbody_td]:px-3 [&_tbody_td]:py-3 [&_tbody_td]:align-middle [&_tbody_td]:text-[#1A2B42]"
         >
             @scope('cell_status', $usuario)
                 <span
@@ -581,10 +583,11 @@ new class extends Component
             @scope('actions', $usuario)
                 <div class="flex items-center justify-end gap-2">
                     <x-button
-                        label="Editar"
                         icon="o-pencil-square"
                         wire:click="abrirModalEditarUsuario({{ $usuario['id_usuario'] }})"
-                        class="h-8 min-h-8 border-0 bg-[#2E8BC0] px-3 text-xs text-white hover:bg-[#0B6FE4]"
+                        title="Editar usuario"
+                        aria-label="Editar usuario"
+                        class="btn-sm h-10 w-10 min-h-0 rounded-xl border border-[#0B6FE4] bg-[#0B6FE4] p-0 text-white shadow-sm hover:bg-[#2E8BC0] hover:text-white"
                     />
 
                     <x-button

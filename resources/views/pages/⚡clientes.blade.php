@@ -5,11 +5,13 @@ use App\Models\Persona;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Livewire\Component;
+use Livewire\WithPagination;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Mary\Traits\Toast;
 
 new class extends Component
 {
-    use Toast;
+    use Toast, WithPagination;
 
     public string $nombre = '';
     public string $apellido = '';
@@ -27,8 +29,6 @@ new class extends Component
     public ?string $direccionInstitucion = '';
 
     public string $buscar = '';
-
-    public array $clientes = [];
 
     public ?int $clienteEditandoId = null;
     public ?int $personaEditandoId = null;
@@ -72,12 +72,12 @@ new class extends Component
 
     public function mount(): void
     {
-        $this->cargarClientes();
+        // La tabla carga con paginación desde clientes().
     }
 
     public function updatedBuscar(): void
     {
-        $this->cargarClientes();
+        $this->resetPage();
     }
 
     public function updatedTipoCliente($value): void
@@ -101,6 +101,11 @@ new class extends Component
         $this->telefono = '';
         $this->direccion = '';
     }
+
+    public function paginationView(): string
+{
+    return 'vendor.pagination.gnet';
+}
 
     public function updatedTelefono(): void
     {
@@ -422,7 +427,7 @@ new class extends Component
 
             $this->modalConfirmarPersonaExistente = false;
             $this->limpiarFormulario();
-            $this->cargarClientes();
+            $this->resetPage();
 
             $this->success(
                 'Cliente registrado correctamente.',
@@ -502,7 +507,7 @@ new class extends Component
             });
 
             $this->limpiarFormulario();
-            $this->cargarClientes();
+            $this->resetPage();
 
             $this->success(
                 'Cliente actualizado correctamente.',
@@ -591,7 +596,7 @@ new class extends Component
 
             $cliente->save();
 
-            $this->cargarClientes();
+            $this->resetPage();
 
             $this->success(
                 $cliente->Estado ? 'Cliente activado.' : 'Cliente inactivado.',
@@ -653,14 +658,14 @@ new class extends Component
     public function limpiarBusqueda(): void
     {
         $this->buscar = '';
-        $this->cargarClientes();
+        $this->resetPage();
     }
 
-    public function cargarClientes(): void
+    public function clientes(): LengthAwarePaginator
     {
         $busqueda = trim($this->buscar);
 
-        $this->clientes = Cliente::query()
+        return Cliente::query()
             ->with('persona')
             ->when($busqueda !== '', function ($query) use ($busqueda) {
                 $like = "%{$busqueda}%";
@@ -684,8 +689,8 @@ new class extends Component
                 });
             })
             ->orderByDesc('Id_Cliente')
-            ->get()
-            ->map(function (Cliente $cliente) {
+            ->paginate(10)
+            ->through(function (Cliente $cliente) {
                 return [
                     'id' => (int) $cliente->Id_Cliente,
                     'codigo' => 'CL-' . str_pad((string) $cliente->Id_Cliente, 4, '0', STR_PAD_LEFT),
@@ -698,8 +703,7 @@ new class extends Component
                     'estado' => $cliente->Estado ? 'Activo' : 'Inactivo',
                     'activo' => (bool) $cliente->Estado,
                 ];
-            })
-            ->toArray();
+            });
     }
 
     private function normalizarCampos(): void
@@ -1148,13 +1152,18 @@ new class extends Component
                 </div>
             </div>
 
-            @if (count($clientes) > 0)
+            @php
+                $clientes = $this->clientes();
+            @endphp
+
+            @if ($clientes->count() > 0)
                 <div class="max-h-[520px] overflow-auto rounded-2xl border border-[#D7E4F3]">
                     <x-table
                         :headers="$headers"
                         :rows="$clientes"
+                        with-pagination
                         no-hover
-                        class="min-w-[980px] [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:font-semibold [&_thead_th]:text-white [&_tbody_td]:border-[#D7E4F3] [&_tbody_td]:text-[#1A2B42] [&_tbody_tr:hover]:!bg-[#EAF4FD]"
+                        class="[&_table]:min-w-[980px] [&_table]:w-full [&_table]:border-separate [&_table]:border-spacing-0 [&_table]:text-[13px] [&_table]:text-[#1A2B42] [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:px-3 [&_thead_th]:py-3 [&_thead_th]:font-semibold [&_thead_th]:text-white [&_thead_th]:whitespace-nowrap [&_thead_th:first-child]:rounded-tl-xl [&_thead_th:last-child]:rounded-tr-xl [&_tbody_tr:nth-child(odd)]:bg-white! [&_tbody_tr:nth-child(even)]:bg-[#F8FBFF]! [&_tbody_tr:hover]:!bg-[#EAF4FD] [&_tbody_td]:border-0 [&_tbody_td]:px-3 [&_tbody_td]:py-3 [&_tbody_td]:align-middle [&_tbody_td]:text-[#1A2B42]"
                     >
                         @scope('cell_full_name', $cliente)
                             <span class="block max-w-[240px] truncate font-semibold" title="{{ $cliente['full_name'] }}">
@@ -1206,7 +1215,7 @@ new class extends Component
                                     spinner="cargarCliente({{ $cliente['id'] }})"
                                     title="Editar cliente"
                                     aria-label="Editar cliente"
-                                    class="btn-sm rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB] hover:text-[#0B6FE4]"
+                                    class="btn-sm h-10 w-10 min-h-0 rounded-xl border border-[#0B6FE4] bg-[#0B6FE4] p-0 text-white shadow-sm hover:bg-[#2E8BC0] hover:text-white"
                                 />
 
                                 <x-button

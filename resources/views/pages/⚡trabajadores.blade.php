@@ -3,12 +3,16 @@
 use App\Models\Cargo;
 use App\Models\Persona;
 use App\Models\Trabajador;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Livewire\Component;
+use Livewire\WithPagination;
 
 new class extends Component
 {
+    use WithPagination;
+
     public string $nombres = '';
     public string $apellidos = '';
     public string $cedula = '';
@@ -38,12 +42,17 @@ new class extends Component
     public ?string $personaExistenteNombre = null;
 
     public array $cargos = [];
-    public array $trabajadores = [];
 
     public array $estados = [
         ['id' => '1', 'name' => 'Activo'],
         ['id' => '0', 'name' => 'Inactivo'],
     ];
+
+
+    public function paginationView(): string
+{
+    return 'vendor.pagination.gnet';
+}
 
     public array $headers = [
         ['key' => 'nombre_completo', 'label' => 'Nombre completo'],
@@ -61,7 +70,6 @@ new class extends Component
         $this->fechaIngreso = now()->format('Y-m-d');
 
         $this->cargarCargos();
-        $this->cargarTrabajadores();
     }
 
     protected function rules(): array
@@ -380,13 +388,13 @@ new class extends Component
             ->toArray();
     }
 
-    public function cargarTrabajadores(): void
+    public function trabajadores(): LengthAwarePaginator
     {
-        $this->trabajadores = Trabajador::query()
+        return Trabajador::query()
             ->with(['persona', 'cargo'])
             ->orderByDesc('Id_Trabajador')
-            ->get()
-            ->map(function (Trabajador $trabajador) {
+            ->paginate(10)
+            ->through(function (Trabajador $trabajador) {
                 $persona = $trabajador->persona;
 
                 return [
@@ -404,9 +412,7 @@ new class extends Component
                         : 'C$ 0.00',
                     'estado' => ((int) $trabajador->Estado === 1) ? 'Activo' : 'Inactivo',
                 ];
-            })
-            ->values()
-            ->toArray();
+            });
     }
 
     public function guardarTrabajador(): void
@@ -503,7 +509,6 @@ new class extends Component
         $this->modalConfirmarPersonaExistente = false;
 
         $this->limpiarFormulario();
-        $this->cargarTrabajadores();
 
         session()->flash('success', 'Trabajador registrado correctamente.');
     }
@@ -603,7 +608,6 @@ new class extends Component
         });
 
         $this->limpiarFormulario();
-        $this->cargarTrabajadores();
 
         session()->flash('success', 'Trabajador actualizado correctamente.');
     }
@@ -945,6 +949,10 @@ new class extends Component
         </x-form>
     </x-card>
 
+    @php
+        $trabajadores = $this->trabajadores();
+    @endphp
+
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
         <div class="mb-4">
             <h2 class="text-2xl font-bold text-[#1A2B42]">Listado de trabajadores</h2>
@@ -956,7 +964,9 @@ new class extends Component
         <x-table
             :headers="$headers"
             :rows="$trabajadores"
-            class="[&_thead_th]:text-[#feffff] [&_thead_th]:font-semibold [&_thead_th]:bg-[#2E8BC0] [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl"
+            with-pagination
+            no-hover
+            class="[&_table]:min-w-[980px] [&_table]:w-full [&_table]:border-separate [&_table]:border-spacing-0 [&_table]:text-[13px] [&_table]:text-[#1A2B42] [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:px-3 [&_thead_th]:py-3 [&_thead_th]:font-semibold [&_thead_th]:text-white [&_thead_th]:whitespace-nowrap [&_thead_th:first-child]:rounded-tl-xl [&_thead_th:last-child]:rounded-tr-xl [&_tbody_tr:nth-child(odd)]:bg-white! [&_tbody_tr:nth-child(even)]:bg-[#F8FBFF]! [&_tbody_tr:hover]:!bg-[#EAF4FD] [&_tbody_td]:border-0 [&_tbody_td]:px-3 [&_tbody_td]:py-3 [&_tbody_td]:align-middle [&_tbody_td]:text-[#1A2B42]"
         >
             @scope('actions', $trabajador)
                 <x-button
@@ -964,7 +974,7 @@ new class extends Component
                     tooltip="Editar trabajador"
                     type="button"
                     wire:click="editarTrabajador({{ data_get($trabajador, 'id') }})"
-                    class="h-9 min-h-9 rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB]"
+                    class="btn-sm h-10 w-10 min-h-0 rounded-xl border border-[#0B6FE4] bg-[#0B6FE4] p-0 text-white shadow-sm hover:bg-[#2E8BC0] hover:text-white"
                 />
             @endscope
         </x-table>
@@ -1062,4 +1072,4 @@ new class extends Component
             </x-slot:actions>
         </x-form>
     </x-modal>
-</div> 
+</div>

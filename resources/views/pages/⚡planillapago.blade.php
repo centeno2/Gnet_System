@@ -79,7 +79,16 @@ new class extends Component
         $this->cargarPlanillaNormalActual();
     }
 
+<<<<<<< HEAD
     public function aplicarPeriodoActual(): void
+=======
+    public function paginationView(): string
+{
+    return 'vendor.pagination.gnet';
+}
+
+    public function updatedPeriodoMes(): void
+>>>>>>> bac15ec2f1d05e22535613b2d3890f3ccee163dd
     {
         $hoy = Carbon::now();
         $base = $hoy->copy()->startOfMonth();
@@ -1506,9 +1515,71 @@ new class extends Component
         <div class="overflow-x-auto">
             @if($planillaActual)
                 <x-table
+<<<<<<< HEAD
                     :headers="$this->headersDetalle()"
+=======
+                    :headers="$headersTrabajadores"
+                    :rows="$trabajadores"
+                    with-pagination
+                    no-hover
+            class="[&_table]:min-w-[980px] [&_table]:w-full [&_table]:border-separate [&_table]:border-spacing-0 [&_table]:text-[13px] [&_table]:text-[#1A2B42] [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:px-3 [&_thead_th]:py-3 [&_thead_th]:font-semibold [&_thead_th]:text-white [&_thead_th]:whitespace-nowrap [&_thead_th:first-child]:rounded-tl-xl [&_thead_th:last-child]:rounded-tr-xl [&_tbody_tr:nth-child(odd)]:bg-white! [&_tbody_tr:nth-child(even)]:bg-[#F8FBFF]! [&_tbody_tr:hover]:!bg-[#EAF4FD] [&_tbody_td]:border-0 [&_tbody_td]:px-3 [&_tbody_td]:py-3 [&_tbody_td]:align-middle [&_tbody_td]:text-[#1A2B42]"
+                >
+                    @scope('cell_select', $trabajador)
+                        <input type="checkbox" value="{{ $trabajador->Id_Trabajador }}" wire:model.live="selectedTrabajadores" class="checkbox checkbox-sm border-[#2E8BC0]">
+                    @endscope
+
+                    @scope('cell_empleado', $trabajador)
+                        <div>
+                            <p class="font-semibold text-[#111827]">{{ $this->nombreTrabajador($trabajador) }}</p>
+                            <p class="text-xs text-[#111827]">Ingreso: {{ optional($trabajador->Fecha_Ingreso)->format('d/m/Y') ?? 'Sin fecha' }}</p>
+                        </div>
+                    @endscope
+
+                    @scope('cell_cargo', $trabajador)
+                        <span class="inline-flex rounded-full bg-[#D7E4F3] px-3 py-1 text-xs font-semibold text-[#111827]">
+                            {{ $this->cargoTrabajador($trabajador) }}
+                        </span>
+                    @endscope
+
+                    @scope('cell_telefono', $trabajador)
+                        <span class="text-[#111827]">{{ $this->telefonoTrabajador($trabajador) }}</span>
+                    @endscope
+
+                    @scope('cell_salario', $trabajador)
+                        <span class="font-semibold text-[#111827]">{{ $this->money($trabajador->Salario) }}</span>
+                    @endscope
+
+                    @scope('cell_vacaciones', $trabajador)
+                        <span class="font-semibold text-[#0E48A1]">{{ $this->saldoVacaciones($trabajador->Id_Trabajador) }} días</span>
+                    @endscope
+
+                    @scope('actions', $trabajador)
+                        <div class="flex flex-wrap gap-1">
+                            <x-button icon="o-sun" wire:click="abrirVacaciones({{ $trabajador->Id_Trabajador }})" class="btn-sm border-0 bg-[#EAF2FB] text-[#111827] hover:bg-[#D7E4F3]" spinner />
+                            <x-button icon="o-gift" wire:click="abrirIncentivo({{ $trabajador->Id_Trabajador }})" class="btn-sm border-0 bg-[#EAF2FB] text-[#111827] hover:bg-[#D7E4F3]" spinner />
+                            <x-button icon="o-minus-circle" wire:click="abrirDeduccion({{ $trabajador->Id_Trabajador }})" class="btn-sm border-0 bg-[#EAF2FB] text-[#111827] hover:bg-[#D7E4F3]" spinner />
+                            <x-button icon="o-user-minus" wire:click="abrirLiquidacion({{ $trabajador->Id_Trabajador }})" class="btn-sm border-0 bg-[#FCEAD8] text-[#9A4A0A] hover:bg-[#F7D1A6]" spinner />
+                        </div>
+                    @endscope
+                </x-table>
+            </div>
+        </x-card>
+
+        <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
+            <div class="mb-4">
+                <h2 class="text-xl font-bold text-[#1A2B42]">Detalle de planilla</h2>
+                <p class="text-sm text-[#111827]">
+                    {{ $planillaActual ? 'Planilla #' . $planillaActual->Id_Planilla . ' - ' . $planillaActual->Tipo_Planilla : 'No hay planilla calculada para este periodo.' }}
+                </p>
+            </div>
+
+            <div class="overflow-x-auto">
+                <x-table
+                    :headers="$headersDetalle"
+>>>>>>> bac15ec2f1d05e22535613b2d3890f3ccee163dd
                     :rows="$detalles"
-                    class="[&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_thead_th:first-child]:rounded-l-xl [&_thead_th:last-child]:rounded-r-xl [&_tbody_tr:hover]:bg-[#F7F9FC]"
+                    no-hover
+            class="[&_table]:min-w-[980px] [&_table]:w-full [&_table]:border-separate [&_table]:border-spacing-0 [&_table]:text-[13px] [&_table]:text-[#1A2B42] [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:px-3 [&_thead_th]:py-3 [&_thead_th]:font-semibold [&_thead_th]:text-white [&_thead_th]:whitespace-nowrap [&_thead_th:first-child]:rounded-tl-xl [&_thead_th:last-child]:rounded-tr-xl [&_tbody_tr:nth-child(odd)]:bg-white! [&_tbody_tr:nth-child(even)]:bg-[#F8FBFF]! [&_tbody_tr:hover]:!bg-[#EAF4FD] [&_tbody_td]:border-0 [&_tbody_td]:px-3 [&_tbody_td]:py-3 [&_tbody_td]:align-middle [&_tbody_td]:text-[#1A2B42]"
                 >
                     @scope('cell_empleado', $row)
                         <span class="font-semibold text-[#111827]">{{ $row['empleado'] }}</span>
