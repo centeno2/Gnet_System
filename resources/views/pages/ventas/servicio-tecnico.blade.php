@@ -32,8 +32,18 @@ new class extends Component
     private const TIPO_CONTADO = 'CONTADO';
     private const TIPO_CREDITO = 'CREDITO';
 
+    private const TIPO_CLIENTE_NATURAL = 1;
+    private const TIPO_CLIENTE_INSTITUCION = 2;
+
     private const ESTADO_CREDITO_PENDIENTE = 'PENDIENTE';
     private const ESTADO_CREDITO_CANCELADO = 'CANCELADO';
+
+    // MODIFICADO: el sistema permite consultar todos los registros,
+    // pero solo renderiza una página o un bloque pequeño por petición para no romper Livewire.
+    private const RESULTADOS_BUSQUEDA_SELECT = 75;
+    private const CLIENTES_POR_PAGINA = 15;
+    private const PRODUCTOS_POR_PAGINA = 15;
+    private const PENDIENTES_POR_PAGINA = 12;
 
     public array $clientes = [];
     public array $tecnicos = [];
@@ -42,10 +52,38 @@ new class extends Component
     public array $productos = [];
     public array $serviciosPendientes = [];
 
+    // MODIFICADO: búsqueda dinámica de clientes sin cargar miles de registros en el snapshot.
+    public string $filtroCliente = '';
+    public bool $mostrarBusquedaClientes = false;
+    public bool $hayMasClientes = false;
+    public int $paginaBusquedaClientes = 1;
+    public int $totalClientesBusqueda = 0;
+    public string $clienteSeleccionadoNombre = '';
+
+    public string $filtroProducto = '';
+
+    // MODIFICADO: listados completos paginados. No hay límite total de registros,
+    // solo se pagina para que el snapshot de Livewire no se vuelva gigante.
+    public bool $modalClientes = false;
+    public bool $modalProductos = false;
+    public array $clientesListado = [];
+    public array $productosListado = [];
+    public string $filtroListadoClientes = '';
+    public string $filtroListadoProductos = '';
+    public int $paginaClientes = 1;
+    public int $paginaProductos = 1;
+    public int $totalClientesListado = 0;
+    public int $totalProductosListado = 0;
+    public int $totalPaginasClientes = 1;
+    public int $totalPaginasProductos = 1;
+
     public ?int $servicioTecnicoIdSeleccionado = null;
 
     public bool $modalPendientes = false;
     public string $filtroPendientes = '';
+    public int $paginaPendientes = 1;
+    public int $totalPendientes = 0;
+    public int $totalPaginasPendientes = 1;
 
     public string $tipoOperacion = self::TIPO_CONTADO;
 
@@ -136,6 +174,9 @@ new class extends Component
 
     public function mount(): void
     {
+        // MODIFICADO: toma la tasa vigente registrada al abrir/actualizar caja, no un valor fijo.
+        $this->tipoCambio = $this->tipoCambioActualFormateada();
+
         $this->cargarCombos();
         $this->cargarPendientes();
     }
@@ -302,56 +343,121 @@ new class extends Component
             return;
         }
 
+        $tipoCambio = $this->tipoOperacion !== $tipo;
         $this->tipoOperacion = $tipo;
         $this->limpiarCobroServicio();
 
-        if ($tipo === self::TIPO_CREDITO && $this->clienteId && ! $this->clienteEsInstitucion((int) $this->clienteId)) {
+        if ($tipoCambio) {
             $this->clienteId = null;
             $this->telefonoCliente = '';
+            $this->filtroCliente = '';
+            $this->clienteSeleccionadoNombre = '';
         }
 
-        $this->cargarCombos();
+        $this->paginaBusquedaClientes = 1;
+        $this->mostrarBusquedaClientes = false;
+        $this->cargarClientes();
     }
 
     public function cargarCombos(): void
     {
-        $this->clientes = Cliente::query()
-            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'cliente.Id_Persona')
-            ->where('cliente.Estado', 1)
-            ->when($this->tipoOperacion === self::TIPO_CREDITO, function ($query) {
-                $query->where('cliente.Tipo_Cliente', Cliente::TIPO_INSTITUCION);
-            })
-            ->select([
-                'cliente.Id_Cliente as id',
-                'cliente.Institucion',
-                'cliente.Tipo_Cliente',
-                'p.Primer_Nombre',
-                'p.Segundo_Nombre',
-                'p.Primer_Apellido',
-                'p.Segundo_Apellido',
-                'p.Telefono',
-            ])
-            ->orderBy('cliente.Institucion')
-            ->orderBy('p.Primer_Nombre')
-            ->get()
-            ->map(fn ($item) => [
-                'id' => (int) $item->id,
-                'name' => $this->limpiarTexto(
-                    trim(
-                        ($item->Institucion ? $item->Institucion . ' - ' : '') .
-                        trim(
-                            ($item->Primer_Nombre ?? '') . ' ' .
-                            ($item->Segundo_Nombre ?? '') . ' ' .
-                            ($item->Primer_Apellido ?? '') . ' ' .
-                            ($item->Segundo_Apellido ?? '')
-                        ) .
-                        ' | Tel: ' . ($item->Telefono ?? '')
-                    )
-                ),
-            ])
-            ->toArray();
+        $this->cargarClientes();
+        $this->cargarTecnicos();
+        $this->cargarProductosDisponibles();
+    }
 
-        $this->tecnicos = Trabajador::query()
+    private function cargarClientes(): void
+    {
+        $filtro = trim($this->filtroCliente);
+
+        if ($this->clienteId && $filtro === trim($this->clienteSeleccionadoNombre)) {
+            $filtro = '';
+        }
+
+        $limite = max(1, $this->paginaBusquedaClientes) * self::CLIENTES_POR_PAGINA;
+
+        $query = $this->consultaClientesBase($filtro);
+
+        $this->totalClientesBusqueda = (clone $query)->count();
+
+        $clientes = $query
+            ->select($this->columnasClienteSelect())
+            ->orderByRaw('CASE WHEN cliente.Tipo_Cliente = ? THEN cliente.Institucion ELSE p.Primer_Nombre END ASC', [self::TIPO_CLIENTE_INSTITUCION])
+            ->orderBy('p.Primer_Apellido')
+            ->limit($limite)
+            ->get()
+            ->map(fn ($item) => $this->clienteOpcion($item))
+            ->values();
+
+        if ($this->clienteId && ! $clientes->contains(fn ($item) => (int) $item['id'] === (int) $this->clienteId)) {
+            $seleccionado = $this->buscarClienteOpcionPorId((int) $this->clienteId);
+
+            if ($seleccionado) {
+                $clientes->prepend($seleccionado);
+            }
+        }
+
+        $this->hayMasClientes = $this->totalClientesBusqueda > $clientes->count();
+        $this->clientes = $clientes->toArray();
+    }
+
+    private function columnasClienteSelect(): array
+    {
+        return [
+            'cliente.Id_Cliente as id',
+            'cliente.Institucion',
+            'cliente.Tipo_Cliente',
+            'cliente.Telefono_Institucion',
+            'p.Primer_Nombre',
+            'p.Segundo_Nombre',
+            'p.Primer_Apellido',
+            'p.Segundo_Apellido',
+            'p.Telefono',
+        ];
+    }
+
+    private function clienteOpcion(object $item): array
+    {
+        $esInstitucion = (int) ($item->Tipo_Cliente ?? 0) === self::TIPO_CLIENTE_INSTITUCION;
+
+        $nombrePersona = trim(
+            ($item->Primer_Nombre ?? '') . ' ' .
+            ($item->Segundo_Nombre ?? '') . ' ' .
+            ($item->Primer_Apellido ?? '') . ' ' .
+            ($item->Segundo_Apellido ?? '')
+        );
+
+        $nombre = $esInstitucion
+            ? (string) ($item->Institucion ?: 'Institución sin nombre')
+            : (string) ($nombrePersona ?: 'Cliente sin nombre');
+
+        $telefono = $esInstitucion
+            ? (string) ($item->Telefono_Institucion ?? '')
+            : (string) ($item->Telefono ?? '');
+
+        return [
+            'id' => (int) $item->id,
+            'name' => $this->limpiarTexto(trim($nombre . ($telefono !== '' ? ' | Tel: ' . $telefono : ''))),
+            'telefono' => $telefono,
+            'tipo_cliente' => $esInstitucion ? self::TIPO_CLIENTE_INSTITUCION : self::TIPO_CLIENTE_NATURAL,
+        ];
+    }
+
+    private function buscarClienteOpcionPorId(int $id): ?array
+    {
+        $cliente = Cliente::query()
+            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'cliente.Id_Persona')
+            ->where('cliente.Id_Cliente', $id)
+            ->where('cliente.Estado', 1)
+            ->select($this->columnasClienteSelect())
+            ->first();
+
+        return $cliente ? $this->clienteOpcion($cliente) : null;
+    }
+
+    private function cargarTecnicos(): void
+    {
+        $query = Trabajador::query()
             ->join('persona as p', 'p.Id_Persona', '=', 'trabajador.Id_Persona')
             ->leftJoin('cargo as cg', 'cg.Id_Cargo', '=', 'trabajador.Id_Cargo')
             ->where('trabajador.Estado', 1)
@@ -365,30 +471,64 @@ new class extends Component
             ])
             ->orderBy('p.Primer_Nombre')
             ->orderBy('p.Primer_Apellido')
-            ->get()
-            ->map(fn ($item) => [
-                'id' => (int) $item->id,
-                'name' => $this->limpiarTexto(
-                    trim(
-                        ($item->Primer_Nombre ?? '') . ' ' .
-                        ($item->Segundo_Nombre ?? '') . ' ' .
-                        ($item->Primer_Apellido ?? '') . ' ' .
-                        ($item->Segundo_Apellido ?? '')
-                    ) . ' - ' . ($item->Cargo_Asignado ?: 'Trabajador')
-                ),
-            ])
-            ->toArray();
+            ->limit(self::RESULTADOS_BUSQUEDA_SELECT);
 
-        $seriesDisponiblesPorProducto = ProductoSerie::query()
-            ->where('Estado', 'DISPONIBLE')
-            ->get(['Id_Producto'])
-            ->groupBy('Id_Producto')
-            ->map(fn ($items) => $items->count());
+        $tecnicos = $query->get()->map(fn ($item) => $this->tecnicoOpcion($item))->values();
 
-        $this->productosDisponibles = Producto::query()
+        if ($this->tecnicoId && ! $tecnicos->contains(fn ($item) => (int) $item['id'] === (int) $this->tecnicoId)) {
+            $seleccionado = Trabajador::query()
+                ->join('persona as p', 'p.Id_Persona', '=', 'trabajador.Id_Persona')
+                ->leftJoin('cargo as cg', 'cg.Id_Cargo', '=', 'trabajador.Id_Cargo')
+                ->where('trabajador.Id_Trabajador', $this->tecnicoId)
+                ->select([
+                    'trabajador.Id_Trabajador as id',
+                    'p.Primer_Nombre',
+                    'p.Segundo_Nombre',
+                    'p.Primer_Apellido',
+                    'p.Segundo_Apellido',
+                    'cg.Cargo_Asignado',
+                ])
+                ->first();
+
+            if ($seleccionado) {
+                $tecnicos->prepend($this->tecnicoOpcion($seleccionado));
+            }
+        }
+
+        $this->tecnicos = $tecnicos->toArray();
+    }
+
+    private function tecnicoOpcion(object $item): array
+    {
+        return [
+            'id' => (int) $item->id,
+            'name' => $this->limpiarTexto(
+                trim(
+                    ($item->Primer_Nombre ?? '') . ' ' .
+                    ($item->Segundo_Nombre ?? '') . ' ' .
+                    ($item->Primer_Apellido ?? '') . ' ' .
+                    ($item->Segundo_Apellido ?? '')
+                ) . ' - ' . ($item->Cargo_Asignado ?: 'Trabajador')
+            ),
+        ];
+    }
+
+    private function cargarProductosDisponibles(): void
+    {
+        $filtro = trim($this->filtroProducto);
+
+        $query = Producto::query()
             ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
             ->where('producto.Estado', 1)
             ->where('producto.Stock_Actual', '>', 0)
+            ->when($filtro !== '', function ($query) use ($filtro) {
+                $query->where(function ($q) use ($filtro) {
+                    $q->where('producto.Nombre_Producto', 'like', '%' . $filtro . '%')
+                        ->orWhere('producto.Modelo', 'like', '%' . $filtro . '%')
+                        ->orWhere('m.Nombre_Marca', 'like', '%' . $filtro . '%')
+                        ->orWhere('producto.Id_Producto', 'like', '%' . $filtro . '%');
+                });
+            })
             ->select([
                 'producto.Id_Producto as id',
                 'producto.Nombre_Producto',
@@ -398,38 +538,82 @@ new class extends Component
                 'm.Nombre_Marca',
             ])
             ->orderBy('producto.Nombre_Producto')
-            ->get()
-            ->map(function ($item) use ($seriesDisponiblesPorProducto) {
-                $seriesDisponibles = (int) ($seriesDisponiblesPorProducto[$item->id] ?? 0);
+            ->limit(self::RESULTADOS_BUSQUEDA_SELECT);
 
-                $nombre = $this->limpiarTexto(
-                    trim(
-                        ($item->Nombre_Marca ? $item->Nombre_Marca . ' ' : '') .
-                        $item->Nombre_Producto . ' ' .
-                        ($item->Modelo ?? '')
-                    )
-                );
+        $productos = $query->get();
 
-                return [
-                    'id' => (int) $item->id,
-                    'name' => $nombre .
-                        ' - Stock: ' . (int) $item->Stock_Actual .
-                        ($seriesDisponibles > 0 ? ' | Series: ' . $seriesDisponibles : ''),
-                    'precio' => (float) $item->precio,
-                    'series_disponibles' => $seriesDisponibles,
-                ];
-            })
+        if ($this->productoId && ! $productos->contains(fn ($item) => (int) $item->id === (int) $this->productoId)) {
+            $seleccionado = Producto::query()
+                ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
+                ->where('producto.Id_Producto', $this->productoId)
+                ->select([
+                    'producto.Id_Producto as id',
+                    'producto.Nombre_Producto',
+                    'producto.Modelo',
+                    'producto.Precio_Venta as precio',
+                    'producto.Stock_Actual',
+                    'm.Nombre_Marca',
+                ])
+                ->first();
+
+            if ($seleccionado) {
+                $productos->prepend($seleccionado);
+            }
+        }
+
+        $ids = $productos->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
+
+        $seriesDisponiblesPorProducto = empty($ids)
+            ? collect()
+            : ProductoSerie::query()
+                ->whereIn('Id_Producto', $ids)
+                ->where('Estado', 'DISPONIBLE')
+                ->select('Id_Producto', DB::raw('COUNT(*) as total'))
+                ->groupBy('Id_Producto')
+                ->pluck('total', 'Id_Producto');
+
+        $this->productosDisponibles = $productos
+            ->map(fn ($item) => $this->productoOpcion($item, (int) ($seriesDisponiblesPorProducto[$item->id] ?? 0)))
+            ->values()
             ->toArray();
+    }
+
+    private function productoOpcion(object $item, int $seriesDisponibles): array
+    {
+        $nombre = $this->limpiarTexto(
+            trim(
+                ($item->Nombre_Marca ? $item->Nombre_Marca . ' ' : '') .
+                $item->Nombre_Producto . ' ' .
+                ($item->Modelo ?? '')
+            )
+        );
+
+        return [
+            'id' => (int) $item->id,
+            'name' => $nombre .
+                ' - Stock: ' . (int) $item->Stock_Actual .
+                ($seriesDisponibles > 0 ? ' | Series: ' . $seriesDisponibles : ''),
+            'precio' => (float) $item->precio,
+            'series_disponibles' => $seriesDisponibles,
+        ];
     }
 
     public function cargarPendientes(): void
     {
-        $query = ServicioTecnico::query()
-            ->leftJoin('cliente as c', 'c.Id_Cliente', '=', 'servicio_tecnico.Id_Cliente')
-            ->leftJoin('persona as pc', 'pc.Id_Persona', '=', 'c.Id_Persona')
-            ->leftJoin('trabajador as t', 't.Id_Trabajador', '=', 'servicio_tecnico.Id_Trabajador')
-            ->leftJoin('persona as pt', 'pt.Id_Persona', '=', 't.Id_Persona')
-            ->whereNotIn('servicio_tecnico.Estado_Servicio', ['ENTREGADO', 'CANCELADO'])
+        $query = $this->consultaPendientesBase();
+
+        $this->totalPendientes = (clone $query)->count();
+        $this->totalPaginasPendientes = max(1, (int) ceil($this->totalPendientes / self::PENDIENTES_POR_PAGINA));
+
+        if ($this->paginaPendientes > $this->totalPaginasPendientes) {
+            $this->paginaPendientes = $this->totalPaginasPendientes;
+        }
+
+        if ($this->paginaPendientes < 1) {
+            $this->paginaPendientes = 1;
+        }
+
+        $this->serviciosPendientes = $query
             ->select([
                 'servicio_tecnico.Id_Servicio_Tecnico as id',
                 'servicio_tecnico.Numero_Orden as numero',
@@ -450,69 +634,360 @@ new class extends Component
                 'pt.Primer_Apellido as tecnico_primer_apellido',
             ])
             ->orderByDesc('servicio_tecnico.Fecha_Ingreso')
-            ->limit(25);
+            ->orderByDesc('servicio_tecnico.Id_Servicio_Tecnico')
+            ->forPage($this->paginaPendientes, self::PENDIENTES_POR_PAGINA)
+            ->get()
+            ->map(fn ($item) => $this->pendienteOpcion($item))
+            ->values()
+            ->toArray();
+    }
 
+    private function consultaPendientesBase()
+    {
         $filtro = trim($this->filtroPendientes);
 
-        if ($filtro !== '') {
-            $query->where(function ($q) use ($filtro) {
-                $q->where('servicio_tecnico.Numero_Orden', 'like', '%' . $filtro . '%')
-                    ->orWhere('servicio_tecnico.Tipo_Equipo', 'like', '%' . $filtro . '%')
-                    ->orWhere('servicio_tecnico.Marca', 'like', '%' . $filtro . '%')
-                    ->orWhere('servicio_tecnico.Modelo', 'like', '%' . $filtro . '%')
-                    ->orWhere('pc.Primer_Nombre', 'like', '%' . $filtro . '%')
-                    ->orWhere('pc.Primer_Apellido', 'like', '%' . $filtro . '%')
-                    ->orWhere('c.Institucion', 'like', '%' . $filtro . '%');
+        return ServicioTecnico::query()
+            ->leftJoin('cliente as c', 'c.Id_Cliente', '=', 'servicio_tecnico.Id_Cliente')
+            ->leftJoin('persona as pc', 'pc.Id_Persona', '=', 'c.Id_Persona')
+            ->leftJoin('trabajador as t', 't.Id_Trabajador', '=', 'servicio_tecnico.Id_Trabajador')
+            ->leftJoin('persona as pt', 'pt.Id_Persona', '=', 't.Id_Persona')
+            ->whereNotIn('servicio_tecnico.Estado_Servicio', ['ENTREGADO', 'CANCELADO'])
+            ->when($filtro !== '', function ($query) use ($filtro) {
+                $query->where(function ($q) use ($filtro) {
+                    $q->where('servicio_tecnico.Numero_Orden', 'like', '%' . $filtro . '%')
+                        ->orWhere('servicio_tecnico.Tipo_Equipo', 'like', '%' . $filtro . '%')
+                        ->orWhere('servicio_tecnico.Marca', 'like', '%' . $filtro . '%')
+                        ->orWhere('servicio_tecnico.Modelo', 'like', '%' . $filtro . '%')
+                        ->orWhere('pc.Primer_Nombre', 'like', '%' . $filtro . '%')
+                        ->orWhere('pc.Segundo_Nombre', 'like', '%' . $filtro . '%')
+                        ->orWhere('pc.Primer_Apellido', 'like', '%' . $filtro . '%')
+                        ->orWhere('pc.Segundo_Apellido', 'like', '%' . $filtro . '%')
+                        ->orWhere('c.Institucion', 'like', '%' . $filtro . '%');
+                });
             });
-        }
+    }
 
-        $this->serviciosPendientes = $query
-            ->get()
-            ->map(function ($item) {
-                $cliente = $this->limpiarTexto(
-                    trim(
-                        ($item->cliente_institucion ? $item->cliente_institucion . ' - ' : '') .
-                        ($item->cliente_primer_nombre ?? '') . ' ' .
-                        ($item->cliente_segundo_nombre ?? '') . ' ' .
-                        ($item->cliente_primer_apellido ?? '') . ' ' .
-                        ($item->cliente_segundo_apellido ?? '')
-                    )
-                );
+    private function pendienteOpcion(object $item): array
+    {
+        $cliente = $this->limpiarTexto(
+            trim(
+                ($item->cliente_institucion ? $item->cliente_institucion . ' - ' : '') .
+                ($item->cliente_primer_nombre ?? '') . ' ' .
+                ($item->cliente_segundo_nombre ?? '') . ' ' .
+                ($item->cliente_primer_apellido ?? '') . ' ' .
+                ($item->cliente_segundo_apellido ?? '')
+            )
+        );
 
-                $tecnico = $this->limpiarTexto(
-                    trim(
-                        ($item->tecnico_primer_nombre ?? '') . ' ' .
-                        ($item->tecnico_primer_apellido ?? '')
-                    )
-                );
+        $tecnico = $this->limpiarTexto(
+            trim(
+                ($item->tecnico_primer_nombre ?? '') . ' ' .
+                ($item->tecnico_primer_apellido ?? '')
+            )
+        );
 
-                return [
-                    'id' => (int) $item->id,
-                    'numero' => $item->numero,
-                    'fecha' => $item->fecha,
-                    'cliente' => $cliente ?: 'Cliente no especificado',
-                    'equipo' => $this->limpiarTexto(
-                        trim(($item->equipo ?? '') . ' ' . ($item->marca ?? '') . ' ' . ($item->modelo ?? ''))
-                    ),
-                    'tecnico' => $tecnico ?: 'Sin técnico',
-                    'estado' => $item->estado,
-                    'total' => (float) $item->total,
-                    'pagado' => (float) ($item->pagado ?? 0),
-                    'saldo' => (float) ($item->saldo ?? $item->total),
-                ];
-            })
-            ->toArray();
+        return [
+            'id' => (int) $item->id,
+            'numero' => $item->numero,
+            'fecha' => $item->fecha,
+            'cliente' => $cliente ?: 'Cliente no especificado',
+            'equipo' => $this->limpiarTexto(
+                trim(($item->equipo ?? '') . ' ' . ($item->marca ?? '') . ' ' . ($item->modelo ?? ''))
+            ),
+            'tecnico' => $tecnico ?: 'Sin técnico',
+            'estado' => $item->estado,
+            'total' => (float) $item->total,
+            'pagado' => (float) ($item->pagado ?? 0),
+            'saldo' => (float) ($item->saldo ?? $item->total),
+        ];
     }
 
     public function abrirPendientes(): void
     {
+        $this->paginaPendientes = 1;
         $this->cargarPendientes();
         $this->modalPendientes = true;
     }
 
+    public function paginaAnteriorPendientes(): void
+    {
+        if ($this->paginaPendientes > 1) {
+            $this->paginaPendientes--;
+            $this->cargarPendientes();
+        }
+    }
+
+    public function paginaSiguientePendientes(): void
+    {
+        if ($this->paginaPendientes < $this->totalPaginasPendientes) {
+            $this->paginaPendientes++;
+            $this->cargarPendientes();
+        }
+    }
+
+    public function updatedFiltroCliente(): void
+    {
+        if ($this->clienteId && trim($this->filtroCliente) !== trim($this->clienteSeleccionadoNombre)) {
+            $this->clienteId = null;
+            $this->telefonoCliente = '';
+            $this->clienteSeleccionadoNombre = '';
+        }
+
+        $this->paginaBusquedaClientes = 1;
+        $this->mostrarBusquedaClientes = true;
+        $this->cargarClientes();
+    }
+
+    public function abrirBusquedaClientes(): void
+    {
+        $this->paginaBusquedaClientes = 1;
+        $this->mostrarBusquedaClientes = true;
+        $this->cargarClientes();
+    }
+
+    public function cerrarBusquedaClientes(): void
+    {
+        $this->mostrarBusquedaClientes = false;
+    }
+
+    public function cargarMasClientes(): void
+    {
+        if (! $this->hayMasClientes) {
+            return;
+        }
+
+        $this->paginaBusquedaClientes++;
+        $this->mostrarBusquedaClientes = true;
+        $this->cargarClientes();
+    }
+
+    public function seleccionarCliente(int $id): void
+    {
+        $cliente = $this->buscarClienteOpcionPorId($id);
+
+        if (! $cliente) {
+            $this->mostrarMensaje('error', 'Cliente no encontrado', 'El cliente seleccionado ya no está activo.');
+            $this->cargarClientes();
+            return;
+        }
+
+        if ($this->tipoOperacion === self::TIPO_CREDITO && (int) $cliente['tipo_cliente'] !== self::TIPO_CLIENTE_INSTITUCION) {
+            $this->mostrarMensaje('error', 'Cliente no permitido', 'El crédito solo se puede registrar a clientes institucionales.');
+            return;
+        }
+
+        if ($this->tipoOperacion === self::TIPO_CONTADO && (int) $cliente['tipo_cliente'] !== self::TIPO_CLIENTE_NATURAL) {
+            $this->mostrarMensaje('error', 'Cliente no permitido', 'El contado solo se registra a clientes normales.');
+            return;
+        }
+
+        $this->clienteId = (int) $cliente['id'];
+        $this->telefonoCliente = (string) ($cliente['telefono'] ?? '');
+        $this->clienteSeleccionadoNombre = (string) $cliente['name'];
+        $this->filtroCliente = (string) $cliente['name'];
+        $this->mostrarBusquedaClientes = false;
+        $this->resetErrorBag('clienteId');
+        $this->cargarClientes();
+    }
+
+    public function updatedFiltroProducto(): void
+    {
+        $this->cargarProductosDisponibles();
+    }
+
     public function updatedFiltroPendientes(): void
     {
+        $this->paginaPendientes = 1;
         $this->cargarPendientes();
+    }
+
+    public function abrirListadoClientes(): void
+    {
+        $this->filtroListadoClientes = $this->filtroCliente;
+        $this->paginaClientes = 1;
+        $this->cargarListadoClientes();
+        $this->modalClientes = true;
+    }
+
+    public function cargarListadoClientes(): void
+    {
+        $query = $this->consultaClientesBase(trim($this->filtroListadoClientes));
+
+        $this->totalClientesListado = (clone $query)->count();
+        $this->totalPaginasClientes = max(1, (int) ceil($this->totalClientesListado / self::CLIENTES_POR_PAGINA));
+
+        if ($this->paginaClientes > $this->totalPaginasClientes) {
+            $this->paginaClientes = $this->totalPaginasClientes;
+        }
+
+        if ($this->paginaClientes < 1) {
+            $this->paginaClientes = 1;
+        }
+
+        $this->clientesListado = $query
+            ->select($this->columnasClienteSelect())
+            ->orderByRaw('CASE WHEN cliente.Tipo_Cliente = ? THEN cliente.Institucion ELSE p.Primer_Nombre END ASC', [self::TIPO_CLIENTE_INSTITUCION])
+            ->orderBy('p.Primer_Apellido')
+            ->forPage($this->paginaClientes, self::CLIENTES_POR_PAGINA)
+            ->get()
+            ->map(fn ($item) => $this->clienteOpcion($item))
+            ->values()
+            ->toArray();
+    }
+
+    private function consultaClientesBase(string $filtro)
+    {
+        return Cliente::query()
+            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'cliente.Id_Persona')
+            ->where('cliente.Estado', 1)
+            ->when($this->tipoOperacion === self::TIPO_CREDITO, function ($query) {
+                $query->where('cliente.Tipo_Cliente', self::TIPO_CLIENTE_INSTITUCION);
+            }, function ($query) {
+                $query->where('cliente.Tipo_Cliente', self::TIPO_CLIENTE_NATURAL);
+            })
+            ->when($filtro !== '', function ($query) use ($filtro) {
+                $query->where(function ($q) use ($filtro) {
+                    if ($this->tipoOperacion === self::TIPO_CREDITO) {
+                        $q->where('cliente.Institucion', 'like', '%' . $filtro . '%')
+                            ->orWhere('cliente.Telefono_Institucion', 'like', '%' . $filtro . '%');
+
+                        return;
+                    }
+
+                    $q->where('p.Telefono', 'like', '%' . $filtro . '%')
+                        ->orWhere('p.Primer_Nombre', 'like', '%' . $filtro . '%')
+                        ->orWhere('p.Segundo_Nombre', 'like', '%' . $filtro . '%')
+                        ->orWhere('p.Primer_Apellido', 'like', '%' . $filtro . '%')
+                        ->orWhere('p.Segundo_Apellido', 'like', '%' . $filtro . '%');
+                });
+            });
+    }
+
+    public function updatedFiltroListadoClientes(): void
+    {
+        $this->paginaClientes = 1;
+        $this->cargarListadoClientes();
+    }
+
+    public function paginaAnteriorClientes(): void
+    {
+        if ($this->paginaClientes > 1) {
+            $this->paginaClientes--;
+            $this->cargarListadoClientes();
+        }
+    }
+
+    public function paginaSiguienteClientes(): void
+    {
+        if ($this->paginaClientes < $this->totalPaginasClientes) {
+            $this->paginaClientes++;
+            $this->cargarListadoClientes();
+        }
+    }
+
+    public function seleccionarClienteListado(int $id): void
+    {
+        $this->seleccionarCliente($id);
+        $this->modalClientes = false;
+    }
+
+    public function abrirListadoProductos(): void
+    {
+        $this->filtroListadoProductos = $this->filtroProducto;
+        $this->paginaProductos = 1;
+        $this->cargarListadoProductos();
+        $this->modalProductos = true;
+    }
+
+    public function cargarListadoProductos(): void
+    {
+        $query = $this->consultaProductosBase(trim($this->filtroListadoProductos));
+
+        $this->totalProductosListado = (clone $query)->count();
+        $this->totalPaginasProductos = max(1, (int) ceil($this->totalProductosListado / self::PRODUCTOS_POR_PAGINA));
+
+        if ($this->paginaProductos > $this->totalPaginasProductos) {
+            $this->paginaProductos = $this->totalPaginasProductos;
+        }
+
+        if ($this->paginaProductos < 1) {
+            $this->paginaProductos = 1;
+        }
+
+        $productos = $query
+            ->select([
+                'producto.Id_Producto as id',
+                'producto.Nombre_Producto',
+                'producto.Modelo',
+                'producto.Precio_Venta as precio',
+                'producto.Stock_Actual',
+                'm.Nombre_Marca',
+            ])
+            ->orderBy('producto.Nombre_Producto')
+            ->forPage($this->paginaProductos, self::PRODUCTOS_POR_PAGINA)
+            ->get();
+
+        $ids = $productos->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
+
+        $seriesDisponiblesPorProducto = empty($ids)
+            ? collect()
+            : ProductoSerie::query()
+                ->whereIn('Id_Producto', $ids)
+                ->where('Estado', 'DISPONIBLE')
+                ->select('Id_Producto', DB::raw('COUNT(*) as total'))
+                ->groupBy('Id_Producto')
+                ->pluck('total', 'Id_Producto');
+
+        $this->productosListado = $productos
+            ->map(fn ($item) => $this->productoOpcion($item, (int) ($seriesDisponiblesPorProducto[$item->id] ?? 0)))
+            ->values()
+            ->toArray();
+    }
+
+    private function consultaProductosBase(string $filtro)
+    {
+        return Producto::query()
+            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
+            ->where('producto.Estado', 1)
+            ->where('producto.Stock_Actual', '>', 0)
+            ->when($filtro !== '', function ($query) use ($filtro) {
+                $query->where(function ($q) use ($filtro) {
+                    $q->where('producto.Nombre_Producto', 'like', '%' . $filtro . '%')
+                        ->orWhere('producto.Modelo', 'like', '%' . $filtro . '%')
+                        ->orWhere('m.Nombre_Marca', 'like', '%' . $filtro . '%')
+                        ->orWhere('producto.Id_Producto', 'like', '%' . $filtro . '%');
+                });
+            });
+    }
+
+    public function updatedFiltroListadoProductos(): void
+    {
+        $this->paginaProductos = 1;
+        $this->cargarListadoProductos();
+    }
+
+    public function paginaAnteriorProductos(): void
+    {
+        if ($this->paginaProductos > 1) {
+            $this->paginaProductos--;
+            $this->cargarListadoProductos();
+        }
+    }
+
+    public function paginaSiguienteProductos(): void
+    {
+        if ($this->paginaProductos < $this->totalPaginasProductos) {
+            $this->paginaProductos++;
+            $this->cargarListadoProductos();
+        }
+    }
+
+    public function seleccionarProductoListado(int $id): void
+    {
+        $this->productoId = $id;
+        $this->cargarProductosDisponibles();
+        $this->updatedProductoId($id);
+        $this->modalProductos = false;
     }
 
     public function cargarPendiente(int $id, bool $cerrarModal = true): void
@@ -539,15 +1014,26 @@ new class extends Component
         $this->costoEstimado = (float) $servicio->Costo_Estimado;
         $this->fechaEstimadaEntrega = $this->normalizarFechaInput($servicio->Fecha_Estimada_Entrega);
         $this->observacionTecnica = (string) ($servicio->Observacion_Tecnica ?? '');
-        $tipoVentaGuardada = $servicio->Id_Venta
-            ? DB::table('venta')->where('Id_Venta', $servicio->Id_Venta)->value('Tipo_Venta')
-            : null;
+        // MODIFICADO: si el servicio no tiene venta aún, tomamos Tipo_Venta directo de servicio_tecnico.
+        $tipoVentaGuardada = strtoupper((string) ($servicio->Tipo_Venta ?? ''));
+
+        if ($tipoVentaGuardada === '' && $servicio->Id_Venta) {
+            $tipoVentaGuardada = strtoupper((string) DB::table('venta')
+                ->where('Id_Venta', $servicio->Id_Venta)
+                ->value('Tipo_Venta'));
+        }
 
         $this->tipoOperacion = $tipoVentaGuardada === self::TIPO_CREDITO
             ? self::TIPO_CREDITO
             : self::TIPO_CONTADO;
+        $this->filtroCliente = '';
+        $this->clienteSeleccionadoNombre = '';
+        $this->paginaBusquedaClientes = 1;
+        $this->mostrarBusquedaClientes = false;
+        $this->filtroProducto = '';
         $this->cargarCombos();
-        $this->tipoCambio = number_format((float) ($servicio->Tipo_Cambio ?? 36.50), 2, '.', '');
+        // MODIFICADO: para pagos/actualizaciones se muestra la tasa actual vigente, no el hardcode 36.50.
+        $this->tipoCambio = $this->tipoCambioActualFormateada();
         $this->limpiarCobroServicio();
 
         $this->updatedClienteId($this->clienteId);
@@ -572,17 +1058,24 @@ new class extends Component
     public function updatedClienteId($value): void
     {
         $this->telefonoCliente = '';
+        $this->clienteSeleccionadoNombre = '';
 
         if (!$value) {
             return;
         }
 
-        $telefono = Cliente::query()
-            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'cliente.Id_Persona')
-            ->where('cliente.Id_Cliente', $value)
-            ->value('p.Telefono');
+        $cliente = $this->buscarClienteOpcionPorId((int) $value);
 
-        $this->telefonoCliente = (string) ($telefono ?? '');
+        if (! $cliente) {
+            return;
+        }
+
+        $this->clienteId = (int) $cliente['id'];
+        $this->telefonoCliente = (string) ($cliente['telefono'] ?? '');
+        $this->clienteSeleccionadoNombre = (string) $cliente['name'];
+        $this->filtroCliente = (string) $cliente['name'];
+        $this->mostrarBusquedaClientes = false;
+        $this->cargarClientes();
     }
 
     public function updatedProductoId($value): void
@@ -746,6 +1239,11 @@ new class extends Component
     {
         // MODIFICADO: reglas centralizadas para permitir alertas dinámicas y limpieza automática.
         $this->validate($this->reglasServicio(), $this->mensajesValidacionServicio());
+
+        if ($this->limpiarDecimal($this->tipoCambio) <= 0) {
+            $this->mostrarMensaje('error', 'Tasa inválida', 'La tasa de cambio debe ser mayor que cero.');
+            return;
+        }
 
         if ($this->tipoOperacion === self::TIPO_CREDITO && ! $this->clienteEsInstitucion((int) $this->clienteId)) {
             $this->mostrarMensaje('error', 'Cliente no permitido', 'El crédito solo se puede registrar a clientes institucionales.');
@@ -1123,8 +1621,14 @@ new class extends Component
         $this->observacionTecnica = '';
         $this->productos = [];
         $this->tipoOperacion = self::TIPO_CONTADO;
-        $this->tipoCambio = '36.50';
+        $this->filtroCliente = '';
+        $this->clienteSeleccionadoNombre = '';
+        $this->paginaBusquedaClientes = 1;
+        $this->mostrarBusquedaClientes = false;
+        $this->filtroProducto = '';
+        $this->tipoCambio = $this->tipoCambioActualFormateada();
         $this->limpiarCobroServicio();
+        $this->cargarCombos();
 
         $this->resetProductoForm();
 
@@ -1269,7 +1773,7 @@ new class extends Component
         return Cliente::query()
             ->where('Id_Cliente', $clienteId)
             ->where('Estado', 1)
-            ->where('Tipo_Cliente', Cliente::TIPO_INSTITUCION)
+            ->where('Tipo_Cliente', self::TIPO_CLIENTE_INSTITUCION)
             ->exists();
     }
 
@@ -1625,7 +2129,25 @@ new class extends Component
     {
         $tasa = $this->limpiarDecimal($this->tipoCambio);
 
-        return $tasa > 0 ? $tasa : 1;
+        return $tasa > 0 ? $tasa : $this->tipoCambioActual();
+    }
+
+    private function tipoCambioActualFormateada(): string
+    {
+        return number_format($this->tipoCambioActual(), 2, '.', '');
+    }
+
+    private function tipoCambioActual(): float
+    {
+        // MODIFICADO: la apertura actualiza la tasa_cambio; usamos la última tasa registrada.
+        $tasa = DB::table('tasa_cambio')
+            ->orderByDesc('Fecha_Modificacion')
+            ->orderByDesc('Id_Tasa_Cambio')
+            ->value('Valor_Cambio');
+
+        $tasa = round((float) ($tasa ?? 0), 2);
+
+        return $tasa > 0 ? $tasa : 36.50;
     }
 
     private function pagoRequiereReferencia(string $tipoPago): bool
@@ -1936,10 +2458,67 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">
                                     {{ $tipoOperacion === 'CREDITO' ? 'Institución' : 'Cliente' }}
                                 </label>
-                                <x-select wire:model.live="clienteId" :options="$clientes" option-value="id"
-                                    option-label="name"
-                                    placeholder="{{ $tipoOperacion === 'CREDITO' ? 'Seleccione institución' : 'Seleccione cliente' }}"
-                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+
+                                <div class="relative">
+                                    <x-input wire:model.live.debounce.300ms="filtroCliente"
+                                        wire:focus="abrirBusquedaClientes" wire:keydown.escape="cerrarBusquedaClientes"
+                                        icon="o-magnifying-glass"
+                                        placeholder="{{ $tipoOperacion === 'CREDITO' ? 'Buscar institución por nombre' : 'Buscar cliente por teléfono o nombre' }}"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+
+                                    @if($mostrarBusquedaClientes)
+                                    <div
+                                        class="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-2xl border border-[#D7E4F3] bg-white shadow-xl">
+                                        <div class="max-h-72 overflow-y-auto">
+                                            @forelse($clientes as $cliente)
+                                            <button type="button" wire:click="seleccionarCliente({{ $cliente['id'] }})"
+                                                class="flex w-full items-start gap-3 border-b border-[#EEF3F8] px-3 py-2 text-left transition hover:bg-[#EAF2FB]">
+                                                <span
+                                                    class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#EAF2FB] text-[#0B6FE4]">
+                                                    <x-icon
+                                                        :name="$tipoOperacion === 'CREDITO' ? 'o-building-office-2' : 'o-user'"
+                                                        class="h-4 w-4" />
+                                                </span>
+                                                <span class="min-w-0">
+                                                    <span class="block truncate text-sm font-bold text-[#1A2B42]">{{
+                                                        $cliente['name'] }}</span>
+                                                    <span
+                                                        class="block text-[11px] font-semibold uppercase tracking-wide text-[#5F6B7A]">
+                                                        {{ $tipoOperacion === 'CREDITO' ? 'Cliente institucional' :
+                                                        'Cliente normal' }}
+                                                    </span>
+                                                </span>
+                                            </button>
+                                            @empty
+                                            <div class="px-4 py-5 text-center text-sm font-semibold text-[#5F6B7A]">
+                                                No encontré coincidencias con esa búsqueda.
+                                            </div>
+                                            @endforelse
+                                        </div>
+
+                                        <div
+                                            class="flex flex-col gap-2 bg-[#F7F9FC] px-3 py-2 text-xs font-semibold text-[#5F6B7A] sm:flex-row sm:items-center sm:justify-between">
+                                            <span>Mostrando {{ count($clientes) }} de {{ $totalClientesBusqueda }}
+                                                registro(s)</span>
+                                            <div class="flex justify-end gap-2">
+                                                @if($hayMasClientes)
+                                                <x-button label="Cargar más" wire:click="cargarMasClientes"
+                                                    class="h-8 min-h-8 rounded-xl bg-white px-3 text-xs font-bold text-[#1A2B42] hover:bg-[#EAF2FB]" />
+                                                @endif
+                                                <x-button icon="o-x-mark" label="Cerrar"
+                                                    wire:click="cerrarBusquedaClientes"
+                                                    class="h-8 min-h-8 rounded-xl border border-[#D7E4F3] bg-white px-3 text-xs font-bold text-[#1A2B42] hover:bg-[#EAF2FB]" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    @endif
+                                </div>
+
+                                <p class="mt-1 text-[11px] font-semibold text-[#5F6B7A]">
+                                    {{ $tipoOperacion === 'CREDITO' ? 'En crédito se listan instituciones y se busca por
+                                    nombre institucional.' : 'En contado se listan clientes normales y podés buscar por
+                                    teléfono.' }}
+                                </p>
                                 {!! $errorAlert('clienteId') !!}
                             </div>
 
@@ -2079,6 +2658,9 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                             <div class="grid grid-cols-1 gap-3 md:grid-cols-12">
                                 <div class="md:col-span-5">
                                     <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Producto</label>
+                                    <x-input wire:model.live.debounce.350ms="filtroProducto" icon="o-magnifying-glass"
+                                        placeholder="Buscar producto, marca o modelo"
+                                        class="mb-2 h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
                                     <x-select wire:model.live="productoId" :options="$productosDisponibles"
                                         option-value="id" option-label="name" placeholder="Seleccione producto"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
@@ -2253,9 +2835,12 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
 
                             <div class="grid grid-cols-1 gap-2">
                                 <div>
-                                    <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Tipo cambio</label>
+                                    <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Tipo cambio
+                                        actual</label>
                                     <x-input wire:model.live.debounce.250ms="tipoCambio" type="text" inputmode="decimal"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    <p class="mt-1 text-[11px] font-semibold text-[#5F6B7A]">Se carga desde la última
+                                        tasa registrada al abrir/actualizar caja.</p>
                                 </div>
 
                                 <div class="grid grid-cols-2 gap-2">
@@ -2370,11 +2955,28 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
         </div>
     </div>
 
-    <x-modal wire:model="modalPendientes" title="Servicios técnicos pendientes" separator class="backdrop-blur">
+    <x-modal wire:model="modalPendientes" title="Servicios técnicos pendientes" separator class="backdrop-blur"
+        box-class="w-[95vw] max-w-6xl">
         <div class="space-y-3">
             <x-input wire:model.live.debounce.350ms="filtroPendientes" icon="o-magnifying-glass"
                 placeholder="Buscar por orden, cliente, equipo, marca o modelo..."
                 class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+
+            <div
+                class="flex flex-col gap-2 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] px-3 py-2 text-xs text-[#5F6B7A] md:flex-row md:items-center md:justify-between">
+                <span>
+                    Mostrando página {{ $paginaPendientes }} de {{ $totalPaginasPendientes }} · {{ $totalPendientes }}
+                    pendiente(s) encontrado(s).
+                </span>
+                <div class="flex gap-2">
+                    <x-button icon="o-chevron-left" label="Anterior" wire:click="paginaAnteriorPendientes"
+                        :disabled="$paginaPendientes <= 1"
+                        class="h-8 min-h-8 rounded-xl border border-[#D7E4F3] bg-white px-3 text-xs font-bold text-[#1A2B42]" />
+                    <x-button icon="o-chevron-right" label="Siguiente" wire:click="paginaSiguientePendientes"
+                        :disabled="$paginaPendientes >= $totalPaginasPendientes"
+                        class="h-8 min-h-8 rounded-xl border border-[#D7E4F3] bg-white px-3 text-xs font-bold text-[#1A2B42]" />
+                </div>
+            </div>
 
             <div class="max-h-[60vh] overflow-auto rounded-2xl border border-[#D7E4F3]">
                 <table class="w-full min-w-190 text-left text-sm">
@@ -2422,6 +3024,124 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
 
         <x-slot:actions>
             <x-button label="Cerrar" wire:click="$set('modalPendientes', false)"
+                class="rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42]" />
+        </x-slot:actions>
+    </x-modal>
+
+    <x-modal wire:model="modalClientes" title="Listado completo de clientes" separator class="backdrop-blur"
+        box-class="w-[95vw] max-w-5xl">
+        <div class="space-y-3">
+            <x-input wire:model.live.debounce.350ms="filtroListadoClientes" icon="o-magnifying-glass"
+                placeholder="Buscar por nombre, institución, teléfono o código..."
+                class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+
+            <div
+                class="flex flex-col gap-2 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] px-3 py-2 text-xs text-[#5F6B7A] md:flex-row md:items-center md:justify-between">
+                <span>
+                    Página {{ $paginaClientes }} de {{ $totalPaginasClientes }} · {{ $totalClientesListado }} cliente(s)
+                    encontrado(s).
+                </span>
+                <div class="flex gap-2">
+                    <x-button icon="o-chevron-left" label="Anterior" wire:click="paginaAnteriorClientes"
+                        :disabled="$paginaClientes <= 1"
+                        class="h-8 min-h-8 rounded-xl border border-[#D7E4F3] bg-white px-3 text-xs font-bold text-[#1A2B42]" />
+                    <x-button icon="o-chevron-right" label="Siguiente" wire:click="paginaSiguienteClientes"
+                        :disabled="$paginaClientes >= $totalPaginasClientes"
+                        class="h-8 min-h-8 rounded-xl border border-[#D7E4F3] bg-white px-3 text-xs font-bold text-[#1A2B42]" />
+                </div>
+            </div>
+
+            <div class="max-h-[60vh] overflow-auto rounded-2xl border border-[#D7E4F3]">
+                <table class="w-full min-w-180 text-left text-sm">
+                    <thead class="sticky top-0 z-10 bg-[#2E8BC0] text-white">
+                        <tr>
+                            <th class="px-3 py-2 font-bold">Cliente</th>
+                            <th class="px-3 py-2 text-center font-bold">Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-[#D7E4F3] bg-white text-[#1A2B42]">
+                        @forelse($clientesListado as $item)
+                        <tr class="hover:bg-[#F7F9FC]">
+                            <td class="px-3 py-2 font-semibold">{{ $item['name'] }}</td>
+                            <td class="px-3 py-2 text-center">
+                                <x-button icon="o-check" label="Seleccionar"
+                                    wire:click="seleccionarClienteListado({{ $item['id'] }})"
+                                    class="h-8 min-h-8 rounded-xl border-0 bg-[#2E8BC0] px-3 text-xs font-bold text-white hover:bg-[#0B6FE4]" />
+                            </td>
+                        </tr>
+                        @empty
+                        <tr>
+                            <td colspan="2" class="px-3 py-8 text-center text-[#5F6B7A]">
+                                No hay clientes con ese filtro.
+                            </td>
+                        </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <x-slot:actions>
+            <x-button label="Cerrar" wire:click="$set('modalClientes', false)"
+                class="rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42]" />
+        </x-slot:actions>
+    </x-modal>
+
+    <x-modal wire:model="modalProductos" title="Listado completo de productos disponibles" separator
+        class="backdrop-blur" box-class="w-[95vw] max-w-5xl">
+        <div class="space-y-3">
+            <x-input wire:model.live.debounce.350ms="filtroListadoProductos" icon="o-magnifying-glass"
+                placeholder="Buscar por producto, marca, modelo o código..."
+                class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+
+            <div
+                class="flex flex-col gap-2 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] px-3 py-2 text-xs text-[#5F6B7A] md:flex-row md:items-center md:justify-between">
+                <span>
+                    Página {{ $paginaProductos }} de {{ $totalPaginasProductos }} · {{ $totalProductosListado }}
+                    producto(s) encontrado(s).
+                </span>
+                <div class="flex gap-2">
+                    <x-button icon="o-chevron-left" label="Anterior" wire:click="paginaAnteriorProductos"
+                        :disabled="$paginaProductos <= 1"
+                        class="h-8 min-h-8 rounded-xl border border-[#D7E4F3] bg-white px-3 text-xs font-bold text-[#1A2B42]" />
+                    <x-button icon="o-chevron-right" label="Siguiente" wire:click="paginaSiguienteProductos"
+                        :disabled="$paginaProductos >= $totalPaginasProductos"
+                        class="h-8 min-h-8 rounded-xl border border-[#D7E4F3] bg-white px-3 text-xs font-bold text-[#1A2B42]" />
+                </div>
+            </div>
+
+            <div class="max-h-[60vh] overflow-auto rounded-2xl border border-[#D7E4F3]">
+                <table class="w-full min-w-190 text-left text-sm">
+                    <thead class="sticky top-0 z-10 bg-[#2E8BC0] text-white">
+                        <tr>
+                            <th class="px-3 py-2 font-bold">Producto</th>
+                            <th class="px-3 py-2 text-center font-bold">Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-[#D7E4F3] bg-white text-[#1A2B42]">
+                        @forelse($productosListado as $item)
+                        <tr class="hover:bg-[#F7F9FC]">
+                            <td class="px-3 py-2 font-semibold">{{ $item['name'] }}</td>
+                            <td class="px-3 py-2 text-center">
+                                <x-button icon="o-check" label="Seleccionar"
+                                    wire:click="seleccionarProductoListado({{ $item['id'] }})"
+                                    class="h-8 min-h-8 rounded-xl border-0 bg-[#2E8BC0] px-3 text-xs font-bold text-white hover:bg-[#0B6FE4]" />
+                            </td>
+                        </tr>
+                        @empty
+                        <tr>
+                            <td colspan="2" class="px-3 py-8 text-center text-[#5F6B7A]">
+                                No hay productos disponibles con ese filtro.
+                            </td>
+                        </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <x-slot:actions>
+            <x-button label="Cerrar" wire:click="$set('modalProductos', false)"
                 class="rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42]" />
         </x-slot:actions>
     </x-modal>
