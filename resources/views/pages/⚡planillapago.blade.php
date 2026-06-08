@@ -79,16 +79,12 @@ new class extends Component
         $this->cargarPlanillaNormalActual();
     }
 
-<<<<<<< HEAD
-    public function aplicarPeriodoActual(): void
-=======
-    public function paginationView(): string
+public function paginationView(): string
 {
     return 'vendor.pagination.gnet';
 }
 
     public function updatedPeriodoMes(): void
->>>>>>> bac15ec2f1d05e22535613b2d3890f3ccee163dd
     {
         $hoy = Carbon::now();
         $base = $hoy->copy()->startOfMonth();
