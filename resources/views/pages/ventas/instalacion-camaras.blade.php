@@ -3,6 +3,7 @@
 use Livewire\Component;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Mary\Traits\Toast;
 
 use App\Models\Cliente;
 use App\Models\Trabajador;
@@ -18,6 +19,9 @@ use App\Models\ContratoInstalacionCamaraProducto;
 
 new class extends Component
 {
+    // MODIFICADO: usamos los toast temporales nativos de MaryUI.
+    use Toast;
+
     private const MONEDA_CORDOBA = 'NIO';
     private const MONEDA_DOLAR = 'USD';
 
@@ -27,6 +31,14 @@ new class extends Component
 
     private const TIPO_CONTADO = 'CONTADO';
     private const TIPO_CREDITO = 'CREDITO';
+
+    // MODIFICADO: se consulta toda la base por búsqueda, pero solo se renderiza un bloque pequeño.
+    private const TIPO_CLIENTE_NATURAL = 1;
+    private const TIPO_CLIENTE_INSTITUCION = 2;
+    private const RESULTADOS_BUSQUEDA_SELECT = 75;
+    private const CLIENTES_POR_PAGINA = 15;
+    private const PRODUCTOS_POR_PAGINA = 15;
+    private const PENDIENTES_POR_PAGINA = 12;
 
     private const ESTADO_CREDITO_PENDIENTE = 'PENDIENTE';
     private const ESTADO_CREDITO_CANCELADO = 'CANCELADO';
@@ -38,8 +50,22 @@ new class extends Component
     public array $productosUsados = [];
     public array $contratosPendientes = [];
 
+    // MODIFICADO: búsqueda dinámica de clientes. No se cargan miles de registros al snapshot.
+    public string $filtroCliente = '';
+    public bool $mostrarBusquedaClientes = false;
+    public bool $hayMasClientes = false;
+    public int $paginaBusquedaClientes = 1;
+    public int $totalClientesBusqueda = 0;
+    public string $clienteSeleccionadoNombre = '';
+
+    // MODIFICADO: productos filtrados desde base de datos para evitar payloads pesados.
+    public string $filtroProducto = '';
+
+    public int $paginaPendientes = 1;
+    public int $totalPendientes = 0;
+    public int $totalPaginasPendientes = 1;
+
     public ?int $contratoInstalacionIdSeleccionado = null;
-    public ?array $mensaje = null;
 
     public bool $modalPendientes = false;
     public string $filtroPendientes = '';
@@ -119,8 +145,141 @@ new class extends Component
 
     public function mount(): void
     {
+        // MODIFICADO: usa la tasa vigente registrada en tasa_cambio, no un valor fijo.
+        $this->tipoCambio = $this->tipoCambioActualFormateada();
+
         $this->cargarCombos();
         $this->cargarPendientes();
+    }
+
+    // MODIFICADO: validación reactiva para que las alertas se limpien al corregir el campo,
+    // sin esperar otro intento de guardado.
+    public function updated(string $campo): void
+    {
+        $this->validarCampoEnTiempoReal($campo);
+    }
+
+    // MODIFICADO: permite que las alertas visuales desaparezcan automáticamente luego de unos segundos.
+    public function limpiarErrorCampo(string $campo): void
+    {
+        if (in_array($campo, $this->camposConValidacion(), true)) {
+            $this->resetErrorBag($campo);
+        }
+    }
+
+    private function validarCampoEnTiempoReal(string $campo): void
+    {
+        if (! in_array($campo, $this->camposConValidacion(), true)) {
+            return;
+        }
+
+        $this->resetErrorBag($campo);
+
+        $reglasContrato = $this->reglasContrato();
+
+        if (array_key_exists($campo, $reglasContrato)) {
+            $this->validateOnly($campo, $reglasContrato, $this->mensajesValidacionContrato());
+            return;
+        }
+
+        $reglasProducto = $this->reglasProducto();
+
+        if (array_key_exists($campo, $reglasProducto)) {
+            $this->validateOnly($campo, $reglasProducto, $this->mensajesValidacionProducto());
+        }
+    }
+
+    private function camposConValidacion(): array
+    {
+        return [
+            'clienteId',
+            'tecnicoId',
+            'municipio',
+            'direccionInstalacion',
+            'cantidadCamaras',
+            'metrosCableado',
+            'costoManoObra',
+            'porcentajeAnticipo',
+            'fechaEstimada',
+            'detalleContrato',
+            'estadoContrato',
+            'productoId',
+            'productoSerieId',
+            'productoCantidad',
+            'productoPrecio',
+        ];
+    }
+
+    private function reglasContrato(): array
+    {
+        return [
+            'clienteId' => ['required', 'integer'],
+            'tecnicoId' => ['nullable', 'integer'],
+            'municipio' => ['nullable', 'string', 'max:100'],
+            'direccionInstalacion' => ['required', 'string', 'max:255'],
+            'cantidadCamaras' => ['required', 'integer', 'min:1'],
+            'metrosCableado' => ['required', 'numeric', 'min:0'],
+            'costoManoObra' => ['required', 'numeric', 'min:0'],
+            'porcentajeAnticipo' => ['required', 'numeric', 'min:0', 'max:100'],
+            'fechaEstimada' => ['nullable', 'date'],
+            'detalleContrato' => ['nullable', 'string', 'max:1000'],
+            'estadoContrato' => ['required', 'in:PENDIENTE,EN_PROCESO,FINALIZADO,CANCELADO'],
+        ];
+    }
+
+    private function mensajesValidacionContrato(): array
+    {
+        return [
+            'clienteId.required' => 'Seleccione el cliente.',
+            'clienteId.integer' => 'Seleccione un cliente válido.',
+            'tecnicoId.integer' => 'Seleccione un técnico válido.',
+            'municipio.max' => 'El municipio no debe superar los 100 caracteres.',
+            'direccionInstalacion.required' => 'Ingrese la dirección de instalación.',
+            'direccionInstalacion.max' => 'La dirección no debe superar los 255 caracteres.',
+            'cantidadCamaras.required' => 'Ingrese la cantidad de cámaras.',
+            'cantidadCamaras.integer' => 'La cantidad de cámaras debe ser un número entero.',
+            'cantidadCamaras.min' => 'Ingrese al menos una cámara.',
+            'metrosCableado.required' => 'Ingrese los metros de cableado.',
+            'metrosCableado.numeric' => 'Los metros de cableado deben ser numéricos.',
+            'metrosCableado.min' => 'Los metros de cableado no pueden ser negativos.',
+            'costoManoObra.required' => 'Ingrese el costo de mano de obra.',
+            'costoManoObra.numeric' => 'La mano de obra debe ser numérica.',
+            'costoManoObra.min' => 'La mano de obra no puede ser negativa.',
+            'porcentajeAnticipo.required' => 'Ingrese el porcentaje de anticipo.',
+            'porcentajeAnticipo.numeric' => 'El anticipo debe ser numérico.',
+            'porcentajeAnticipo.min' => 'El anticipo no puede ser negativo.',
+            'porcentajeAnticipo.max' => 'El anticipo no puede superar el 100%.',
+            'fechaEstimada.date' => 'Ingrese una fecha estimada válida.',
+            'detalleContrato.max' => 'El detalle no debe superar los 1000 caracteres.',
+            'estadoContrato.required' => 'Seleccione el estado del contrato.',
+            'estadoContrato.in' => 'Seleccione un estado válido.',
+        ];
+    }
+
+    private function reglasProducto(): array
+    {
+        return [
+            'productoId' => ['required', 'integer'],
+            'productoSerieId' => $this->productoTieneSeries ? ['required', 'integer'] : ['nullable', 'integer'],
+            'productoCantidad' => ['required', 'numeric', 'min:0.01'],
+            'productoPrecio' => ['required', 'numeric', 'min:0'],
+        ];
+    }
+
+    private function mensajesValidacionProducto(): array
+    {
+        return [
+            'productoId.required' => 'Seleccione un producto.',
+            'productoId.integer' => 'Seleccione un producto válido.',
+            'productoSerieId.required' => 'Seleccione la serie del producto.',
+            'productoSerieId.integer' => 'Seleccione una serie válida.',
+            'productoCantidad.required' => 'Ingrese la cantidad.',
+            'productoCantidad.numeric' => 'La cantidad debe ser numérica.',
+            'productoCantidad.min' => 'La cantidad debe ser mayor a cero.',
+            'productoPrecio.required' => 'Ingrese el precio.',
+            'productoPrecio.numeric' => 'El precio debe ser numérico.',
+            'productoPrecio.min' => 'El precio no puede ser negativo.',
+        ];
     }
 
     public function updatedPagoCordobas($value): void
@@ -158,63 +317,151 @@ new class extends Component
             return;
         }
 
+        $cambioTipo = $this->tipoOperacion !== $tipo;
         $this->tipoOperacion = $tipo;
         $this->limpiarCobroContrato();
 
-        if ($tipo === self::TIPO_CREDITO && $this->clienteId && ! $this->clienteEsInstitucion((int) $this->clienteId)) {
+        if ($cambioTipo) {
             $this->clienteId = null;
             $this->telefonoCliente = '';
             $this->municipio = '';
+            $this->filtroCliente = '';
+            $this->clienteSeleccionadoNombre = '';
         }
 
-        $this->cargarCombos();
+        $this->paginaBusquedaClientes = 1;
+        $this->mostrarBusquedaClientes = false;
+        $this->cargarClientes();
     }
 
     public function cargarCombos(): void
     {
-        $this->clientes = Cliente::query()
+        $this->cargarClientes();
+        $this->cargarTecnicos();
+        $this->cargarProductosDisponibles();
+    }
+
+    private function cargarClientes(): void
+    {
+        $filtro = trim($this->filtroCliente);
+
+        if ($this->clienteId && $filtro === trim($this->clienteSeleccionadoNombre)) {
+            $filtro = '';
+        }
+
+        $limite = max(1, $this->paginaBusquedaClientes) * self::CLIENTES_POR_PAGINA;
+        $query = $this->consultaClientesBase($filtro);
+
+        $this->totalClientesBusqueda = (clone $query)->count();
+
+        $clientes = $query
+            ->select($this->columnasClienteSelect())
+            ->orderByRaw('CASE WHEN cliente.Tipo_Cliente = ? THEN cliente.Institucion ELSE p.Primer_Nombre END ASC', [self::TIPO_CLIENTE_INSTITUCION])
+            ->orderBy('p.Primer_Apellido')
+            ->limit($limite)
+            ->get()
+            ->map(fn ($item) => $this->clienteOpcion($item))
+            ->values();
+
+        if ($this->clienteId && ! $clientes->contains(fn ($item) => (int) $item['id'] === (int) $this->clienteId)) {
+            $seleccionado = $this->buscarClienteOpcionPorId((int) $this->clienteId);
+
+            if ($seleccionado) {
+                $clientes->prepend($seleccionado);
+            }
+        }
+
+        $this->hayMasClientes = $this->totalClientesBusqueda > $clientes->count();
+        $this->clientes = $clientes->toArray();
+    }
+
+    private function columnasClienteSelect(): array
+    {
+        return [
+            'cliente.Id_Cliente as id',
+            'cliente.Institucion',
+            'cliente.Tipo_Cliente',
+            'cliente.Telefono_Institucion',
+            'cliente.Municipio',
+            'p.Primer_Nombre',
+            'p.Segundo_Nombre',
+            'p.Primer_Apellido',
+            'p.Segundo_Apellido',
+            'p.Telefono',
+        ];
+    }
+
+    private function clienteOpcion(object $item): array
+    {
+        $esInstitucion = (int) ($item->Tipo_Cliente ?? 0) === self::TIPO_CLIENTE_INSTITUCION;
+
+        $nombrePersona = trim(
+            ($item->Primer_Nombre ?? '') . ' ' .
+            ($item->Segundo_Nombre ?? '') . ' ' .
+            ($item->Primer_Apellido ?? '') . ' ' .
+            ($item->Segundo_Apellido ?? '')
+        );
+
+        $nombre = $esInstitucion
+            ? (string) ($item->Institucion ?: 'Institución sin nombre')
+            : (string) ($nombrePersona ?: 'Cliente sin nombre');
+
+        $telefono = $esInstitucion
+            ? (string) ($item->Telefono_Institucion ?? '')
+            : (string) ($item->Telefono ?? '');
+
+        return [
+            'id' => (int) $item->id,
+            'name' => $this->limpiarTexto(trim($nombre . ($telefono !== '' ? ' | Tel: ' . $telefono : ''))),
+            'telefono' => $telefono,
+            'municipio' => (string) ($item->Municipio ?? ''),
+            'tipo_cliente' => $esInstitucion ? self::TIPO_CLIENTE_INSTITUCION : self::TIPO_CLIENTE_NATURAL,
+        ];
+    }
+
+    private function buscarClienteOpcionPorId(int $id): ?array
+    {
+        $cliente = Cliente::query()
+            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'cliente.Id_Persona')
+            ->where('cliente.Id_Cliente', $id)
+            ->where('cliente.Estado', 1)
+            ->select($this->columnasClienteSelect())
+            ->first();
+
+        return $cliente ? $this->clienteOpcion($cliente) : null;
+    }
+
+    private function consultaClientesBase(string $filtro)
+    {
+        return Cliente::query()
             ->leftJoin('persona as p', 'p.Id_Persona', '=', 'cliente.Id_Persona')
             ->where('cliente.Estado', 1)
             ->when($this->tipoOperacion === self::TIPO_CREDITO, function ($query) {
-                $query->where('cliente.Tipo_Cliente', Cliente::TIPO_INSTITUCION);
+                $query->where('cliente.Tipo_Cliente', self::TIPO_CLIENTE_INSTITUCION);
+            }, function ($query) {
+                $query->where('cliente.Tipo_Cliente', self::TIPO_CLIENTE_NATURAL);
             })
-            ->select([
-                'cliente.Id_Cliente as id',
-                'cliente.Institucion',
-                'cliente.Tipo_Cliente',
-                'cliente.Telefono_Institucion',
-                'p.Primer_Nombre',
-                'p.Segundo_Nombre',
-                'p.Primer_Apellido',
-                'p.Segundo_Apellido',
-                'p.Telefono',
-            ])
-            ->orderBy('cliente.Institucion')
-            ->orderBy('p.Primer_Nombre')
-            ->get()
-            ->map(function ($item) {
-                $nombrePersona = trim(
-                    ($item->Primer_Nombre ?? '') . ' ' .
-                    ($item->Segundo_Nombre ?? '') . ' ' .
-                    ($item->Primer_Apellido ?? '') . ' ' .
-                    ($item->Segundo_Apellido ?? '')
-                );
+            ->when($filtro !== '', function ($query) use ($filtro) {
+                $query->where(function ($q) use ($filtro) {
+                    if ($this->tipoOperacion === self::TIPO_CREDITO) {
+                        $q->where('cliente.Institucion', 'like', '%' . $filtro . '%')
+                            ->orWhere('cliente.Telefono_Institucion', 'like', '%' . $filtro . '%');
 
-                $nombre = trim(
-                    ($item->Institucion ? $item->Institucion . ' - ' : '') .
-                    $nombrePersona
-                );
+                        return;
+                    }
 
-                $telefono = $item->Telefono ?: $item->Telefono_Institucion;
+                    $q->where('p.Telefono', 'like', '%' . $filtro . '%')
+                        ->orWhere('p.Primer_Nombre', 'like', '%' . $filtro . '%')
+                        ->orWhere('p.Segundo_Nombre', 'like', '%' . $filtro . '%')
+                        ->orWhere('p.Primer_Apellido', 'like', '%' . $filtro . '%')
+                        ->orWhere('p.Segundo_Apellido', 'like', '%' . $filtro . '%');
+                });
+            });
+    }
 
-                return [
-                    'id' => (int) $item->id,
-                    'name' => $this->limpiarTexto(($nombre ?: 'Cliente sin nombre') . ' | Tel: ' . ($telefono ?: 'N/A')),
-                ];
-            })
-            ->toArray();
-
-        $this->tecnicos = Trabajador::query()
+    private function cargarTecnicos(): void
+    {
+        $query = Trabajador::query()
             ->join('persona as p', 'p.Id_Persona', '=', 'trabajador.Id_Persona')
             ->leftJoin('cargo as cg', 'cg.Id_Cargo', '=', 'trabajador.Id_Cargo')
             ->where('trabajador.Estado', 1)
@@ -228,30 +475,51 @@ new class extends Component
             ])
             ->orderBy('p.Primer_Nombre')
             ->orderBy('p.Primer_Apellido')
-            ->get()
-            ->map(fn ($item) => [
-                'id' => (int) $item->id,
-                'name' => $this->limpiarTexto(
-                    trim(
-                        ($item->Primer_Nombre ?? '') . ' ' .
-                        ($item->Segundo_Nombre ?? '') . ' ' .
-                        ($item->Primer_Apellido ?? '') . ' ' .
-                        ($item->Segundo_Apellido ?? '')
-                    ) . ' - ' . ($item->Cargo_Asignado ?: 'Trabajador')
-                ),
-            ])
-            ->toArray();
+            ->limit(self::RESULTADOS_BUSQUEDA_SELECT);
 
-        $seriesDisponiblesPorProducto = ProductoSerie::query()
-            ->where('Estado', 'DISPONIBLE')
-            ->get(['Id_Producto'])
-            ->groupBy('Id_Producto')
-            ->map(fn ($items) => $items->count());
+        $tecnicos = $query->get()->map(fn ($item) => $this->tecnicoOpcion($item))->values();
 
-        $this->productosDisponibles = Producto::query()
-            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
-            ->where('producto.Estado', 1)
-            ->where('producto.Stock_Actual', '>', 0)
+        if ($this->tecnicoId && ! $tecnicos->contains(fn ($item) => (int) $item['id'] === (int) $this->tecnicoId)) {
+            $seleccionado = Trabajador::query()
+                ->join('persona as p', 'p.Id_Persona', '=', 'trabajador.Id_Persona')
+                ->leftJoin('cargo as cg', 'cg.Id_Cargo', '=', 'trabajador.Id_Cargo')
+                ->where('trabajador.Id_Trabajador', $this->tecnicoId)
+                ->select([
+                    'trabajador.Id_Trabajador as id',
+                    'p.Primer_Nombre',
+                    'p.Segundo_Nombre',
+                    'p.Primer_Apellido',
+                    'p.Segundo_Apellido',
+                    'cg.Cargo_Asignado',
+                ])
+                ->first();
+
+            if ($seleccionado) {
+                $tecnicos->prepend($this->tecnicoOpcion($seleccionado));
+            }
+        }
+
+        $this->tecnicos = $tecnicos->toArray();
+    }
+
+    private function tecnicoOpcion(object $item): array
+    {
+        return [
+            'id' => (int) $item->id,
+            'name' => $this->limpiarTexto(
+                trim(
+                    ($item->Primer_Nombre ?? '') . ' ' .
+                    ($item->Segundo_Nombre ?? '') . ' ' .
+                    ($item->Primer_Apellido ?? '') . ' ' .
+                    ($item->Segundo_Apellido ?? '')
+                ) . ' - ' . ($item->Cargo_Asignado ?: 'Trabajador')
+            ),
+        ];
+    }
+
+    private function cargarProductosDisponibles(): void
+    {
+        $query = $this->consultaProductosBase(trim($this->filtroProducto))
             ->select([
                 'producto.Id_Producto as id',
                 'producto.Nombre_Producto',
@@ -261,28 +529,80 @@ new class extends Component
                 'm.Nombre_Marca',
             ])
             ->orderBy('producto.Nombre_Producto')
-            ->get()
-            ->map(function ($item) use ($seriesDisponiblesPorProducto) {
-                $seriesDisponibles = (int) ($seriesDisponiblesPorProducto[$item->id] ?? 0);
+            ->limit(self::RESULTADOS_BUSQUEDA_SELECT);
 
-                $nombre = $this->limpiarTexto(
-                    trim(
-                        ($item->Nombre_Marca ? $item->Nombre_Marca . ' ' : '') .
-                        $item->Nombre_Producto . ' ' .
-                        ($item->Modelo ?? '')
-                    )
-                );
+        $productos = $query->get();
 
-                return [
-                    'id' => (int) $item->id,
-                    'name' => $nombre .
-                        ' - Stock: ' . (int) $item->Stock_Actual .
-                        ($seriesDisponibles > 0 ? ' | Series: ' . $seriesDisponibles : ''),
-                    'precio' => (float) $item->precio,
-                    'series_disponibles' => $seriesDisponibles,
-                ];
-            })
+        if ($this->productoId && ! $productos->contains(fn ($item) => (int) $item->id === (int) $this->productoId)) {
+            $seleccionado = Producto::query()
+                ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
+                ->where('producto.Id_Producto', $this->productoId)
+                ->select([
+                    'producto.Id_Producto as id',
+                    'producto.Nombre_Producto',
+                    'producto.Modelo',
+                    'producto.Precio_Venta as precio',
+                    'producto.Stock_Actual',
+                    'm.Nombre_Marca',
+                ])
+                ->first();
+
+            if ($seleccionado) {
+                $productos->prepend($seleccionado);
+            }
+        }
+
+        $ids = $productos->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
+
+        $seriesDisponiblesPorProducto = empty($ids)
+            ? collect()
+            : ProductoSerie::query()
+                ->whereIn('Id_Producto', $ids)
+                ->where('Estado', 'DISPONIBLE')
+                ->select('Id_Producto', DB::raw('COUNT(*) as total'))
+                ->groupBy('Id_Producto')
+                ->pluck('total', 'Id_Producto');
+
+        $this->productosDisponibles = $productos
+            ->map(fn ($item) => $this->productoOpcion($item, (int) ($seriesDisponiblesPorProducto[$item->id] ?? 0)))
+            ->values()
             ->toArray();
+    }
+
+    private function consultaProductosBase(string $filtro)
+    {
+        return Producto::query()
+            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
+            ->where('producto.Estado', 1)
+            ->where('producto.Stock_Actual', '>', 0)
+            ->when($filtro !== '', function ($query) use ($filtro) {
+                $query->where(function ($q) use ($filtro) {
+                    $q->where('producto.Nombre_Producto', 'like', '%' . $filtro . '%')
+                        ->orWhere('producto.Modelo', 'like', '%' . $filtro . '%')
+                        ->orWhere('m.Nombre_Marca', 'like', '%' . $filtro . '%')
+                        ->orWhere('producto.Id_Producto', 'like', '%' . $filtro . '%');
+                });
+            });
+    }
+
+    private function productoOpcion(object $item, int $seriesDisponibles): array
+    {
+        $nombre = $this->limpiarTexto(
+            trim(
+                ($item->Nombre_Marca ? $item->Nombre_Marca . ' ' : '') .
+                $item->Nombre_Producto . ' ' .
+                ($item->Modelo ?? '')
+            )
+        );
+
+        return [
+            'id' => (int) $item->id,
+            'name' => $nombre .
+                ' - Stock: ' . (int) $item->Stock_Actual .
+                ($seriesDisponibles > 0 ? ' | Series: ' . $seriesDisponibles : ''),
+            'precio' => (float) $item->precio,
+            'series_disponibles' => $seriesDisponibles,
+        ];
     }
 
     public function cargarPendientes(): void
@@ -294,7 +614,33 @@ new class extends Component
             ->leftJoin('persona as pc', 'pc.Id_Persona', '=', 'c.Id_Persona')
             ->leftJoin('trabajador as t', 't.Id_Trabajador', '=', $tablaContrato . '.Id_Trabajador')
             ->leftJoin('persona as pt', 'pt.Id_Persona', '=', 't.Id_Persona')
-            ->whereNotIn($tablaContrato . '.Estado_Contrato', ['FINALIZADO', 'CANCELADO'])
+            ->whereNotIn($tablaContrato . '.Estado_Contrato', ['FINALIZADO', 'CANCELADO']);
+
+        $filtro = trim($this->filtroPendientes);
+
+        if ($filtro !== '') {
+            $query->where(function ($q) use ($filtro, $tablaContrato) {
+                $q->where($tablaContrato . '.Numero_Contrato', 'like', '%' . $filtro . '%')
+                    ->orWhere($tablaContrato . '.Municipio', 'like', '%' . $filtro . '%')
+                    ->orWhere($tablaContrato . '.Direccion_Instalacion', 'like', '%' . $filtro . '%')
+                    ->orWhere('pc.Primer_Nombre', 'like', '%' . $filtro . '%')
+                    ->orWhere('pc.Primer_Apellido', 'like', '%' . $filtro . '%')
+                    ->orWhere('c.Institucion', 'like', '%' . $filtro . '%');
+            });
+        }
+
+        $this->totalPendientes = (clone $query)->count();
+        $this->totalPaginasPendientes = max(1, (int) ceil($this->totalPendientes / self::PENDIENTES_POR_PAGINA));
+
+        if ($this->paginaPendientes > $this->totalPaginasPendientes) {
+            $this->paginaPendientes = $this->totalPaginasPendientes;
+        }
+
+        if ($this->paginaPendientes < 1) {
+            $this->paginaPendientes = 1;
+        }
+
+        $this->contratosPendientes = $query
             ->select([
                 $tablaContrato . '.Id_Contrato_Instalacion_Camara as id',
                 $tablaContrato . '.Numero_Contrato as numero',
@@ -314,22 +660,7 @@ new class extends Component
                 'pt.Primer_Apellido as tecnico_primer_apellido',
             ])
             ->orderByDesc($tablaContrato . '.Fecha_Contrato')
-            ->limit(25);
-
-        $filtro = trim($this->filtroPendientes);
-
-        if ($filtro !== '') {
-            $query->where(function ($q) use ($filtro, $tablaContrato) {
-                $q->where($tablaContrato . '.Numero_Contrato', 'like', '%' . $filtro . '%')
-                    ->orWhere($tablaContrato . '.Municipio', 'like', '%' . $filtro . '%')
-                    ->orWhere($tablaContrato . '.Direccion_Instalacion', 'like', '%' . $filtro . '%')
-                    ->orWhere('pc.Primer_Nombre', 'like', '%' . $filtro . '%')
-                    ->orWhere('pc.Primer_Apellido', 'like', '%' . $filtro . '%')
-                    ->orWhere('c.Institucion', 'like', '%' . $filtro . '%');
-            });
-        }
-
-        $this->contratosPendientes = $query
+            ->forPage($this->paginaPendientes, self::PENDIENTES_POR_PAGINA)
             ->get()
             ->map(function ($item) {
                 $cliente = $this->limpiarTexto(
@@ -369,12 +700,102 @@ new class extends Component
 
     public function abrirPendientes(): void
     {
+        $this->paginaPendientes = 1;
         $this->cargarPendientes();
         $this->modalPendientes = true;
     }
 
+    public function paginaAnteriorPendientes(): void
+    {
+        if ($this->paginaPendientes > 1) {
+            $this->paginaPendientes--;
+            $this->cargarPendientes();
+        }
+    }
+
+    public function paginaSiguientePendientes(): void
+    {
+        if ($this->paginaPendientes < $this->totalPaginasPendientes) {
+            $this->paginaPendientes++;
+            $this->cargarPendientes();
+        }
+    }
+
+    public function updatedFiltroCliente(): void
+    {
+        if ($this->clienteId && trim($this->filtroCliente) !== trim($this->clienteSeleccionadoNombre)) {
+            $this->clienteId = null;
+            $this->telefonoCliente = '';
+            $this->municipio = '';
+            $this->clienteSeleccionadoNombre = '';
+        }
+
+        $this->paginaBusquedaClientes = 1;
+        $this->mostrarBusquedaClientes = true;
+        $this->cargarClientes();
+    }
+
+    public function abrirBusquedaClientes(): void
+    {
+        $this->paginaBusquedaClientes = 1;
+        $this->mostrarBusquedaClientes = true;
+        $this->cargarClientes();
+    }
+
+    public function cerrarBusquedaClientes(): void
+    {
+        $this->mostrarBusquedaClientes = false;
+    }
+
+    public function cargarMasClientes(): void
+    {
+        if (! $this->hayMasClientes) {
+            return;
+        }
+
+        $this->paginaBusquedaClientes++;
+        $this->mostrarBusquedaClientes = true;
+        $this->cargarClientes();
+    }
+
+    public function seleccionarCliente(int $id): void
+    {
+        $cliente = $this->buscarClienteOpcionPorId($id);
+
+        if (! $cliente) {
+            $this->mostrarMensaje('error', 'Cliente no encontrado', 'El cliente seleccionado ya no está activo.');
+            $this->cargarClientes();
+            return;
+        }
+
+        if ($this->tipoOperacion === self::TIPO_CREDITO && (int) $cliente['tipo_cliente'] !== self::TIPO_CLIENTE_INSTITUCION) {
+            $this->mostrarMensaje('error', 'Cliente no permitido', 'El crédito solo se puede registrar a clientes institucionales.');
+            return;
+        }
+
+        if ($this->tipoOperacion === self::TIPO_CONTADO && (int) $cliente['tipo_cliente'] !== self::TIPO_CLIENTE_NATURAL) {
+            $this->mostrarMensaje('error', 'Cliente no permitido', 'El contado solo se registra a clientes normales.');
+            return;
+        }
+
+        $this->clienteId = (int) $cliente['id'];
+        $this->telefonoCliente = (string) ($cliente['telefono'] ?? '');
+        $this->municipio = (string) ($cliente['municipio'] ?? '');
+        $this->clienteSeleccionadoNombre = (string) $cliente['name'];
+        $this->filtroCliente = (string) $cliente['name'];
+        $this->mostrarBusquedaClientes = false;
+        $this->resetErrorBag('clienteId');
+        $this->cargarClientes();
+    }
+
+    public function updatedFiltroProducto(): void
+    {
+        $this->cargarProductosDisponibles();
+    }
+
     public function updatedFiltroPendientes(): void
     {
+        $this->paginaPendientes = 1;
         $this->cargarPendientes();
     }
 
@@ -403,15 +824,27 @@ new class extends Component
         $this->fechaEstimada = $this->normalizarFechaInput($contrato->Fecha_Estimada);
         $this->detalleContrato = (string) ($contrato->Detalle_Contrato ?? '');
         $this->estadoContrato = (string) $contrato->Estado_Contrato;
-        $tipoVentaGuardada = $contrato->Id_Venta
-            ? DB::table('venta')->where('Id_Venta', $contrato->Id_Venta)->value('Tipo_Venta')
-            : null;
+        // MODIFICADO: si el contrato aún no tiene venta o fue cargado antes, tomamos Tipo_Venta del contrato primero.
+        $tipoVentaGuardada = strtoupper((string) ($contrato->Tipo_Venta ?? ''));
+
+        if ($tipoVentaGuardada === '' && $contrato->Id_Venta) {
+            $tipoVentaGuardada = strtoupper((string) DB::table('venta')
+                ->where('Id_Venta', $contrato->Id_Venta)
+                ->value('Tipo_Venta'));
+        }
 
         $this->tipoOperacion = $tipoVentaGuardada === self::TIPO_CREDITO
             ? self::TIPO_CREDITO
             : self::TIPO_CONTADO;
+        $this->filtroCliente = '';
+        $this->clienteSeleccionadoNombre = '';
+        $this->paginaBusquedaClientes = 1;
+        $this->mostrarBusquedaClientes = false;
+        $this->filtroProducto = '';
         $this->cargarCombos();
-        $this->tipoCambio = number_format((float) ($contrato->Tipo_Cambio ?? 36.50), 2, '.', '');
+        $this->updatedClienteId($this->clienteId);
+        // MODIFICADO: al actualizar/cobrar pendientes se muestra la tasa vigente, no un fallback viejo.
+        $this->tipoCambio = $this->tipoCambioActualFormateada();
         $this->limpiarCobroContrato();
 
         $this->cargarChecklistContrato((int) $contrato->Id_Contrato_Instalacion_Camara);
@@ -443,28 +876,25 @@ new class extends Component
     {
         $this->telefonoCliente = '';
         $this->municipio = '';
+        $this->clienteSeleccionadoNombre = '';
 
         if (!$value) {
             return;
         }
 
-        $cliente = Cliente::query()
-            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'cliente.Id_Persona')
-            ->where('cliente.Id_Cliente', $value)
-            ->select([
-                'p.Telefono',
-                'cliente.Telefono_Institucion',
-                'cliente.Municipio',
-            ])
-            ->first();
+        $cliente = $this->buscarClienteOpcionPorId((int) $value);
 
-        $this->telefonoCliente = (string) (
-            $cliente->Telefono
-            ?: $cliente->Telefono_Institucion
-            ?: ''
-        );
+        if (! $cliente) {
+            return;
+        }
 
-        $this->municipio = (string) ($cliente->Municipio ?? '');
+        $this->clienteId = (int) $cliente['id'];
+        $this->telefonoCliente = (string) ($cliente['telefono'] ?? '');
+        $this->municipio = (string) ($cliente['municipio'] ?? '');
+        $this->clienteSeleccionadoNombre = (string) $cliente['name'];
+        $this->filtroCliente = (string) $cliente['name'];
+        $this->mostrarBusquedaClientes = false;
+        $this->cargarClientes();
     }
 
     public function updatedProductoId($value): void
@@ -523,14 +953,8 @@ new class extends Component
 
     public function agregarProducto(): void
     {
-        $this->validate([
-            'productoId' => ['required', 'integer'],
-            'productoCantidad' => ['required', 'numeric', 'min:0.01'],
-            'productoPrecio' => ['required', 'numeric', 'min:0'],
-        ], [
-            'productoId.required' => 'Seleccione un producto.',
-            'productoCantidad.min' => 'La cantidad debe ser mayor a cero.',
-        ]);
+        // MODIFICADO: reglas centralizadas para que la validación normal y la validación en vivo usen los mismos mensajes.
+        $this->validate($this->reglasProducto(), $this->mensajesValidacionProducto());
 
         $producto = Producto::query()
             ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
@@ -641,23 +1065,8 @@ new class extends Component
 
     public function guardar(): void
     {
-        $this->validate([
-            'clienteId' => ['required', 'integer'],
-            'tecnicoId' => ['nullable', 'integer'],
-            'municipio' => ['nullable', 'string', 'max:100'],
-            'direccionInstalacion' => ['required', 'string', 'max:255'],
-            'cantidadCamaras' => ['required', 'integer', 'min:1'],
-            'metrosCableado' => ['required', 'numeric', 'min:0'],
-            'costoManoObra' => ['required', 'numeric', 'min:0'],
-            'porcentajeAnticipo' => ['required', 'numeric', 'min:0', 'max:100'],
-            'fechaEstimada' => ['nullable', 'date'],
-            'detalleContrato' => ['nullable', 'string', 'max:1000'],
-            'estadoContrato' => ['required', 'in:PENDIENTE,EN_PROCESO,FINALIZADO,CANCELADO'],
-        ], [
-            'clienteId.required' => 'Seleccione el cliente.',
-            'direccionInstalacion.required' => 'Ingrese la dirección de instalación.',
-            'cantidadCamaras.min' => 'Ingrese al menos una cámara.',
-        ]);
+        // MODIFICADO: reglas centralizadas para permitir alertas dinámicas y limpieza automática.
+        $this->validate($this->reglasContrato(), $this->mensajesValidacionContrato());
 
         if ($this->tipoOperacion === self::TIPO_CREDITO && ! $this->clienteEsInstitucion((int) $this->clienteId)) {
             $this->mostrarMensaje('error', 'Cliente no permitido', 'El crédito solo se puede registrar a clientes institucionales.');
@@ -1048,7 +1457,12 @@ new class extends Component
         $this->detalleContrato = '';
         $this->estadoContrato = 'PENDIENTE';
         $this->tipoOperacion = self::TIPO_CONTADO;
-        $this->tipoCambio = '36.50';
+        $this->filtroCliente = '';
+        $this->clienteSeleccionadoNombre = '';
+        $this->paginaBusquedaClientes = 1;
+        $this->mostrarBusquedaClientes = false;
+        $this->filtroProducto = '';
+        $this->tipoCambio = $this->tipoCambioActualFormateada();
         $this->limpiarCobroContrato();
 
         $this->productosUsados = [];
@@ -1565,7 +1979,25 @@ new class extends Component
     {
         $tasa = $this->limpiarDecimal($this->tipoCambio);
 
-        return $tasa > 0 ? $tasa : 1;
+        return $tasa > 0 ? $tasa : $this->tipoCambioActual();
+    }
+
+    private function tipoCambioActualFormateada(): string
+    {
+        return number_format($this->tipoCambioActual(), 2, '.', '');
+    }
+
+    private function tipoCambioActual(): float
+    {
+        // MODIFICADO: la apertura actualiza tasa_cambio; usamos la última tasa registrada.
+        $tasa = DB::table('tasa_cambio')
+            ->orderByDesc('Fecha_Modificacion')
+            ->orderByDesc('Id_Tasa_Cambio')
+            ->value('Valor_Cambio');
+
+        $tasa = round((float) ($tasa ?? 0), 2);
+
+        return $tasa > 0 ? $tasa : 36.50;
     }
 
     private function pagoRequiereReferencia(string $tipoPago): bool
@@ -1730,11 +2162,34 @@ new class extends Component
 
     private function mostrarMensaje(string $tipo, string $titulo, string $descripcion): void
     {
-        $this->mensaje = [
-            'tipo' => $tipo,
-            'titulo' => $titulo,
-            'descripcion' => $descripcion,
-        ];
+        // MODIFICADO: antes se guardaba el mensaje en una propiedad y quedaba fijo en pantalla.
+        // Ahora se dispara como toast temporal de MaryUI y desaparece automáticamente.
+        match ($tipo) {
+            'error' => $this->error(
+                $titulo,
+                $descripcion,
+                position: 'toast-top toast-end',
+                timeout: 3500
+            ),
+            'warning' => $this->warning(
+                $titulo,
+                $descripcion,
+                position: 'toast-top toast-end',
+                timeout: 3000
+            ),
+            'info' => $this->info(
+                $titulo,
+                $descripcion,
+                position: 'toast-top toast-end',
+                timeout: 2500
+            ),
+            default => $this->success(
+                $titulo,
+                $descripcion,
+                position: 'toast-top toast-end',
+                timeout: 2500
+            ),
+        };
     }
 };
 ?>
@@ -1785,29 +2240,33 @@ new class extends Component
             </div>
         </div>
 
-        @if($mensaje)
-        <div
-            class="fixed right-5 top-5 z-50 w-[min(420px,calc(100vw-2rem))] rounded-2xl border px-4 py-3 shadow-xl {{ $mensaje['tipo'] === 'success' ? 'border-[#B7E4C7] bg-[#ECFDF3] text-[#166534]' : 'border-[#F5C2C7] bg-[#FEF2F2] text-[#991B1B]' }}">
-            <div class="flex items-start justify-between gap-3">
-                <div>
-                    <p class="font-black">{{ $mensaje['titulo'] }}</p>
-                    <p class="text-sm">{{ $mensaje['descripcion'] }}</p>
-                </div>
-
-                <button type="button" wire:click="$set('mensaje', null)"
-                    class="rounded-lg px-2 text-sm font-black opacity-70 hover:bg-white/60 hover:opacity-100">
-                    X
-                </button>
-            </div>
-        </div>
-        @endif
+        {{-- MODIFICADO: se eliminó el bloque manual de mensaje fijo; MaryUI renderiza el toast temporal
+        automáticamente. --}}
 
         @php
         $totalMateriales = $this->totalMaterialesContrato();
         $totalContrato = $this->totalContratoActual();
         $anticipo = $this->anticipoEsperadoContrato();
         $saldo = $this->saldoContrato();
+
         @endphp
+
+        {{-- MODIFICADO: resumen visual temporal cuando existen errores de validación en campos. --}}
+        @if ($errors->any())
+        <div wire:key="validation-summary-{{ md5(implode('|', $errors->all())) }}" x-data="{ show: true }"
+            x-init="setTimeout(() => show = false, 3800)" x-show="show" x-transition.opacity.duration.200ms
+            class="shrink-0 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 shadow-sm">
+            <div class="flex items-start gap-3">
+                <span
+                    class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100 text-sm font-black text-red-700">!</span>
+                <div>
+                    <p class="font-black">Revisá los campos marcados.</p>
+                    <p class="text-xs font-semibold text-red-600">Las alertas se ocultan solas; al intentar guardar se
+                        validan nuevamente.</p>
+                </div>
+            </div>
+        </div>
+        @endif
 
         <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-12">
             <div class="min-h-0 overflow-y-auto pr-0 xl:col-span-8 xl:pr-1">
@@ -1833,16 +2292,78 @@ new class extends Component
                         <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                             <div class="xl:col-span-2">
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">
-                                    {{ $tipoOperacion === 'CREDITO' ? 'Institución' : 'Cliente / institución' }}
+                                    {{ $tipoOperacion === 'CREDITO' ? 'Institución' : 'Cliente' }}
                                 </label>
 
-                                <x-select wire:model.live="clienteId" :options="$clientes" option-value="id"
-                                    option-label="name"
-                                    placeholder="{{ $tipoOperacion === 'CREDITO' ? 'Seleccione institución' : 'Seleccione cliente' }}"
-                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
+                                <div class="relative">
+                                    <x-input wire:model.live.debounce.300ms="filtroCliente"
+                                        wire:focus="abrirBusquedaClientes" wire:keydown.escape="cerrarBusquedaClientes"
+                                        icon="o-magnifying-glass"
+                                        placeholder="{{ $tipoOperacion === 'CREDITO' ? 'Buscar institución por nombre' : 'Buscar cliente por teléfono o nombre' }}"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
 
+                                    @if($mostrarBusquedaClientes)
+                                    <div
+                                        class="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-2xl border border-[#D7E4F3] bg-white shadow-xl">
+                                        <div class="max-h-72 overflow-y-auto">
+                                            @forelse($clientes as $cliente)
+                                            <button type="button" wire:click="seleccionarCliente({{ $cliente['id'] }})"
+                                                class="flex w-full items-start gap-3 border-b border-[#EEF3F8] px-3 py-2 text-left transition hover:bg-[#EAF2FB]">
+                                                <span
+                                                    class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#EAF2FB] text-[#0B6FE4]">
+                                                    <x-icon
+                                                        :name="$tipoOperacion === 'CREDITO' ? 'o-building-office-2' : 'o-user'"
+                                                        class="h-4 w-4" />
+                                                </span>
+                                                <span class="min-w-0">
+                                                    <span class="block truncate text-sm font-bold text-[#1A2B42]">{{
+                                                        $cliente['name'] }}</span>
+                                                    <span
+                                                        class="block text-[11px] font-semibold uppercase tracking-wide text-[#5F6B7A]">
+                                                        {{ $tipoOperacion === 'CREDITO' ? 'Cliente institucional' :
+                                                        'Cliente normal' }}
+                                                    </span>
+                                                </span>
+                                            </button>
+                                            @empty
+                                            <div class="px-4 py-5 text-center text-sm font-semibold text-[#5F6B7A]">
+                                                No encontré coincidencias con esa búsqueda.
+                                            </div>
+                                            @endforelse
+                                        </div>
+
+                                        <div
+                                            class="flex flex-col gap-2 bg-[#F7F9FC] px-3 py-2 text-xs font-semibold text-[#5F6B7A] sm:flex-row sm:items-center sm:justify-between">
+                                            <span>Mostrando {{ count($clientes) }} de {{ $totalClientesBusqueda }}
+                                                registro(s)</span>
+                                            <div class="flex justify-end gap-2">
+                                                @if($hayMasClientes)
+                                                <x-button label="Cargar más" wire:click="cargarMasClientes"
+                                                    class="h-8 min-h-8 rounded-xl bg-white px-3 text-xs font-bold text-[#1A2B42] hover:bg-[#EAF2FB]" />
+                                                @endif
+                                                <x-button icon="o-x-mark" label="Cerrar"
+                                                    wire:click="cerrarBusquedaClientes"
+                                                    class="h-8 min-h-8 rounded-xl border border-[#D7E4F3] bg-white px-3 text-xs font-bold text-[#1A2B42] hover:bg-[#EAF2FB]" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    @endif
+                                </div>
+
+                                <p class="mt-1 text-[11px] font-semibold text-[#5F6B7A]">
+                                    {{ $tipoOperacion === 'CREDITO' ? 'En crédito se listan instituciones y se busca por
+                                    nombre institucional.' : 'En contado se listan clientes normales y podés buscar por
+                                    teléfono.' }}
+                                </p>
                                 @error('clienteId')
-                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                <div wire:key="field-error-clienteId-{{ md5($message) }}" x-data="{ show: true }"
+                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('clienteId') }, 4500)"
+                                    x-show="show" x-transition.opacity.duration.200ms
+                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
+                                    <span
+                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
+                                    <span>{{ $message }}</span>
+                                </div>
                                 @enderror
                             </div>
 
@@ -1856,9 +2377,15 @@ new class extends Component
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Municipio</label>
                                 <x-input wire:model="municipio"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-
                                 @error('municipio')
-                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                <div wire:key="field-error-municipio-{{ md5($message) }}" x-data="{ show: true }"
+                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('municipio') }, 4500)"
+                                    x-show="show" x-transition.opacity.duration.200ms
+                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
+                                    <span
+                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
+                                    <span>{{ $message }}</span>
+                                </div>
                                 @enderror
                             </div>
 
@@ -1866,9 +2393,15 @@ new class extends Component
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Cámaras</label>
                                 <x-input wire:model.live="cantidadCamaras" type="number"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-
                                 @error('cantidadCamaras')
-                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                <div wire:key="field-error-cantidadCamaras-{{ md5($message) }}" x-data="{ show: true }"
+                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('cantidadCamaras') }, 4500)"
+                                    x-show="show" x-transition.opacity.duration.200ms
+                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
+                                    <span
+                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
+                                    <span>{{ $message }}</span>
+                                </div>
                                 @enderror
                             </div>
 
@@ -1876,9 +2409,15 @@ new class extends Component
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Metros cableado</label>
                                 <x-input wire:model.live="metrosCableado" type="number" step="0.01"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-
                                 @error('metrosCableado')
-                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                <div wire:key="field-error-metrosCableado-{{ md5($message) }}" x-data="{ show: true }"
+                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('metrosCableado') }, 4500)"
+                                    x-show="show" x-transition.opacity.duration.200ms
+                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
+                                    <span
+                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
+                                    <span>{{ $message }}</span>
+                                </div>
                                 @enderror
                             </div>
 
@@ -1886,9 +2425,15 @@ new class extends Component
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Mano de obra</label>
                                 <x-input wire:model.live="costoManoObra" type="number" step="0.01" prefix="C$"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-
                                 @error('costoManoObra')
-                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                <div wire:key="field-error-costoManoObra-{{ md5($message) }}" x-data="{ show: true }"
+                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('costoManoObra') }, 4500)"
+                                    x-show="show" x-transition.opacity.duration.200ms
+                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
+                                    <span
+                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
+                                    <span>{{ $message }}</span>
+                                </div>
                                 @enderror
                             </div>
 
@@ -1896,9 +2441,16 @@ new class extends Component
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Anticipo</label>
                                 <x-input wire:model.live="porcentajeAnticipo" type="number" step="0.01" suffix="%"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-
                                 @error('porcentajeAnticipo')
-                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                <div wire:key="field-error-porcentajeAnticipo-{{ md5($message) }}"
+                                    x-data="{ show: true }"
+                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('porcentajeAnticipo') }, 4500)"
+                                    x-show="show" x-transition.opacity.duration.200ms
+                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
+                                    <span
+                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
+                                    <span>{{ $message }}</span>
+                                </div>
                                 @enderror
                             </div>
 
@@ -1908,9 +2460,15 @@ new class extends Component
                                 <x-select wire:model="tecnicoId" :options="$tecnicos" option-value="id"
                                     option-label="name" placeholder="Opcional"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-
                                 @error('tecnicoId')
-                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                <div wire:key="field-error-tecnicoId-{{ md5($message) }}" x-data="{ show: true }"
+                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('tecnicoId') }, 4500)"
+                                    x-show="show" x-transition.opacity.duration.200ms
+                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
+                                    <span
+                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
+                                    <span>{{ $message }}</span>
+                                </div>
                                 @enderror
                             </div>
 
@@ -1918,9 +2476,15 @@ new class extends Component
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Fecha estimada</label>
                                 <x-input wire:model="fechaEstimada" type="date"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-
                                 @error('fechaEstimada')
-                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                <div wire:key="field-error-fechaEstimada-{{ md5($message) }}" x-data="{ show: true }"
+                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('fechaEstimada') }, 4500)"
+                                    x-show="show" x-transition.opacity.duration.200ms
+                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
+                                    <span
+                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
+                                    <span>{{ $message }}</span>
+                                </div>
                                 @enderror
                             </div>
 
@@ -1930,9 +2494,15 @@ new class extends Component
                                 <x-select wire:model="estadoContrato" :options="$estadosContrato" option-value="id"
                                     option-label="name"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-
                                 @error('estadoContrato')
-                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                <div wire:key="field-error-estadoContrato-{{ md5($message) }}" x-data="{ show: true }"
+                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('estadoContrato') }, 4500)"
+                                    x-show="show" x-transition.opacity.duration.200ms
+                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
+                                    <span
+                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
+                                    <span>{{ $message }}</span>
+                                </div>
                                 @enderror
                             </div>
 
@@ -1943,9 +2513,16 @@ new class extends Component
 
                                 <x-input wire:model="direccionInstalacion"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-
                                 @error('direccionInstalacion')
-                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                <div wire:key="field-error-direccionInstalacion-{{ md5($message) }}"
+                                    x-data="{ show: true }"
+                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('direccionInstalacion') }, 4500)"
+                                    x-show="show" x-transition.opacity.duration.200ms
+                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
+                                    <span
+                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
+                                    <span>{{ $message }}</span>
+                                </div>
                                 @enderror
                             </div>
 
@@ -1956,9 +2533,15 @@ new class extends Component
 
                                 <x-textarea wire:model="detalleContrato" rows="2"
                                     class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-
                                 @error('detalleContrato')
-                                <span class="text-xs text-red-600">{{ $message }}</span>
+                                <div wire:key="field-error-detalleContrato-{{ md5($message) }}" x-data="{ show: true }"
+                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('detalleContrato') }, 4500)"
+                                    x-show="show" x-transition.opacity.duration.200ms
+                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
+                                    <span
+                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
+                                    <span>{{ $message }}</span>
+                                </div>
                                 @enderror
                             </div>
                         </div>
@@ -2018,12 +2601,22 @@ new class extends Component
                                 <div class="md:col-span-5">
                                     <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Producto</label>
 
+                                    <x-input wire:model.live.debounce.300ms="filtroProducto" icon="o-magnifying-glass"
+                                        placeholder="Buscar producto por nombre, marca, modelo o código"
+                                        class="mb-2 h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+
                                     <x-select wire:model.live="productoId" :options="$productosDisponibles"
                                         option-value="id" option-label="name" placeholder="Seleccione producto"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
-
                                     @error('productoId')
-                                    <span class="text-xs text-red-600">{{ $message }}</span>
+                                    <div wire:key="field-error-productoId-{{ md5($message) }}" x-data="{ show: true }"
+                                        x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('productoId') }, 4500)"
+                                        x-show="show" x-transition.opacity.duration.200ms
+                                        class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
+                                        <span
+                                            class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
+                                        <span>{{ $message }}</span>
+                                    </div>
                                     @enderror
                                 </div>
 
@@ -2034,9 +2627,16 @@ new class extends Component
                                     <x-select wire:model="productoSerieId" :options="$seriesDisponibles"
                                         option-value="id" option-label="name" placeholder="Seleccione serie"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
-
                                     @error('productoSerieId')
-                                    <span class="text-xs text-red-600">{{ $message }}</span>
+                                    <div wire:key="field-error-productoSerieId-{{ md5($message) }}"
+                                        x-data="{ show: true }"
+                                        x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('productoSerieId') }, 4500)"
+                                        x-show="show" x-transition.opacity.duration.200ms
+                                        class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
+                                        <span
+                                            class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
+                                        <span>{{ $message }}</span>
+                                    </div>
                                     @enderror
                                 </div>
                                 @else
@@ -2045,9 +2645,16 @@ new class extends Component
 
                                     <x-input wire:model="productoCantidad" type="number" step="0.01"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
-
                                     @error('productoCantidad')
-                                    <span class="text-xs text-red-600">{{ $message }}</span>
+                                    <div wire:key="field-error-productoCantidad-{{ md5($message) }}"
+                                        x-data="{ show: true }"
+                                        x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('productoCantidad') }, 4500)"
+                                        x-show="show" x-transition.opacity.duration.200ms
+                                        class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
+                                        <span
+                                            class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
+                                        <span>{{ $message }}</span>
+                                    </div>
                                     @enderror
                                 </div>
                                 @endif
@@ -2057,9 +2664,16 @@ new class extends Component
 
                                     <x-input wire:model="productoPrecio" type="number" step="0.01" prefix="C$"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
-
                                     @error('productoPrecio')
-                                    <span class="text-xs text-red-600">{{ $message }}</span>
+                                    <div wire:key="field-error-productoPrecio-{{ md5($message) }}"
+                                        x-data="{ show: true }"
+                                        x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('productoPrecio') }, 4500)"
+                                        x-show="show" x-transition.opacity.duration.200ms
+                                        class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
+                                        <span
+                                            class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
+                                        <span>{{ $message }}</span>
+                                    </div>
                                     @enderror
                                 </div>
 
@@ -2115,7 +2729,7 @@ new class extends Component
                             </div>
 
                             <span class="rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-black text-[#0B6FE4]">
-                                {{ count($contratosPendientes) }}
+                                {{ $totalPendientes }}
                             </span>
                         </div>
 
@@ -2437,6 +3051,22 @@ new class extends Component
                         @endforelse
                     </tbody>
                 </table>
+            </div>
+
+            <div
+                class="flex flex-col gap-2 rounded-2xl bg-[#F7F9FC] px-3 py-2 text-xs font-semibold text-[#5F6B7A] sm:flex-row sm:items-center sm:justify-between">
+                <span>
+                    Página {{ $paginaPendientes }} de {{ $totalPaginasPendientes }} · {{ $totalPendientes }}
+                    pendiente(s)
+                </span>
+
+                <div class="flex justify-end gap-2">
+                    <x-button label="Anterior" wire:click="paginaAnteriorPendientes" :disabled="$paginaPendientes <= 1"
+                        class="h-8 min-h-8 rounded-xl border border-[#D7E4F3] bg-white px-3 text-xs font-bold text-[#1A2B42] hover:bg-[#EAF2FB]" />
+                    <x-button label="Siguiente" wire:click="paginaSiguientePendientes"
+                        :disabled="$paginaPendientes >= $totalPaginasPendientes"
+                        class="h-8 min-h-8 rounded-xl border border-[#D7E4F3] bg-white px-3 text-xs font-bold text-[#1A2B42] hover:bg-[#EAF2FB]" />
+                </div>
             </div>
         </div>
 

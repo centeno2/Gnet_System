@@ -1,8 +1,10 @@
 <?php
 
+use App\Models\AperturaCaja;
 use App\Models\DetalleDevolucion;
 use App\Models\DetalleVenta;
 use App\Models\Devolucion;
+use App\Models\Egresos;
 use App\Models\MovimientoInventario;
 use App\Models\Producto;
 use App\Models\ProductoSerie;
@@ -12,10 +14,16 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Livewire\Component;
+use Mary\Traits\Toast;
 
 new class extends Component
 {
-    public const MONTO_MINIMO_CAMBIO_PRODUCTO = 2000.00;
+    use Toast;
+
+    public const MONTO_LIMITE_DEVOLUCION_MONETARIA = 2000.00;
+
+    public const TIPO_LINEA_MONETARIA = 'MONETARIA';
+    public const TIPO_LINEA_CAMBIO = 'CAMBIO';
 
     public const ESTADO_PRODUCTO_BUENO = 1;
     public const ESTADO_PRODUCTO_DANADO = 2;
@@ -24,6 +32,8 @@ new class extends Component
 
     public const TIPO_MOV_CAMBIO_PRODUCTO = 'SALIDA_CAMBIO_PRODUCTO';
     public const MOTIVO_MOV_CAMBIO_PRODUCTO = 2;
+
+    public const MOTIVO_EGRESO_DEVOLUCION = 'DEVOLUCION_CLIENTE';
 
     public string $busqueda = '';
     public array $resultadosVentas = [];
@@ -51,6 +61,7 @@ new class extends Component
         ['key' => 'disponible', 'label' => 'Disp.'],
         ['key' => 'aplica', 'label' => 'Aplica'],
         ['key' => 'cantidad', 'label' => 'Cant.'],
+        ['key' => 'tipo', 'label' => 'Tipo'],
         ['key' => 'estado', 'label' => 'Estado'],
         ['key' => 'cambio', 'label' => 'Cambio'],
         ['key' => 'motivo', 'label' => 'Motivo'],
@@ -60,6 +71,30 @@ new class extends Component
     public function mount(): void
     {
         $this->limpiarFormulario();
+    }
+
+    protected function notificarExito(string $mensaje): void
+    {
+        $this->mensajeExito = $mensaje;
+        $this->mensajeError = '';
+
+        $this->success(
+            title: $mensaje,
+            position: 'toast-top toast-end',
+            timeout: 3500
+        );
+    }
+
+    protected function notificarError(string $mensaje): void
+    {
+        $this->mensajeError = $mensaje;
+        $this->mensajeExito = '';
+
+        $this->error(
+            title: $mensaje,
+            position: 'toast-top toast-end',
+            timeout: 5000
+        );
     }
 
     public function updatedBusqueda(): void
@@ -120,7 +155,7 @@ new class extends Component
             ->find($ventaId);
 
         if (! $venta) {
-            $this->mensajeError = 'No se encontró la venta seleccionada.';
+            $this->notificarError('No se encontró la venta seleccionada.');
             return;
         }
 
@@ -147,7 +182,7 @@ new class extends Component
             ->toArray();
 
         if (! count($this->detalle)) {
-            $this->mensajeError = 'Esta venta no tiene productos disponibles para devolución.';
+            $this->notificarError('Esta venta no tiene productos disponibles para devolución.');
         }
 
         $this->recalcularDevolucion();
@@ -169,7 +204,6 @@ new class extends Component
 
         $this->detalle = [];
         $this->observacion = '';
-        $this->mensajeExito = '';
         $this->mensajeError = '';
 
         $this->resetErrorBag();
@@ -193,10 +227,22 @@ new class extends Component
             $this->validarSeleccionLinea($index);
         }
 
+        if ($campo === 'tipo_devolucion_linea') {
+            if ((bool) ($this->detalle[$index]['forzar_cambio'] ?? false)) {
+                $this->detalle[$index]['tipo_devolucion_linea'] = self::TIPO_LINEA_CAMBIO;
+            }
+
+            if (($this->detalle[$index]['tipo_devolucion_linea'] ?? self::TIPO_LINEA_MONETARIA) === self::TIPO_LINEA_MONETARIA) {
+                $this->limpiarCambioLinea($index);
+            } else {
+                $this->sugerirProductosCambio($index);
+            }
+        }
+
         if ($campo === 'cantidad_devuelve') {
             $this->recalcularDevolucion();
 
-            if (($this->detalle[$index]['requiere_cambio'] ?? false) && empty($this->detalle[$index]['producto_cambio_id'])) {
+            if ($this->lineaEsCambio($this->detalle[$index]) && empty($this->detalle[$index]['producto_cambio_id'])) {
                 $this->sugerirProductosCambio($index);
             }
 
@@ -233,7 +279,7 @@ new class extends Component
             ->find($productoId);
 
         if (! $producto) {
-            $this->mensajeError = 'El producto de cambio seleccionado no está disponible o no pertenece a la misma categoría.';
+            $this->notificarError('El producto de cambio seleccionado no está disponible o no pertenece a la misma categoría.');
             return;
         }
 
@@ -254,10 +300,12 @@ new class extends Component
             ->toArray();
 
         if ($tieneSeries && ! count($seriesDisponibles)) {
-            $this->mensajeError = 'El producto seleccionado usa serie, pero no tiene series disponibles.';
+            $this->notificarError('El producto seleccionado usa serie, pero no tiene series disponibles.');
             return;
         }
 
+        $this->detalle[$index]['tipo_devolucion_linea'] = self::TIPO_LINEA_CAMBIO;
+        $this->detalle[$index]['es_cambio_producto'] = true;
         $this->detalle[$index]['producto_cambio_id'] = (int) $producto->Id_Producto;
         $this->detalle[$index]['producto_cambio_nombre'] = trim($producto->Nombre_Producto . ' ' . ($producto->Modelo ?? ''));
         $this->detalle[$index]['producto_cambio_precio'] = (float) $producto->Precio_Venta;
@@ -277,20 +325,14 @@ new class extends Component
             return;
         }
 
-        $this->detalle[$index]['producto_cambio_id'] = null;
-        $this->detalle[$index]['producto_cambio_nombre'] = '';
-        $this->detalle[$index]['producto_cambio_precio'] = 0;
-        $this->detalle[$index]['producto_cambio_tiene_series'] = false;
-        $this->detalle[$index]['producto_serie_cambio_id'] = null;
-        $this->detalle[$index]['series_cambio'] = [];
-        $this->detalle[$index]['busqueda_cambio'] = '';
-        $this->detalle[$index]['resultados_cambio'] = [];
-        $this->detalle[$index]['monto_cambio'] = 0;
-        $this->detalle[$index]['diferencia_cambio'] = 0;
-        $this->detalle[$index]['cliente_paga'] = 0;
-        $this->detalle[$index]['cliente_recibe'] = 0;
+        $this->limpiarCambioLinea($index);
 
-        $this->sugerirProductosCambio($index);
+        if ((bool) ($this->detalle[$index]['forzar_cambio'] ?? false)) {
+            $this->detalle[$index]['tipo_devolucion_linea'] = self::TIPO_LINEA_CAMBIO;
+            $this->detalle[$index]['es_cambio_producto'] = true;
+            $this->sugerirProductosCambio($index);
+        }
+
         $this->recalcularDevolucion();
     }
 
@@ -301,7 +343,7 @@ new class extends Component
         $this->resetErrorBag();
 
         if (! $this->ventaSeleccionadaId) {
-            $this->mensajeError = 'Selecciona una venta antes de registrar la devolución.';
+            $this->notificarError('Selecciona una venta antes de registrar la devolución.');
             return;
         }
 
@@ -310,61 +352,68 @@ new class extends Component
             ->values();
 
         if ($itemsSeleccionados->isEmpty()) {
-            $this->mensajeError = 'Selecciona al menos un producto y una cantidad válida.';
-            return;
-        }
-
-        $requiereCambio = $itemsSeleccionados->contains(fn ($item) => (bool) ($item['requiere_cambio'] ?? false));
-        $tieneMonetaria = $itemsSeleccionados->contains(fn ($item) => ! (bool) ($item['requiere_cambio'] ?? false));
-
-        if ($requiereCambio && $tieneMonetaria) {
-            $this->mensajeError = 'No mezcles devolución monetaria y cambio de producto en el mismo registro.';
+            $this->notificarError('Selecciona al menos un producto y una cantidad válida.');
             return;
         }
 
         foreach ($itemsSeleccionados as $item) {
             if (! (bool) ($item['en_garantia'] ?? false)) {
-                $this->mensajeError = 'Hay productos seleccionados fuera de garantía.';
+                $this->notificarError('Hay productos seleccionados fuera de garantía.');
                 return;
             }
 
-            if ((bool) ($item['requiere_cambio'] ?? false) && empty($item['producto_cambio_id'])) {
-                $this->mensajeError = 'Los productos de C$ 2,000.00 o más requieren seleccionar producto de cambio.';
+            if ((bool) ($item['forzar_cambio'] ?? false) && ! $this->lineaEsCambio($item)) {
+                $this->notificarError('Los productos mayores a C$ 2,000.00 solo pueden procesarse como cambio de producto.');
+                return;
+            }
+
+            if ($this->lineaEsCambio($item) && empty($item['producto_cambio_id'])) {
+                $this->notificarError('Selecciona el producto de cambio para cada línea marcada como cambio.');
                 return;
             }
 
             if (
-                (bool) ($item['requiere_cambio'] ?? false)
+                $this->lineaEsCambio($item)
                 && (bool) ($item['producto_cambio_tiene_series'] ?? false)
                 && empty($item['producto_serie_cambio_id'])
             ) {
-                $this->mensajeError = 'Selecciona la serie del producto de cambio.';
+                $this->notificarError('Selecciona la serie del producto de cambio.');
                 return;
             }
         }
 
         try {
-            DB::transaction(function () use ($itemsSeleccionados, $requiereCambio) {
+            DB::transaction(function () use ($itemsSeleccionados) {
                 $venta = Venta::query()
                     ->where('Estado', Venta::ESTADO_ACTIVA)
                     ->lockForUpdate()
                     ->findOrFail($this->ventaSeleccionadaId);
 
+                $usuarioId = $this->obtenerUsuarioId();
+
+                if (! $usuarioId) {
+                    throw new RuntimeException('No se pudo identificar el usuario de la sesión.');
+                }
+
+                $hayCambio = $itemsSeleccionados->contains(fn ($item) => $this->lineaEsCambio($item));
+
                 $devolucion = Devolucion::create([
                     'Id_Venta' => $venta->Id_Venta,
                     'Id_Cliente' => $venta->Id_Cliente,
-                    'Id_Usuario' => $this->obtenerUsuarioId(),
+                    'Id_Usuario' => $usuarioId,
                     'Fecha_Devolucion' => now(),
                     'Con_Factura' => true,
                     'Observacion' => trim($this->observacion) ?: null,
                     'Estado_Devolucion' => Devolucion::ESTADO_REGISTRADA,
-                    'Tipo_Devolucion' => $requiereCambio
+                    'Tipo_Devolucion' => $hayCambio
                         ? Devolucion::TIPO_CAMBIO_PRODUCTO
                         : Devolucion::TIPO_DEVOLUCION_DINERO,
                     'Total_Devolucion' => 0,
                 ]);
 
                 $totalDevolucion = 0;
+                $totalEgresoCordoba = 0;
+                $descripcionesEgreso = [];
 
                 foreach ($itemsSeleccionados as $item) {
                     $detalleVenta = DetalleVenta::query()
@@ -403,8 +452,19 @@ new class extends Component
 
                     $cambioProcesado = null;
 
-                    if ((bool) ($item['requiere_cambio'] ?? false)) {
+                    if ($this->lineaEsCambio($item)) {
                         $cambioProcesado = $this->procesarSalidaProductoCambio($item, $cantidadDevuelve, $montoDevuelto);
+
+                        if ((float) $cambioProcesado['cliente_recibe'] > 0) {
+                            $totalEgresoCordoba += (float) $cambioProcesado['cliente_recibe'];
+                            $descripcionesEgreso[] = 'Diferencia por cambio: ' . $cambioProcesado['producto']
+                                . ' C$ ' . number_format((float) $cambioProcesado['cliente_recibe'], 2);
+                        }
+                    } else {
+                        $totalEgresoCordoba += $montoDevuelto;
+                        $descripcionesEgreso[] = 'Devolución monetaria: '
+                            . ($detalleVenta->producto?->Nombre_Producto ?? 'Producto')
+                            . ' C$ ' . number_format($montoDevuelto, 2);
                     }
 
                     $motivo = $this->construirMotivoDevolucion($item, $montoDevuelto, $cambioProcesado);
@@ -438,19 +498,26 @@ new class extends Component
                 $devolucion->update([
                     'Total_Devolucion' => $totalDevolucion,
                 ]);
+
+                $this->registrarEgresoSiAplica(
+                    venta: $venta,
+                    devolucion: $devolucion,
+                    usuarioId: $usuarioId,
+                    montoCordoba: $totalEgresoCordoba,
+                    descripciones: $descripcionesEgreso,
+                );
             });
 
-            $ventaId = $this->ventaSeleccionadaId;
-
-            $this->mensajeExito = 'Devolución registrada correctamente.';
-            $this->seleccionarVenta($ventaId);
-            $this->observacion = '';
+            $this->limpiarFormulario();
+            $this->notificarExito('Devolución registrada correctamente.');
         } catch (Throwable $exception) {
             report($exception);
 
-            $this->mensajeError = $exception instanceof RuntimeException
-                ? $exception->getMessage()
-                : 'No se pudo registrar la devolución. Revisa los datos e inténtalo nuevamente.';
+            $this->notificarError(
+                $exception instanceof RuntimeException
+                    ? $exception->getMessage()
+                    : 'No se pudo registrar la devolución. Revisa los datos e inténtalo nuevamente.'
+            );
         }
     }
 
@@ -477,7 +544,7 @@ new class extends Component
         $precioDevolucion = $this->precioUnitarioNeto($detalle);
         $garantia = $this->calcularGarantia($detalle, $venta);
 
-        $requiereCambio = $precioDevolucion >= self::MONTO_MINIMO_CAMBIO_PRODUCTO;
+        $forzarCambio = $precioDevolucion > self::MONTO_LIMITE_DEVOLUCION_MONETARIA;
         $puedeDevolver = $cantidadDisponible > 0 && $garantia['en_garantia'];
 
         $bloqueo = '';
@@ -518,7 +585,10 @@ new class extends Component
 
             'puede_devolver' => $puedeDevolver,
             'bloqueo' => $bloqueo,
-            'requiere_cambio' => $requiereCambio,
+
+            'forzar_cambio' => $forzarCambio,
+            'tipo_devolucion_linea' => $forzarCambio ? self::TIPO_LINEA_CAMBIO : self::TIPO_LINEA_MONETARIA,
+            'es_cambio_producto' => $forzarCambio,
 
             'busqueda_cambio' => '',
             'resultados_cambio' => [],
@@ -535,7 +605,7 @@ new class extends Component
             'cliente_recibe' => 0,
         ];
 
-        if ($requiereCambio && $producto) {
+        if ($forzarCambio && $producto) {
             $linea = $this->autoseleccionarCambioMismoProducto($linea, $producto);
         }
 
@@ -573,6 +643,8 @@ new class extends Component
             $linea['producto_serie_cambio_id'] = $series[0]['id'];
         }
 
+        $linea['tipo_devolucion_linea'] = self::TIPO_LINEA_CAMBIO;
+        $linea['es_cambio_producto'] = true;
         $linea['producto_cambio_id'] = (int) $producto->Id_Producto;
         $linea['producto_cambio_nombre'] = trim($producto->Nombre_Producto . ' ' . ($producto->Modelo ?? ''));
         $linea['producto_cambio_precio'] = (float) $producto->Precio_Venta;
@@ -588,7 +660,7 @@ new class extends Component
             return;
         }
 
-        if (! (bool) ($this->detalle[$index]['requiere_cambio'] ?? false)) {
+        if (! $this->lineaEsCambio($this->detalle[$index])) {
             $this->detalle[$index]['resultados_cambio'] = [];
             return;
         }
@@ -599,7 +671,7 @@ new class extends Component
 
         if (! $categoriaOriginalId) {
             $this->detalle[$index]['resultados_cambio'] = [];
-            $this->mensajeError = 'El producto original no tiene categoría asignada para sugerir cambios.';
+            $this->notificarError('El producto original no tiene categoría asignada para sugerir cambios.');
             return;
         }
 
@@ -654,13 +726,18 @@ new class extends Component
         if (! (bool) ($this->detalle[$index]['puede_devolver'] ?? false)) {
             $this->detalle[$index]['aplica'] = false;
             $this->detalle[$index]['cantidad_devuelve'] = 0;
-            $this->mensajeError = $this->detalle[$index]['bloqueo'] ?? 'El producto no puede devolverse.';
+            $this->notificarError($this->detalle[$index]['bloqueo'] ?? 'El producto no puede devolverse.');
             return;
         }
 
         $this->detalle[$index]['cantidad_devuelve'] = max(1, (float) ($this->detalle[$index]['cantidad_devuelve'] ?? 1));
 
-        if ((bool) ($this->detalle[$index]['requiere_cambio'] ?? false)) {
+        if ((bool) ($this->detalle[$index]['forzar_cambio'] ?? false)) {
+            $this->detalle[$index]['tipo_devolucion_linea'] = self::TIPO_LINEA_CAMBIO;
+            $this->detalle[$index]['es_cambio_producto'] = true;
+        }
+
+        if ($this->lineaEsCambio($this->detalle[$index])) {
             $this->sugerirProductosCambio($index);
         }
     }
@@ -670,6 +747,14 @@ new class extends Component
         foreach ($this->detalle as $index => $item) {
             $aplica = (bool) ($item['aplica'] ?? false);
             $puedeDevolver = (bool) ($item['puede_devolver'] ?? false);
+            $forzarCambio = (bool) ($item['forzar_cambio'] ?? false);
+
+            if ($forzarCambio) {
+                $this->detalle[$index]['tipo_devolucion_linea'] = self::TIPO_LINEA_CAMBIO;
+            }
+
+            $esCambio = $forzarCambio
+                || (($this->detalle[$index]['tipo_devolucion_linea'] ?? self::TIPO_LINEA_MONETARIA) === self::TIPO_LINEA_CAMBIO);
 
             $cantidadDisponible = (float) ($item['cantidad_disponible'] ?? 0);
             $cantidadDevuelve = (float) ($item['cantidad_devuelve'] ?? 0);
@@ -683,13 +768,14 @@ new class extends Component
             $montoDevuelve = $aplica ? round($cantidadDevuelve * $precio, 2) : 0;
 
             $precioCambio = (float) ($item['producto_cambio_precio'] ?? 0);
-            $montoCambio = $aplica && ! empty($item['producto_cambio_id'])
+            $montoCambio = $aplica && $esCambio && ! empty($item['producto_cambio_id'])
                 ? round($cantidadDevuelve * $precioCambio, 2)
                 : 0;
 
             $diferenciaCambio = round($montoCambio - $montoDevuelve, 2);
 
             $this->detalle[$index]['index'] = $index;
+            $this->detalle[$index]['es_cambio_producto'] = $esCambio;
             $this->detalle[$index]['cantidad_devuelve'] = $cantidadDevuelve;
             $this->detalle[$index]['monto_devuelve'] = $montoDevuelve;
             $this->detalle[$index]['monto_cambio'] = $montoCambio;
@@ -697,6 +783,29 @@ new class extends Component
             $this->detalle[$index]['cliente_paga'] = max(0, $diferenciaCambio);
             $this->detalle[$index]['cliente_recibe'] = max(0, abs(min(0, $diferenciaCambio)));
         }
+    }
+
+    protected function limpiarCambioLinea(int $index): void
+    {
+        $this->detalle[$index]['es_cambio_producto'] = false;
+        $this->detalle[$index]['producto_cambio_id'] = null;
+        $this->detalle[$index]['producto_cambio_nombre'] = '';
+        $this->detalle[$index]['producto_cambio_precio'] = 0;
+        $this->detalle[$index]['producto_cambio_tiene_series'] = false;
+        $this->detalle[$index]['producto_serie_cambio_id'] = null;
+        $this->detalle[$index]['series_cambio'] = [];
+        $this->detalle[$index]['busqueda_cambio'] = '';
+        $this->detalle[$index]['resultados_cambio'] = [];
+        $this->detalle[$index]['monto_cambio'] = 0;
+        $this->detalle[$index]['diferencia_cambio'] = 0;
+        $this->detalle[$index]['cliente_paga'] = 0;
+        $this->detalle[$index]['cliente_recibe'] = 0;
+    }
+
+    protected function lineaEsCambio(array $item): bool
+    {
+        return (bool) ($item['forzar_cambio'] ?? false)
+            || (($item['tipo_devolucion_linea'] ?? self::TIPO_LINEA_MONETARIA) === self::TIPO_LINEA_CAMBIO);
     }
 
     protected function calcularGarantia(DetalleVenta $detalle, Venta $venta): array
@@ -841,6 +950,48 @@ new class extends Component
         ];
     }
 
+    protected function registrarEgresoSiAplica(
+        Venta $venta,
+        Devolucion $devolucion,
+        int $usuarioId,
+        float $montoCordoba,
+        array $descripciones
+    ): void {
+        $montoCordoba = round($montoCordoba, 2);
+
+        if ($montoCordoba <= 0) {
+            return;
+        }
+
+        $aperturaCaja = AperturaCaja::query()
+            ->where('Id_Usuario', $usuarioId)
+            ->where('Estado_Apertura', 1)
+            ->whereDate('Fecha_Apertura', now()->toDateString())
+            ->latest('Fecha_Apertura')
+            ->lockForUpdate()
+            ->first();
+
+        if (! $aperturaCaja) {
+            throw new RuntimeException('No hay una apertura de caja abierta para registrar el egreso de la devolución.');
+        }
+
+        Egresos::create([
+            'Id_Apertura_Caja' => $aperturaCaja->Id_Apertura_Caja,
+            'Id_Usuario' => $usuarioId,
+            'Monto_Egresado_Cordoba' => $montoCordoba,
+            'Monto_Egresado_Dolar' => 0,
+            'Motivo_Egreso' => self::MOTIVO_EGRESO_DEVOLUCION,
+            'Descripcion_Egreso' => Str::limit(
+                'DEV-' . $devolucion->Id_Devolucion
+                . ' | Factura: ' . $venta->Numero_Factura
+                . ' | ' . implode(' / ', $descripciones),
+                255,
+                ''
+            ),
+            'Fecha_Egreso' => now(),
+        ]);
+    }
+
     protected function construirMotivoDevolucion(array $item, float $montoDevuelto, ?array $cambioProcesado): string
     {
         $partes = [];
@@ -978,6 +1129,19 @@ new class extends Component
         return collect($this->detalle)->sum(fn ($item) => (float) ($item['cliente_recibe'] ?? 0));
     }
 
+    public function obtenerEgresoEstimadoTotal(): float
+    {
+        return collect($this->detalle)
+            ->filter(fn ($item) => (bool) ($item['aplica'] ?? false))
+            ->sum(function ($item) {
+                if ($this->lineaEsCambio($item)) {
+                    return (float) ($item['cliente_recibe'] ?? 0);
+                }
+
+                return (float) ($item['monto_devuelve'] ?? 0);
+            });
+    }
+
     public function haySeleccion(): bool
     {
         return collect($this->detalle)
@@ -989,17 +1153,26 @@ new class extends Component
         $seleccionados = collect($this->detalle)
             ->filter(fn ($item) => (bool) ($item['aplica'] ?? false) && (float) ($item['cantidad_devuelve'] ?? 0) > 0);
 
-        if ($seleccionados->contains(fn ($item) => (bool) ($item['requiere_cambio'] ?? false))) {
-            return 'Cambio de producto';
+        if ($seleccionados->isEmpty()) {
+            return 'Sin selección';
         }
 
-        return 'Monetaria';
+        $hayCambio = $seleccionados->contains(fn ($item) => $this->lineaEsCambio($item));
+        $hayMonetaria = $seleccionados->contains(fn ($item) => ! $this->lineaEsCambio($item));
+
+        if ($hayCambio && $hayMonetaria) {
+            return 'Mixta';
+        }
+
+        return $hayCambio ? 'Cambio' : 'Monetaria';
     }
 };
 ?>
 
-<div class="min-h-screen w-full overflow-x-hidden bg-[#F0F3F7] px-4 py-4 md:px-6">
-    <div class="mx-auto flex w-full max-w-[1280px] flex-col gap-4">
+<div class="min-h-screen w-full max-w-full overflow-x-hidden bg-[#F0F3F7] px-3 py-4 md:px-5">
+    <div class="mx-auto flex w-full max-w-[1180px] min-w-0 flex-col gap-4 overflow-x-hidden">
+        <x-toast />
+
         <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
                 <h1 class="text-2xl font-bold text-[#1A2B42] md:text-3xl">Proceso de devoluciones</h1>
@@ -1008,40 +1181,38 @@ new class extends Component
                 </p>
             </div>
 
-            <div class="grid grid-cols-2 gap-2 sm:w-[360px]">
-                <x-card shadow class="border border-[#D7E4F3] bg-white">
+            <div class="grid grid-cols-3 gap-2 lg:w-[520px]">
+                <x-card shadow class="border border-[#D7E4F3] !bg-white">
                     <p class="text-[11px] font-bold uppercase text-[#5F6B7A]">Tipo</p>
                     <p class="text-base font-bold text-[#1A2B42]">{{ $this->tipoDevolucionTexto() }}</p>
                 </x-card>
 
-                <x-card shadow class="border border-[#D7E4F3] bg-white">
-                    <p class="text-[11px] font-bold uppercase text-[#5F6B7A]">Total ref.</p>
-                    <p class="text-xl font-bold text-[#2E8BC0]">
+                <x-card shadow class="border border-[#D7E4F3] !bg-white">
+                    <p class="text-[11px] font-bold uppercase text-[#5F6B7A]">Referencia</p>
+                    <p class="text-lg font-bold text-[#2E8BC0]">
                         C$ {{ number_format($this->obtenerTotalDevolucion(), 2) }}
+                    </p>
+                </x-card>
+
+                <x-card shadow class="border border-[#D7E4F3] !bg-white">
+                    <p class="text-[11px] font-bold uppercase text-[#5F6B7A]">Egreso</p>
+                    <p class="text-lg font-bold text-red-600">
+                        C$ {{ number_format($this->obtenerEgresoEstimadoTotal(), 2) }}
                     </p>
                 </x-card>
             </div>
         </div>
-
-        @if ($mensajeExito)
-            <x-alert icon="o-check-circle" class="border border-green-200 bg-green-50 text-green-700">
-                {{ $mensajeExito }}
-            </x-alert>
-        @endif
-
-        @if ($mensajeError)
-            <x-alert icon="o-exclamation-triangle" class="border border-red-200 bg-red-50 text-red-700">
-                {{ $mensajeError }}
-            </x-alert>
-        @endif
 
         <x-card
             title="Buscar venta"
             subtitle="Selecciona la factura correcta para cargar los productos vendidos."
             shadow
             separator
-            class="border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-sm [&_.card-title]:text-[#1A2B42]
-            [&_.text-base-content\/70]:text-[#5F6B7A] [&_label]:text-[#1A2B42] [&_.fieldset-legend]:text-[#1A2B42]"
+            class="border border-[#D7E4F3] !bg-white text-[#1A2B42] shadow-sm
+            [&_.card-title]:text-[#1A2B42]
+            [&_.text-base-content\/70]:text-[#5F6B7A]
+            [&_label]:text-[#1A2B42]
+            [&_.fieldset-legend]:text-[#1A2B42]"
         >
             <div class="grid grid-cols-1 gap-3 lg:grid-cols-12">
                 <div class="relative lg:col-span-4">
@@ -1054,13 +1225,14 @@ new class extends Component
                     />
 
                     @if (count($resultadosVentas))
-                        <x-card shadow class="absolute z-30 mt-2 max-h-72 w-full overflow-auto border border-[#D7E4F3] bg-white p-2">
+                        <x-card shadow class="absolute z-30 mt-2 max-h-72 w-full overflow-auto border border-[#D7E4F3] !bg-white p-2">
                             <div class="flex flex-col gap-2">
                                 @foreach ($resultadosVentas as $resultado)
                                     <x-button
                                         type="button"
                                         wire:click="seleccionarVenta({{ $resultado['id'] }})"
-                                        class="!h-auto !justify-start !border !border-[#E6EEF8] !bg-white !px-3 !py-2 !text-left hover:!bg-[#F8FBFF]">
+                                        class="!h-auto !justify-start !border !border-[#E6EEF8] !bg-white !px-3 !py-2 !text-left !text-[#1A2B42] hover:!bg-[#F8FBFF] hover:!text-[#1A2B42]"
+                                    >
                                         <div class="flex w-full flex-col gap-1">
                                             <div class="flex items-center justify-between gap-3">
                                                 <span class="font-bold text-[#1A2B42]">{{ $resultado['factura'] }}</span>
@@ -1068,7 +1240,9 @@ new class extends Component
                                                     {{ $resultado['tipo_venta'] }}
                                                 </span>
                                             </div>
+
                                             <span class="text-sm text-[#5F6B7A]">{{ $resultado['cliente'] }}</span>
+
                                             <span class="text-xs text-[#5F6B7A]">
                                                 {{ $resultado['fecha'] }} · C$ {{ number_format((float) $resultado['total'], 2) }}
                                             </span>
@@ -1117,282 +1291,349 @@ new class extends Component
         </x-card>
 
         <x-form wire:submit="confirmarDevolucion" no-separator>
-            <div class="flex flex-col gap-3">
+            <div class="flex flex-col gap-3 overflow-hidden">
                 <x-card
                     title="Productos de la venta"
-                    subtitle="C$ 2,000.00 o más se procesa como cambio de producto. Las sugerencias salen de la misma categoría y por precio más cercano."
+                    subtitle="Hasta C$ 2,000.00 permite monetaria o cambio. Mayor a C$ 2,000.00 solo cambio."
                     shadow
                     separator
-                    class="border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-sm [&_.card-title]:text-[#1A2B42]
-                    [&_.text-base-content\/70]:text-[#5F6B7A] [&_label]:text-[#1A2B42] [&_.fieldset-legend]:text-[#1A2B42]"
+                    class="w-full max-w-full overflow-hidden border border-[#D7E4F3] !bg-white text-[#1A2B42] shadow-sm
+                    [&_.card-body]:!overflow-hidden
+                    [&_.card-body]:!p-3
+                    [&_.card-title]:text-[#1A2B42]
+                    [&_.text-base-content\/70]:text-[#5F6B7A]
+                    [&_label]:text-[#1A2B42]
+                    [&_.fieldset-legend]:text-[#1A2B42]"
                 >
-                    <div class="w-full max-w-full overflow-hidden rounded-2xl border border-[#D7E4F3] bg-white">
-                        <div class="max-h-[480px] w-full overflow-x-auto overflow-y-auto">
-                            <x-table
-                                :headers="$headers"
-                                :rows="$detalle"
-                                class="min-w-[1040px] table-sm
-                                [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20 [&_thead]:bg-[#2E8BC0]
-                                [&_thead_th]:!bg-[#2E8BC0] [&_thead_th]:!text-white [&_thead_th]:text-[11px] [&_thead_th]:uppercase [&_thead_th]:font-bold
-                                [&_tbody_tr]:!bg-white [&_tbody_tr:hover]:!bg-[#F8FBFF] [&_tbody_tr:hover>td]:!bg-[#F8FBFF]
-                                [&_tbody_tr:hover>td]:!text-[#1A2B42] [&_td]:!text-[#1A2B42] [&_td]:align-top [&_td]:px-2 [&_td]:py-2"
-                            >
-                                @scope('cell_producto', $item)
-                                    <div class="min-w-[190px] max-w-[220px]">
-                                        <div class="truncate font-bold text-[#1A2B42]" title="{{ data_get($item, 'producto') }}">
-                                            {{ data_get($item, 'producto') }}
-                                        </div>
-                                        <div class="truncate text-xs text-[#5F6B7A]">
-                                            {{ data_get($item, 'modelo') ?: 'Sin modelo' }} · {{ data_get($item, 'serie') }}
-                                        </div>
-
-                                        @if (data_get($item, 'requiere_cambio'))
-                                            <x-badge value="Cambio" class="mt-1 bg-[#EAF5FB] text-[#2E8BC0]" />
-                                        @else
-                                            <x-badge value="Monetaria" class="mt-1 bg-green-50 text-green-700" />
-                                        @endif
-
-                                        @if (! data_get($item, 'puede_devolver'))
-                                            <div class="mt-1 text-xs font-semibold text-red-600">
-                                                {{ data_get($item, 'bloqueo') }}
+                    <div
+                        class="w-full max-w-full min-w-0 overflow-hidden rounded-2xl border border-[#D7E4F3] bg-white
+                        [&_.overflow-x-auto]:!overflow-visible"
+                    >
+                        <div
+                            class="max-h-[430px] w-full max-w-full min-w-0"
+                            style="overflow-x: auto; overflow-y: auto;"
+                        >
+                            <div class="w-[1180px] max-w-none">
+                                <x-table
+                                    :headers="$headers"
+                                    :rows="$detalle"
+                                    class="w-full table-xs
+                                    [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20
+                                    [&_thead_th]:!bg-[#2E8BC0] [&_thead_th]:!px-2 [&_thead_th]:!py-2
+                                    [&_thead_th]:!text-[10px] [&_thead_th]:!font-bold [&_thead_th]:!uppercase [&_thead_th]:!text-white
+                                    [&_tbody_tr]:!bg-white
+                                    [&_tbody_tr:hover]:!bg-[#F8FBFF]
+                                    [&_tbody_tr:hover>td]:!bg-[#F8FBFF]
+                                    [&_tbody_tr:hover>td]:!text-[#1A2B42]
+                                    [&_td]:!px-2 [&_td]:!py-2
+                                    [&_td]:!align-top [&_td]:!text-xs [&_td]:!text-[#1A2B42]"
+                                >
+                                    @scope('cell_producto', $item)
+                                        <div class="w-[170px]">
+                                            <div class="truncate text-xs font-bold text-[#1A2B42]" title="{{ data_get($item, 'producto') }}">
+                                                {{ data_get($item, 'producto') }}
                                             </div>
-                                        @endif
-                                    </div>
-                                @endscope
 
-                                @scope('cell_garantia', $item)
-                                    <div class="min-w-[115px]">
-                                        @if (data_get($item, 'en_garantia'))
-                                            <x-badge value="Vigente" class="bg-green-50 text-green-700" />
-                                        @else
-                                            <x-badge value="Vencida" class="bg-red-50 text-red-700" />
-                                        @endif
+                                            <div class="truncate text-[11px] text-[#5F6B7A]">
+                                                {{ data_get($item, 'modelo') ?: 'Sin modelo' }} · {{ data_get($item, 'serie') }}
+                                            </div>
 
-                                        <div class="mt-1 text-[11px] text-[#5F6B7A]">Base: {{ data_get($item, 'garantia_base') }}</div>
-                                        <div class="text-[11px] text-[#5F6B7A]">Hasta: {{ data_get($item, 'garantia_hasta') }}</div>
-                                    </div>
-                                @endscope
-
-                                @scope('cell_precio', $item)
-                                    <div class="min-w-[80px] text-right text-xs font-bold text-[#1A2B42]">
-                                        C$ {{ number_format((float) data_get($item, 'precio'), 2) }}
-                                    </div>
-                                @endscope
-
-                                @scope('cell_disponible', $item)
-                                    <div class="text-center text-xs font-semibold text-[#1A2B42]">
-                                        {{ number_format((float) data_get($item, 'cantidad_disponible'), 2) }}
-                                    </div>
-                                @endscope
-
-                                @scope('cell_aplica', $item)
-                                    @php($i = data_get($item, 'index'))
-                                    <div class="flex justify-center">
-                                        <x-checkbox
-                                            wire:model.live="detalle.{{ $i }}.aplica"
-                                            :disabled="! data_get($item, 'puede_devolver')"
-                                            class="border-[#2E8BC0] checked:border-[#2E8BC0] checked:bg-[#2E8BC0]"
-                                        />
-                                    </div>
-                                @endscope
-
-                                @scope('cell_cantidad', $item)
-                                    @php($i = data_get($item, 'index'))
-                                    <div class="w-16">
-                                        <x-input
-                                            type="number"
-                                            step="1"
-                                            min="0"
-                                            max="{{ data_get($item, 'cantidad_disponible') }}"
-                                            wire:model.live="detalle.{{ $i }}.cantidad_devuelve"
-                                            :disabled="! data_get($item, 'aplica') || ! data_get($item, 'puede_devolver')"
-                                            class="h-8 rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-center text-xs text-[#1A2B42]"
-                                        />
-                                    </div>
-                                @endscope
-
-                                @scope('cell_estado', $item)
-                                    @php($i = data_get($item, 'index'))
-                                    <div class="min-w-[125px]">
-                                        <x-select
-                                            wire:model.live="detalle.{{ $i }}.estado_producto"
-                                            :options="[
-                                                ['id' => 1, 'name' => 'Bueno'],
-                                                ['id' => 2, 'name' => 'Dañado'],
-                                                ['id' => 3, 'name' => 'En revisión'],
-                                                ['id' => 4, 'name' => 'Garantía'],
-                                            ]"
-                                            option-value="id"
-                                            option-label="name"
-                                            :disabled="! data_get($item, 'aplica')"
-                                            class="h-8 rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-xs text-[#1A2B42]"
-                                        />
-
-                                        <div class="mt-1">
-                                            <x-checkbox
-                                                label="Reintegra"
-                                                wire:model.live="detalle.{{ $i }}.reintegra_inventario"
-                                                :disabled="! data_get($item, 'aplica') || (int) data_get($item, 'estado_producto') !== 1"
-                                                class="checkbox-xs border-[#2E8BC0] checked:border-[#2E8BC0] checked:bg-[#2E8BC0]"
-                                            />
-                                        </div>
-                                    </div>
-                                @endscope
-
-                                @scope('cell_cambio', $item)
-                                    @php($i = data_get($item, 'index'))
-                                    <div class="min-w-[250px] max-w-[280px]">
-                                        @if (data_get($item, 'requiere_cambio'))
-                                            <x-input
-                                                wire:model.live.debounce.350ms="detalle.{{ $i }}.busqueda_cambio"
-                                                :disabled="! data_get($item, 'aplica')"
-                                                placeholder="Buscar similar"
-                                                icon="o-magnifying-glass"
-                                                class="h-8 rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-xs text-[#1A2B42] placeholder:text-[#5F6B7A]"
-                                            />
-
-                                            @if (count(data_get($item, 'resultados_cambio', [])))
-                                                <x-card shadow class="mt-2 max-h-44 overflow-auto border border-[#D7E4F3] bg-white p-2">
-                                                    <div class="flex flex-col gap-1.5">
-                                                        @foreach (data_get($item, 'resultados_cambio', []) as $productoCambio)
-                                                            <x-button
-                                                                type="button"
-                                                                wire:click="seleccionarProductoCambio({{ $i }}, {{ $productoCambio['id'] }})"
-                                                                class="!h-auto !justify-start !border !border-[#E6EEF8] !bg-white !px-2 !py-1.5 !text-left hover:!bg-[#F8FBFF]">
-                                                                <div class="flex w-full flex-col gap-0.5">
-                                                                    <span class="truncate text-xs font-bold text-[#1A2B42]">
-                                                                        {{ $productoCambio['nombre'] }}
-                                                                    </span>
-                                                                    <span class="text-[11px] text-[#5F6B7A]">
-                                                                        Stock: {{ $productoCambio['stock'] }} · C$ {{ number_format((float) $productoCambio['precio'], 2) }}
-                                                                    </span>
-                                                                    <span class="text-[11px] font-bold {{ $productoCambio['diferencia'] > 0 ? 'text-amber-600' : ($productoCambio['diferencia'] < 0 ? 'text-green-700' : 'text-[#2E8BC0]') }}">
-                                                                        {{ $productoCambio['texto_diferencia'] }}
-                                                                    </span>
-                                                                </div>
-                                                            </x-button>
-                                                        @endforeach
-                                                    </div>
-                                                </x-card>
+                                            @if (data_get($item, 'forzar_cambio'))
+                                                <x-badge value="Solo cambio" class="mt-1 !bg-[#EAF5FB] !text-[#2E8BC0]" />
+                                            @else
+                                                <x-badge value="Flexible" class="mt-1 !bg-green-50 !text-green-700" />
                                             @endif
 
-                                            @if (! empty(data_get($item, 'producto_cambio_id')))
-                                                <x-card class="mt-2 border border-[#D7E4F3] bg-[#F8FBFF] p-2">
-                                                    <div class="flex flex-col gap-1.5">
-                                                        <div class="flex items-start justify-between gap-2">
-                                                            <div>
-                                                                <div class="truncate text-xs font-bold text-[#1A2B42]">
-                                                                    {{ data_get($item, 'producto_cambio_nombre') }}
-                                                                </div>
-                                                                <div class="text-[11px] text-[#5F6B7A]">
-                                                                    C$ {{ number_format((float) data_get($item, 'producto_cambio_precio'), 2) }}
-                                                                </div>
-                                                            </div>
-
-                                                            <x-button
-                                                                label="Quitar"
-                                                                type="button"
-                                                                wire:click="quitarProductoCambio({{ $i }})"
-                                                                class="!h-6 !min-h-6 !border-0 !bg-red-50 !px-2 !text-[11px] !font-bold !text-red-600 hover:!bg-red-100"
-                                                            />
-                                                        </div>
-
-                                                        @if (data_get($item, 'producto_cambio_tiene_series'))
-                                                            <x-select
-                                                                wire:model.live="detalle.{{ $i }}.producto_serie_cambio_id"
-                                                                :options="data_get($item, 'series_cambio', [])"
-                                                                option-value="id"
-                                                                option-label="name"
-                                                                class="h-8 rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-xs text-[#1A2B42]"
-                                                            />
-                                                        @endif
-
-                                                        @if ((float) data_get($item, 'cliente_paga') > 0)
-                                                            <x-badge value="{{ 'Paga C$ ' . number_format((float) data_get($item, 'cliente_paga'), 2) }}" class="bg-amber-50 text-amber-700" />
-                                                        @elseif ((float) data_get($item, 'cliente_recibe') > 0)
-                                                            <x-badge value="{{ 'Recibe C$ ' . number_format((float) data_get($item, 'cliente_recibe'), 2) }}" class="bg-green-50 text-green-700" />
-                                                        @else
-                                                            <x-badge value="Sin diferencia" class="bg-[#EAF5FB] text-[#2E8BC0]" />
-                                                        @endif
-                                                    </div>
-                                                </x-card>
-                                            @else
-                                                <div class="mt-1 text-[11px] font-semibold text-amber-600">
-                                                    Selecciona producto de cambio.
+                                            @if (! data_get($item, 'puede_devolver'))
+                                                <div class="mt-1 text-[11px] font-semibold text-red-600">
+                                                    {{ data_get($item, 'bloqueo') }}
                                                 </div>
                                             @endif
-                                        @else
-                                            <x-alert class="bg-green-50 py-1 text-xs text-green-700">
-                                                Monetaria.
-                                            </x-alert>
-                                        @endif
-                                    </div>
-                                @endscope
-
-                                @scope('cell_motivo', $item)
-                                    @php($i = data_get($item, 'index'))
-                                    <div class="min-w-[155px] max-w-[180px]">
-                                        <x-input
-                                            maxlength="200"
-                                            wire:model.blur="detalle.{{ $i }}.motivo"
-                                            :disabled="! data_get($item, 'aplica')"
-                                            placeholder="Motivo"
-                                            class="h-8 rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-xs text-[#1A2B42] placeholder:text-[#5F6B7A]"
-                                        />
-                                    </div>
-                                @endscope
-
-                                @scope('cell_total', $item)
-                                    <div class="min-w-[105px] text-right">
-                                        <div class="text-xs font-bold text-[#2E8BC0]">
-                                            C$ {{ number_format((float) data_get($item, 'monto_devuelve'), 2) }}
                                         </div>
+                                    @endscope
 
-                                        @if (data_get($item, 'requiere_cambio') && ! empty(data_get($item, 'producto_cambio_id')))
-                                            <div class="mt-1 text-[11px] text-[#5F6B7A]">
-                                                Cambio: C$ {{ number_format((float) data_get($item, 'monto_cambio'), 2) }}
+                                    @scope('cell_garantia', $item)
+                                        <div class="w-[100px]">
+                                            @if (data_get($item, 'en_garantia'))
+                                                <x-badge value="Vigente" class="!bg-green-50 !text-green-700" />
+                                            @else
+                                                <x-badge value="Vencida" class="!bg-red-50 !text-red-700" />
+                                            @endif
+
+                                            <div class="mt-1 text-[10px] leading-tight text-[#5F6B7A]">
+                                                Base: {{ data_get($item, 'garantia_base') }}
                                             </div>
-                                        @endif
-                                    </div>
-                                @endscope
-                            </x-table>
+                                            <div class="text-[10px] leading-tight text-[#5F6B7A]">
+                                                Hasta: {{ data_get($item, 'garantia_hasta') }}
+                                            </div>
+                                        </div>
+                                    @endscope
+
+                                    @scope('cell_precio', $item)
+                                        <div class="w-[75px] text-right text-xs font-bold text-[#1A2B42]">
+                                            C$ {{ number_format((float) data_get($item, 'precio'), 2) }}
+                                        </div>
+                                    @endscope
+
+                                    @scope('cell_disponible', $item)
+                                        <div class="w-[45px] text-center text-xs font-semibold text-[#1A2B42]">
+                                            {{ number_format((float) data_get($item, 'cantidad_disponible'), 2) }}
+                                        </div>
+                                    @endscope
+
+                                    @scope('cell_aplica', $item)
+                                        @php($i = data_get($item, 'index'))
+
+                                        <div class="flex w-[45px] justify-center">
+                                            <x-checkbox
+                                                wire:model.live="detalle.{{ $i }}.aplica"
+                                                :disabled="! data_get($item, 'puede_devolver')"
+                                                class="checkbox-sm border-[#2E8BC0] checked:border-[#2E8BC0] checked:bg-[#2E8BC0]"
+                                            />
+                                        </div>
+                                    @endscope
+
+                                    @scope('cell_cantidad', $item)
+                                        @php($i = data_get($item, 'index'))
+
+                                        <div class="w-[55px]">
+                                            <x-input
+                                                type="number"
+                                                step="1"
+                                                min="0"
+                                                max="{{ data_get($item, 'cantidad_disponible') }}"
+                                                wire:model.live="detalle.{{ $i }}.cantidad_devuelve"
+                                                :disabled="! data_get($item, 'aplica') || ! data_get($item, 'puede_devolver')"
+                                                class="!h-8 !min-h-8 rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-center text-xs text-[#1A2B42]"
+                                            />
+                                        </div>
+                                    @endscope
+
+                                    @scope('cell_tipo', $item)
+                                        @php($i = data_get($item, 'index'))
+
+                                        <div class="w-[105px]">
+                                            <x-select
+                                                wire:model.live="detalle.{{ $i }}.tipo_devolucion_linea"
+                                                :options="[
+                                                    ['id' => 'MONETARIA', 'name' => 'Monetaria'],
+                                                    ['id' => 'CAMBIO', 'name' => 'Cambio'],
+                                                ]"
+                                                option-value="id"
+                                                option-label="name"
+                                                :disabled="! data_get($item, 'aplica') || data_get($item, 'forzar_cambio')"
+                                                class="!h-8 !min-h-8 rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-xs text-[#1A2B42]"
+                                            />
+
+                                            @if (data_get($item, 'forzar_cambio'))
+                                                <div class="mt-1 text-[10px] font-semibold text-[#2E8BC0]">
+                                                    Forzado
+                                                </div>
+                                            @endif
+                                        </div>
+                                    @endscope
+
+                                    @scope('cell_estado', $item)
+                                        @php($i = data_get($item, 'index'))
+
+                                        <div class="w-[115px]">
+                                            <x-select
+                                                wire:model.live="detalle.{{ $i }}.estado_producto"
+                                                :options="[
+                                                    ['id' => 1, 'name' => 'Bueno'],
+                                                    ['id' => 2, 'name' => 'Dañado'],
+                                                    ['id' => 3, 'name' => 'En revisión'],
+                                                    ['id' => 4, 'name' => 'Garantía'],
+                                                ]"
+                                                option-value="id"
+                                                option-label="name"
+                                                :disabled="! data_get($item, 'aplica')"
+                                                class="!h-8 !min-h-8 rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-xs text-[#1A2B42]"
+                                            />
+
+                                            <div class="mt-1">
+                                                <x-checkbox
+                                                    label="Reintegra"
+                                                    wire:model.live="detalle.{{ $i }}.reintegra_inventario"
+                                                    :disabled="! data_get($item, 'aplica') || (int) data_get($item, 'estado_producto') !== 1"
+                                                    class="checkbox-xs border-[#2E8BC0] checked:border-[#2E8BC0] checked:bg-[#2E8BC0] [&_span]:text-[11px] [&_span]:text-[#1A2B42]"
+                                                />
+                                            </div>
+                                        </div>
+                                    @endscope
+
+                                    @scope('cell_cambio', $item)
+                                        @php($i = data_get($item, 'index'))
+
+                                        <div class="w-[250px]">
+                                            @if (data_get($item, 'es_cambio_producto'))
+                                                <x-input
+                                                    wire:model.live.debounce.350ms="detalle.{{ $i }}.busqueda_cambio"
+                                                    :disabled="! data_get($item, 'aplica')"
+                                                    placeholder="Buscar similar"
+                                                    icon="o-magnifying-glass"
+                                                    class="!h-8 !min-h-8 rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-xs text-[#1A2B42] placeholder:text-[#5F6B7A]"
+                                                />
+
+                                                @if (count(data_get($item, 'resultados_cambio', [])))
+                                                    <x-card
+                                                        shadow
+                                                        class="mt-2 max-h-36 overflow-auto border border-[#D7E4F3] !bg-white p-0 text-[#1A2B42]
+                                                        [&_.card-body]:!p-2"
+                                                    >
+                                                        <div class="flex flex-col gap-1.5">
+                                                            @foreach (data_get($item, 'resultados_cambio', []) as $productoCambio)
+                                                                <x-button
+                                                                    type="button"
+                                                                    wire:click="seleccionarProductoCambio({{ $i }}, {{ $productoCambio['id'] }})"
+                                                                    class="!h-auto !min-h-0 !justify-start !border !border-[#E6EEF8] !bg-white !px-2 !py-1.5 !text-left !text-[#1A2B42] hover:!bg-[#F8FBFF] hover:!text-[#1A2B42]"
+                                                                >
+                                                                    <div class="flex w-full flex-col gap-0.5 overflow-hidden">
+                                                                        <span class="truncate text-[11px] font-bold text-[#1A2B42]">
+                                                                            {{ $productoCambio['nombre'] }}
+                                                                        </span>
+                                                                        <span class="text-[10px] text-[#5F6B7A]">
+                                                                            Stock: {{ $productoCambio['stock'] }} · C$ {{ number_format((float) $productoCambio['precio'], 2) }}
+                                                                        </span>
+                                                                        <span class="text-[10px] font-bold {{ $productoCambio['diferencia'] > 0 ? 'text-amber-600' : ($productoCambio['diferencia'] < 0 ? 'text-green-700' : 'text-[#2E8BC0]') }}">
+                                                                            {{ $productoCambio['texto_diferencia'] }}
+                                                                        </span>
+                                                                    </div>
+                                                                </x-button>
+                                                            @endforeach
+                                                        </div>
+                                                    </x-card>
+                                                @endif
+
+                                                @if (! empty(data_get($item, 'producto_cambio_id')))
+                                                    <x-card
+                                                        class="mt-2 border border-[#D7E4F3] !bg-[#F8FBFF] text-[#1A2B42]
+                                                        [&_.card-body]:!p-2"
+                                                    >
+                                                        <div class="flex flex-col gap-1.5">
+                                                            <div class="flex items-start justify-between gap-2">
+                                                                <div class="min-w-0">
+                                                                    <div class="truncate text-[11px] font-bold text-[#1A2B42]" title="{{ data_get($item, 'producto_cambio_nombre') }}">
+                                                                        {{ data_get($item, 'producto_cambio_nombre') }}
+                                                                    </div>
+                                                                    <div class="text-[10px] text-[#5F6B7A]">
+                                                                        C$ {{ number_format((float) data_get($item, 'producto_cambio_precio'), 2) }}
+                                                                    </div>
+                                                                </div>
+
+                                                                <x-button
+                                                                    label="Quitar"
+                                                                    type="button"
+                                                                    wire:click="quitarProductoCambio({{ $i }})"
+                                                                    class="!h-6 !min-h-6 shrink-0 !border-0 !bg-red-50 !px-2 !text-[10px] !font-bold !text-red-600 hover:!bg-red-100 hover:!text-red-700"
+                                                                />
+                                                            </div>
+
+                                                            @if (data_get($item, 'producto_cambio_tiene_series'))
+                                                                <x-select
+                                                                    wire:model.live="detalle.{{ $i }}.producto_serie_cambio_id"
+                                                                    :options="data_get($item, 'series_cambio', [])"
+                                                                    option-value="id"
+                                                                    option-label="name"
+                                                                    class="!h-8 !min-h-8 rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-xs text-[#1A2B42]"
+                                                                />
+                                                            @endif
+
+                                                            <div>
+                                                                @if ((float) data_get($item, 'cliente_paga') > 0)
+                                                                    <x-badge
+                                                                        value="{{ 'Paga C$ ' . number_format((float) data_get($item, 'cliente_paga'), 2) }}"
+                                                                        class="!bg-amber-50 !text-amber-700"
+                                                                    />
+                                                                @elseif ((float) data_get($item, 'cliente_recibe') > 0)
+                                                                    <x-badge
+                                                                        value="{{ 'Recibe C$ ' . number_format((float) data_get($item, 'cliente_recibe'), 2) }}"
+                                                                        class="!bg-green-50 !text-green-700"
+                                                                    />
+                                                                @else
+                                                                    <x-badge value="Sin diferencia" class="!bg-[#EAF5FB] !text-[#2E8BC0]" />
+                                                                @endif
+                                                            </div>
+                                                        </div>
+                                                    </x-card>
+                                                @else
+                                                    <div class="mt-1 text-[11px] font-semibold text-amber-600">
+                                                        Selecciona producto de cambio.
+                                                    </div>
+                                                @endif
+                                            @else
+                                                <x-alert class="border border-green-100 !bg-green-50 !py-1 text-xs !text-green-700">
+                                                    Monetaria.
+                                                </x-alert>
+                                            @endif
+                                        </div>
+                                    @endscope
+
+                                    @scope('cell_motivo', $item)
+                                        @php($i = data_get($item, 'index'))
+
+                                        <div class="w-[140px]">
+                                            <x-input
+                                                maxlength="200"
+                                                wire:model.blur="detalle.{{ $i }}.motivo"
+                                                :disabled="! data_get($item, 'aplica')"
+                                                placeholder="Motivo"
+                                                class="!h-8 !min-h-8 rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-xs text-[#1A2B42] placeholder:text-[#5F6B7A]"
+                                            />
+                                        </div>
+                                    @endscope
+
+                                    @scope('cell_total', $item)
+                                        <div class="w-[95px] text-right">
+                                            <div class="text-xs font-bold text-[#2E8BC0]">
+                                                C$ {{ number_format((float) data_get($item, 'monto_devuelve'), 2) }}
+                                            </div>
+
+                                            @if (data_get($item, 'es_cambio_producto') && ! empty(data_get($item, 'producto_cambio_id')))
+                                                <div class="mt-1 text-[10px] text-[#5F6B7A]">
+                                                    Cambio: C$ {{ number_format((float) data_get($item, 'monto_cambio'), 2) }}
+                                                </div>
+                                            @endif
+                                        </div>
+                                    @endscope
+                                </x-table>
+                            </div>
                         </div>
                     </div>
                 </x-card>
 
-                <x-card shadow class="sticky bottom-0 z-30 border border-[#D7E4F3] bg-white/95 backdrop-blur">
+                <x-card shadow class="sticky bottom-0 z-30 w-full max-w-full overflow-hidden border border-[#D7E4F3] !bg-white/95 backdrop-blur">
                     <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                        <div class="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
+                        <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm md:grid-cols-4">
                             <div>
                                 <span class="font-bold text-[#1A2B42]">Cantidad:</span>
                                 <span class="text-[#5F6B7A]">{{ number_format($this->obtenerCantidadTotalDevuelta(), 2) }}</span>
                             </div>
+
+                            <div>
+                                <span class="font-bold text-[#1A2B42]">Egreso:</span>
+                                <span class="text-red-600">C$ {{ number_format($this->obtenerEgresoEstimadoTotal(), 2) }}</span>
+                            </div>
+
                             <div>
                                 <span class="font-bold text-[#1A2B42]">Cliente paga:</span>
                                 <span class="text-amber-700">C$ {{ number_format($this->obtenerClientePagaTotal(), 2) }}</span>
                             </div>
+
                             <div>
                                 <span class="font-bold text-[#1A2B42]">Cliente recibe:</span>
                                 <span class="text-green-700">C$ {{ number_format($this->obtenerClienteRecibeTotal(), 2) }}</span>
                             </div>
                         </div>
 
-                        <div class="flex flex-col gap-2 sm:flex-row">
-                            <x-button
-                                label="Limpiar"
-                                type="button"
-                                wire:click="limpiarFormulario"
-                                icon="o-x-circle"
-                                class="!h-10 !min-w-32 !border !border-[#2E8BC0] !bg-white !px-5 !font-bold !text-[#2E8BC0] hover:!bg-[#EAF5FB]"
-                            />
-
+                        <div class="flex shrink-0 justify-end">
                             <x-button
                                 label="Registrar devolución"
                                 type="submit"
                                 icon="o-check-circle"
                                 spinner="confirmarDevolucion"
                                 :disabled="! $ventaSeleccionadaId || ! $this->haySeleccion()"
-                                class="!h-10 !min-w-52 !border-0 !bg-[#2E8BC0] !px-6 !font-bold !text-white hover:!bg-[#0B6FE4] disabled:!bg-[#9ABBD3] disabled:!text-white"
+                                class="!h-10 !min-w-52 !border-0 !bg-[#2E8BC0] !px-6 !font-bold !text-white hover:!bg-[#0B6FE4] hover:!text-white disabled:!bg-[#9ABBD3] disabled:!text-white"
                             />
                         </div>
                     </div>
