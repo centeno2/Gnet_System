@@ -169,7 +169,6 @@ new class extends Component
         $instituciones = DB::table('cliente as c')
             ->where('c.Estado', 1)
             ->where('c.Tipo_Cliente', 2)
-            ->where('c.Tipo_pago', 2)
             ->orderBy('c.Institucion')
             ->selectRaw("
                 c.Id_Cliente as id,
@@ -344,7 +343,7 @@ new class extends Component
             [
                 'id' => 'creditos',
                 'titulo' => 'Créditos institucionales',
-                'descripcion' => 'Detalle por institución y periodo.',
+                'descripcion' => 'Recepción por institución y periodo.',
                 'icono' => 'o-credit-card',
                 'color' => 'azul',
                 'boton' => 'Generar',
@@ -740,192 +739,154 @@ private function nombreProveedorReporte(Proveedor $proveedor): string
 
                 <div class="flex flex-wrap gap-2">
                     @if ($visorActivo)
-                        <x-button
-                            icon="o-arrow-left"
-                            label="Volver a reportes"
-                            wire:click="cerrarVisor"
-                            spinner="cerrarVisor"
-                            class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white text-xs font-black text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]"
-                        />
+                    <x-button icon="o-arrow-left" label="Volver a reportes" wire:click="cerrarVisor"
+                        spinner="cerrarVisor"
+                        class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white text-xs font-black text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]" />
 
-                        <x-button
-                            icon="o-arrow-top-right-on-square"
-                            label="Abrir aparte"
-                            link="{{ $visorUrl }}"
-                            external
-                            class="h-10 min-h-10 rounded-xl border-0 bg-[#2E8BC0] text-xs font-black text-white shadow-sm hover:bg-[#0B6FE4]"
-                        />
+                    <x-button icon="o-arrow-top-right-on-square" label="Abrir aparte" link="{{ $visorUrl }}" external
+                        class="h-10 min-h-10 rounded-xl border-0 bg-[#2E8BC0] text-xs font-black text-white shadow-sm hover:bg-[#0B6FE4]" />
                     @else
-                        <div class="rounded-xl bg-[#2E8BC0] px-4 py-2 text-white shadow-sm">
-                            <p class="text-[10px] font-bold uppercase tracking-wide text-white/80">
-                                Periodo sugerido
-                            </p>
+                    <div class="rounded-xl bg-[#2E8BC0] px-4 py-2 text-white shadow-sm">
+                        <p class="text-[10px] font-bold uppercase tracking-wide text-white/80">
+                            Periodo sugerido
+                        </p>
 
-                            <p class="text-sm font-black">
-                                {{ now()->startOfMonth()->format('d/m/Y') }} - {{ now()->format('d/m/Y') }}
-                            </p>
-                        </div>
+                        <p class="text-sm font-black">
+                            {{ now()->startOfMonth()->format('d/m/Y') }} - {{ now()->format('d/m/Y') }}
+                        </p>
+                    </div>
                     @endif
                 </div>
             </div>
         </section>
 
         @if ($visorActivo)
-            <section class="rounded-2xl border border-[#D7E4F3] bg-white p-3 shadow-sm">
-                <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                        <p class="text-sm font-black text-[#1A2B42]">
-                            Vista previa del reporte
+        <section class="rounded-2xl border border-[#D7E4F3] bg-white p-3 shadow-sm">
+            <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <p class="text-sm font-black text-[#1A2B42]">
+                        Vista previa del reporte
+                    </p>
+                </div>
+            </div>
+
+            <div wire:ignore class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-[#F7F9FC]">
+                <iframe src="{{ $visorUrl }}" class="h-[calc(100vh-210px)] min-h-120 w-full bg-white"></iframe>
+            </div>
+        </section>
+        @else
+        <section class="grid gap-3 grid-cols-[repeat(auto-fit,minmax(min(100%,268px),1fr))]">
+            @foreach($this->tarjetasReportes() as $reporte)
+            @php
+            $iconoClass = match ($reporte['color']) {
+            'rojo' => 'bg-red-50 text-red-600 ring-red-100',
+            'ambar' => 'bg-amber-50 text-amber-700 ring-amber-100',
+            default => 'bg-[#EAF2FB] text-[#0B6FE4] ring-[#D7E4F3]',
+            };
+            @endphp
+
+            <article wire:key="reporte-{{ $reporte['id'] }}"
+                class="group flex min-h-58 flex-col rounded-2xl border border-[#D7E4F3] bg-white p-3 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#B7D6F2] hover:shadow-md">
+                <div class="mb-3 flex items-start gap-2.5">
+                    <div
+                        class="{{ $iconoClass }} flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1">
+                        <x-icon :name="$reporte['icono']" class="h-5 w-5" />
+                    </div>
+
+                    <div class="min-w-0">
+                        <h2 class="truncate text-base font-black leading-5 text-[#1A2B42]">
+                            {{ $reporte['titulo'] }}
+                        </h2>
+
+                        <p class="mt-0.5 text-xs leading-5 text-[#5F6B7A]">
+                            {{ $reporte['descripcion'] }}
                         </p>
                     </div>
                 </div>
 
-                <div wire:ignore class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-[#F7F9FC]">
-                    <iframe
-                        src="{{ $visorUrl }}"
-                        class="h-[calc(100vh-210px)] min-h-[480px] w-full bg-white"
-                    ></iframe>
-                </div>
-            </section>
-        @else
-            <section class="grid gap-3 grid-cols-[repeat(auto-fit,minmax(min(100%,268px),1fr))]">
-                @foreach($this->tarjetasReportes() as $reporte)
-                    @php
-                        $iconoClass = match ($reporte['color']) {
-                            'rojo' => 'bg-red-50 text-red-600 ring-red-100',
-                            'ambar' => 'bg-amber-50 text-amber-700 ring-amber-100',
-                            default => 'bg-[#EAF2FB] text-[#0B6FE4] ring-[#D7E4F3]',
-                        };
-                    @endphp
+                @if(!empty($reporte['campos']))
+                <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                    @foreach($reporte['campos'] as $campo)
+                    <div class="{{ $campo['span'] ?? '' }}">
+                        <label class="mb-1 block text-[11px] font-black uppercase tracking-wide text-[#1A2B42]">
+                            {{ $campo['label'] }}
+                        </label>
 
-                    <article
-                        wire:key="reporte-{{ $reporte['id'] }}"
-                        class="group flex min-h-58 flex-col rounded-2xl border border-[#D7E4F3] bg-white p-3 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#B7D6F2] hover:shadow-md"
-                    >
-                        <div class="mb-3 flex items-start gap-2.5">
-                            <div class="{{ $iconoClass }} flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1">
-                                <x-icon :name="$reporte['icono']" class="h-5 w-5" />
-                            </div>
+                        @if (($campo['tipo'] ?? '') === 'proveedor-autocomplete')
+                        <div class="relative">
+                            <input type="text" wire:model.live.debounce.350ms="{{ $campo['model'] }}"
+                                placeholder="{{ $campo['placeholder'] ?? '' }}" autocomplete="off"
+                                class="h-9 min-h-9 w-full rounded-xl border border-[#D7E4F3] bg-[#F7F9FC] px-3 text-xs font-bold text-[#1A2B42] outline-none transition scheme-light placeholder:text-[#7B8794] focus:border-[#2E8BC0] focus:bg-white focus:ring-2 focus:ring-[#2E8BC0]/15" />
 
-                            <div class="min-w-0">
-                                <h2 class="truncate text-base font-black leading-5 text-[#1A2B42]">
-                                    {{ $reporte['titulo'] }}
-                                </h2>
+                            @if (! empty($provCoincidencias))
+                            <div
+                                class="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-[#D7E4F3] bg-white shadow-lg">
+                                @foreach ($provCoincidencias as $proveedor)
+                                <button type="button" wire:key="proveedor-reporte-{{ $proveedor['id'] }}"
+                                    wire:click="seleccionarProveedorReporte('{{ $proveedor['id'] }}')"
+                                    class="block w-full border-b border-[#EEF3F8] px-3 py-2 text-left text-xs transition hover:bg-[#EAF4FD]">
+                                    <span class="block truncate font-black text-[#1A2B42]">
+                                        {{ $proveedor['name'] }}
+                                    </span>
 
-                                <p class="mt-0.5 text-xs leading-5 text-[#5F6B7A]">
-                                    {{ $reporte['descripcion'] }}
-                                </p>
-                            </div>
-                        </div>
-
-                        @if(!empty($reporte['campos']))
-                            <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                                @foreach($reporte['campos'] as $campo)
-                                    <div class="{{ $campo['span'] ?? '' }}">
-                                        <label class="mb-1 block text-[11px] font-black uppercase tracking-wide text-[#1A2B42]">
-                                            {{ $campo['label'] }}
-                                        </label>
-
-                                        @if (($campo['tipo'] ?? '') === 'proveedor-autocomplete')
-                                            <div class="relative">
-                                                <input
-                                                    type="text"
-                                                    wire:model.live.debounce.350ms="{{ $campo['model'] }}"
-                                                    placeholder="{{ $campo['placeholder'] ?? '' }}"
-                                                    autocomplete="off"
-                                                    class="h-9 min-h-9 w-full rounded-xl border border-[#D7E4F3] bg-[#F7F9FC] px-3 text-xs font-bold text-[#1A2B42] outline-none transition scheme-light placeholder:text-[#7B8794] focus:border-[#2E8BC0] focus:bg-white focus:ring-2 focus:ring-[#2E8BC0]/15"
-                                                />
-
-                                                @if (! empty($provCoincidencias))
-                                                    <div class="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-[#D7E4F3] bg-white shadow-lg">
-                                                        @foreach ($provCoincidencias as $proveedor)
-                                                            <button
-                                                                type="button"
-                                                                wire:key="proveedor-reporte-{{ $proveedor['id'] }}"
-                                                                wire:click="seleccionarProveedorReporte('{{ $proveedor['id'] }}')"
-                                                                class="block w-full border-b border-[#EEF3F8] px-3 py-2 text-left text-xs transition hover:bg-[#EAF4FD]"
-                                                            >
-                                                                <span class="block truncate font-black text-[#1A2B42]">
-                                                                    {{ $proveedor['name'] }}
-                                                                </span>
-
-                                                                <span class="block truncate font-semibold text-[#5F6B7A]">
-                                                                    RUC: {{ $proveedor['ruc'] }}
-                                                                </span>
-                                                            </button>
-                                                        @endforeach
-                                                    </div>
-                                                @endif
-                                            </div>
-                                        @elseif (($campo['tipo'] ?? '') === 'select')
-                                            @php
-                                                $opcionesCampo = $campo['opciones'] ?? '';
-                                                $opcionesSelect = [];
-
-                                                if (is_string($opcionesCampo) && property_exists($this, $opcionesCampo)) {
-                                                    $opcionesSelect = $this->{$opcionesCampo};
-                                                }
-                                            @endphp
-
-                                            <x-select
-                                                wire:model="{{ $campo['model'] }}"
-                                                :options="$opcionesSelect"
-                                                option-value="id"
-                                                option-label="name"
-                                                class="h-9 min-h-9 rounded-xl bg-[#F7F9FC] text-xs font-bold text-[#1A2B42]"
-                                            />
-                                        @else
-                                            <input
-                                                type="{{ $campo['tipo'] }}"
-                                                wire:model="{{ $campo['model'] }}"
-                                                placeholder="{{ $campo['placeholder'] ?? '' }}"
-                                                @if(($campo['tipo'] ?? '') === 'number') min="1" @endif
-                                                class="h-9 min-h-9 w-full rounded-xl border border-[#D7E4F3] bg-[#F7F9FC] px-3 text-xs font-bold text-[#1A2B42] outline-none transition scheme-light placeholder:text-[#7B8794] focus:border-[#2E8BC0] focus:bg-white focus:ring-2 focus:ring-[#2E8BC0]/15"
-                                            />
-                                        @endif
-                                    </div>
+                                    <span class="block truncate font-semibold text-[#5F6B7A]">
+                                        RUC: {{ $proveedor['ruc'] }}
+                                    </span>
+                                </button>
                                 @endforeach
                             </div>
-                        @else
-                            <div class="rounded-xl border border-dashed border-[#D7E4F3] bg-[#F7F9FC] px-3 py-4">
-                                <p class="text-xs font-black text-[#1A2B42]">
-                                    {{ $reporte['sin_filtros'] }}
-                                </p>
-
-                                <p class="mt-0.5 text-[11px] font-semibold text-[#5F6B7A]">
-                                    No requiere filtros adicionales.
-                                </p>
-                            </div>
-                        @endif
-
-                        <div class="mt-auto grid grid-cols-3 gap-2 pt-4">
-                            <x-button
-                                icon="o-eye"
-                                label="PDF"
-                                wire:click="generarReporte('{{ $reporte['id'] }}', 'pdf')"
-                                spinner="generarReporte"
-                                class="h-9 min-h-9 rounded-xl border-0 bg-[#2E8BC0] text-xs font-black text-white shadow-sm hover:bg-[#0B6FE4]"
-                            />
-
-                            <x-button
-                                icon="o-table-cells"
-                                label="Excel"
-                                wire:click="generarReporte('{{ $reporte['id'] }}', 'excel')"
-                                spinner="generarReporte"
-                                class="h-9 min-h-9 rounded-xl border border-[#D7E4F3] bg-white text-xs font-black text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]"
-                            />
-
-                            <x-button
-                                icon="o-document-text"
-                                label="Word"
-                                wire:click="generarReporte('{{ $reporte['id'] }}', 'word')"
-                                spinner="generarReporte"
-                                class="h-9 min-h-9 rounded-xl border border-[#D7E4F3] bg-white text-xs font-black text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]"
-                            />
+                            @endif
                         </div>
-                    </article>
-                @endforeach
-            </section>
+                        @elseif (($campo['tipo'] ?? '') === 'select')
+                        @php
+                        $opcionesCampo = $campo['opciones'] ?? '';
+                        $opcionesSelect = [];
+
+                        if (is_string($opcionesCampo) && property_exists($this, $opcionesCampo)) {
+                        $opcionesSelect = $this->{$opcionesCampo};
+                        }
+                        @endphp
+
+                        <x-select wire:model="{{ $campo['model'] }}" :options="$opcionesSelect" option-value="id"
+                            option-label="name"
+                            class="h-9 min-h-9 rounded-xl bg-[#F7F9FC] text-xs font-bold text-[#1A2B42]" />
+                        @else
+                        <input type="{{ $campo['tipo'] }}" wire:model="{{ $campo['model'] }}"
+                            placeholder="{{ $campo['placeholder'] ?? '' }}" @if(($campo['tipo'] ?? '' )==='number' )
+                            min="1" @endif
+                            class="h-9 min-h-9 w-full rounded-xl border border-[#D7E4F3] bg-[#F7F9FC] px-3 text-xs font-bold text-[#1A2B42] outline-none transition scheme-light placeholder:text-[#7B8794] focus:border-[#2E8BC0] focus:bg-white focus:ring-2 focus:ring-[#2E8BC0]/15" />
+                        @endif
+                    </div>
+                    @endforeach
+                </div>
+                @else
+                <div class="rounded-xl border border-dashed border-[#D7E4F3] bg-[#F7F9FC] px-3 py-4">
+                    <p class="text-xs font-black text-[#1A2B42]">
+                        {{ $reporte['sin_filtros'] }}
+                    </p>
+
+                    <p class="mt-0.5 text-[11px] font-semibold text-[#5F6B7A]">
+                        No requiere filtros adicionales.
+                    </p>
+                </div>
+                @endif
+
+                <div class="mt-auto grid grid-cols-3 gap-2 pt-4">
+                    <x-button icon="o-eye" label="PDF" wire:click="generarReporte('{{ $reporte['id'] }}', 'pdf')"
+                        spinner="generarReporte"
+                        class="h-9 min-h-9 rounded-xl border-0 bg-[#2E8BC0] text-xs font-black text-white shadow-sm hover:bg-[#0B6FE4]" />
+
+                    <x-button icon="o-table-cells" label="Excel"
+                        wire:click="generarReporte('{{ $reporte['id'] }}', 'excel')" spinner="generarReporte"
+                        class="h-9 min-h-9 rounded-xl border border-[#D7E4F3] bg-white text-xs font-black text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]" />
+
+                    <x-button icon="o-document-text" label="Word"
+                        wire:click="generarReporte('{{ $reporte['id'] }}', 'word')" spinner="generarReporte"
+                        class="h-9 min-h-9 rounded-xl border border-[#D7E4F3] bg-white text-xs font-black text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]" />
+                </div>
+            </article>
+            @endforeach
+        </section>
         @endif
     </div>
 </div>

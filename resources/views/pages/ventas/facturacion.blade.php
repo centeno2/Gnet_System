@@ -10,6 +10,7 @@ use App\Models\Venta;
 use App\Services\Ventas\ThermalPrintService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
@@ -40,6 +41,10 @@ new class extends Component
     private const ESTADO_CREDITO_PENDIENTE = 'PENDIENTE';
 
     public bool $modalCobro = false;
+    public bool $modalNuevaCopiaRapida = false;
+    public bool $modalVoucherVenta = false;
+    public bool $modalCotizacionRapida = false;
+    public bool $modalEntregasCredito = false;
 
     public string $tipoVenta = self::TIPO_CONTADO;
 
@@ -78,7 +83,6 @@ new class extends Component
     public string $precioCopiaRapida = '';
     public array $copiasRapidas = [];
 
-    public bool $modalNuevaCopiaRapida = false;
     public string $nuevaCopiaNombre = '';
     public string $nuevaCopiaTipoColor = 'BN';
     public string $nuevaCopiaFormato = 'CARTA';
@@ -103,6 +107,7 @@ new class extends Component
 
     public array $detalleVenta = [];
     public string $observacionVenta = '';
+    public string $areaItem = '';
 
     public string $pagoCordobas = '0';
     public string $pagoDolares = '0';
@@ -113,14 +118,20 @@ new class extends Component
     public string $ultimaFacturaNumero = '';
     public string $ultimoTipoVenta = '';
 
-    public bool $modalVoucherVenta = false;
     public ?int $voucherVentaId = null;
     public string $voucherPreviewUrl = '';
 
-    public bool $modalCotizacionRapida = false;
     public string $cotizacionPreviewUrl = '';
     public string $cotizacionNumero = '';
     public array $cotizacionPreview = [];
+
+    // MODIFICADO: propiedades para entregar pendientes de crédito institucional.
+    public string $entregaMunicipio = '';
+    public string $entregaClienteId = '';
+    public array $entregaMunicipiosOpciones = [];
+    public array $entregaInstitucionesOpciones = [];
+    public array $entregasPendientes = [];
+    public array $recibidosPendientes = [];
 
     public function mount(): void
     {
@@ -237,6 +248,20 @@ new class extends Component
         }
     }
 
+    public function updatedEntregaMunicipio(): void
+    {
+        $this->entregaClienteId = '';
+        $this->entregasPendientes = [];
+        $this->recibidosPendientes = [];
+        $this->cargarInstitucionesEntregaCredito();
+    }
+
+    public function updatedEntregaClienteId(): void
+    {
+        $this->entregasPendientes = [];
+        $this->recibidosPendientes = [];
+    }
+
     protected function buscarClientes(): void
     {
         $busqueda = trim($this->buscarCliente);
@@ -336,7 +361,6 @@ new class extends Component
             ->with('marca')
             ->where('Estado', true)
             ->where('Stock_Actual', '>', 0)
-            // Evita mostrar productos seriados cuando todas sus series disponibles ya fueron agregadas al detalle.
             ->where(function ($query) use ($seriesUsadas) {
                 $query->whereDoesntHave('series')
                     ->orWhereHas('series', function ($serie) use ($seriesUsadas) {
@@ -440,9 +464,6 @@ new class extends Component
             ->get()
             ->map(fn (TarifaCopia $tarifa) => [
                 'id' => (int) $tarifa->Id_Tarifa_Copia,
-                // Solo mostramos el nombre limpio de la copia en el combo.
-                // No se concatena color/formato/lados para evitar textos duplicados como:
-                // "Fotocopia B/N Carta doble cara · BN · CARTA · DOBLE_CARA".
                 'name' => trim((string) $tarifa->Nombre_Tarifa),
             ])
             ->toArray();
@@ -465,13 +486,9 @@ new class extends Component
             }
 
             $seriesUsadas = $this->seriesUsadasEnDetalle((int) $producto->Id_Producto);
-
-            $seriesTotalesDisponibles = $producto->series()
-                ->where('Estado', self::ESTADO_SERIE_DISPONIBLE)
-                ->count();
+            $seriesTotalesDisponibles = $producto->series()->where('Estado', self::ESTADO_SERIE_DISPONIBLE)->count();
 
             $this->productoUsaSerie = $seriesTotalesDisponibles > 0;
-
             $this->seriesDisponibles = $producto->series()
                 ->where('Estado', self::ESTADO_SERIE_DISPONIBLE)
                 ->when(count($seriesUsadas) > 0, function ($query) use ($seriesUsadas) {
@@ -495,8 +512,7 @@ new class extends Component
             $serieIdValida = null;
 
             if ($serieId) {
-                $serieIdValida = collect($this->seriesDisponibles)
-                    ->firstWhere('id', (int) $serieId)['id'] ?? null;
+                $serieIdValida = collect($this->seriesDisponibles)->firstWhere('id', (int) $serieId)['id'] ?? null;
             }
 
             $this->itemSeleccionado = [
@@ -544,7 +560,6 @@ new class extends Component
             $this->seriesDisponibles = [];
             $this->serieProductoId = null;
             $this->productoUsaSerie = false;
-
             $this->precioItem = '';
             $this->cantidadItem = '1';
         }
@@ -740,6 +755,13 @@ new class extends Component
             }
         }
 
+        $areaItem = $this->areaItemNormalizada();
+
+        if ($this->tipoVenta === self::TIPO_CREDITO && ! $areaItem) {
+            $this->mostrarToast('Ingrese el área del item antes de agregarlo al detalle.', 'error');
+            return;
+        }
+
         $serieTexto = null;
 
         if ($this->serieProductoId) {
@@ -757,7 +779,8 @@ new class extends Component
             $this->itemSeleccionado['id_producto'],
             $this->itemSeleccionado['id_tarifa_copia'],
             $this->serieProductoId ? (int) $this->serieProductoId : null,
-            $precio
+            $precio,
+            $areaItem
         );
 
         if ($indiceDetalleExistente !== null) {
@@ -791,6 +814,7 @@ new class extends Component
             'id_tarifa_copia' => $this->itemSeleccionado['id_tarifa_copia'],
             'formato' => $this->itemSeleccionado['formato'],
             'lados' => $this->itemSeleccionado['lados'],
+            'area' => $areaItem,
             'cantidad' => $cantidad,
             'precio_unitario' => $precio,
             'subtotal_bruto_valor' => $subtotalBruto,
@@ -806,7 +830,8 @@ new class extends Component
         ?int $idProducto,
         ?int $idTarifaCopia,
         ?int $idProductoSerie,
-        float $precioUnitario
+        float $precioUnitario,
+        ?string $areaItem = null
     ): ?int {
         if ($idProductoSerie) {
             return null;
@@ -818,6 +843,10 @@ new class extends Component
             }
 
             if ((float) $item['precio_unitario'] !== (float) $precioUnitario) {
+                continue;
+            }
+
+            if (trim((string) ($item['area'] ?? '')) !== trim((string) $areaItem)) {
                 continue;
             }
 
@@ -1001,7 +1030,7 @@ new class extends Component
                 $numeroFactura = $this->generarNumeroFactura();
 
                 $venta = new Venta();
-                $datosVenta = [
+                $venta->forceFill([
                     'Numero_Factura' => $numeroFactura,
                     'Fecha_venta' => now(),
                     'Id_Cliente' => $this->clienteId,
@@ -1012,10 +1041,7 @@ new class extends Component
                     'Total' => $total,
                     'Tipo_Cambio' => $this->tasaCambio(),
                     'Cambio_Entregado_Cordobas' => $cambioEntregadoCordobas,
-                ];
-
-
-                $venta->forceFill($datosVenta);
+                ]);
                 $venta->save();
 
                 foreach ($this->detalleVenta as $item) {
@@ -1073,7 +1099,12 @@ new class extends Component
                         'Precio_Unitario' => $item['precio_unitario'],
                         'Subtotal' => $item['subtotal_valor'],
                         'Descuento' => $item['descuento_valor'],
-                        'Observacion' => $this->observacionVentaNormalizada(),
+                        // MODIFICADO: en crédito la observación del detalle guarda el área específica del item.
+                        'Observacion' => $this->tipoVenta === self::TIPO_CREDITO
+                            ? ($item['area'] ?? null)
+                            : $this->observacionVentaNormalizada(),
+                        // MODIFICADO: queda vacío hasta que se entregue desde el modal de pendientes.
+                        'Recibido_Por' => null,
                     ]);
                 }
 
@@ -1230,6 +1261,13 @@ new class extends Component
         return $observacion !== '' ? Str::limit($observacion, 255, '') : null;
     }
 
+    public function areaItemNormalizada(): ?string
+    {
+        $area = trim($this->areaItem);
+
+        return $area !== '' ? Str::limit($area, 255, '') : null;
+    }
+
     protected function impresionTermicaActiva(): bool
     {
         return filter_var(env('THERMAL_PRINT_ENABLED', false), FILTER_VALIDATE_BOOLEAN);
@@ -1241,17 +1279,13 @@ new class extends Component
         $this->tipoPagoCordobas = self::PAGO_EFECTIVO;
         $this->tipoPagoDolares = self::PAGO_EFECTIVO;
         $this->cargarTasaCambio();
-
         $this->usarConsumidorFinal();
-
         $this->detalleVenta = [];
         $this->pagoCordobas = '0';
         $this->pagoDolares = '0';
         $this->referenciaCordobas = '';
         $this->referenciaDolares = '';
-
         $this->limpiarItemSeleccionado();
-
         $this->copiaRapidaId = null;
         $this->cantidadCopiaRapida = '1';
         $this->precioCopiaRapida = '';
@@ -1279,13 +1313,13 @@ new class extends Component
         $this->buscarItem = '';
         $this->resultadosItems = [];
         $this->mostrarItems = false;
-
         $this->itemSeleccionado = null;
         $this->descripcionSeleccionada = '';
         $this->tipoItemSeleccionado = '';
         $this->cantidadItem = '1';
         $this->precioItem = '0';
         $this->descuentoItem = '0';
+        $this->areaItem = '';
         $this->stockDisponible = 0;
         $this->serieProductoId = null;
         $this->seriesDisponibles = [];
@@ -1406,10 +1440,7 @@ new class extends Component
 
     protected function pagoRequiereReferencia(string $tipoPago): bool
     {
-        return in_array($tipoPago, [
-            self::PAGO_TRANSFERENCIA,
-            self::PAGO_TARJETA,
-        ], true);
+        return in_array($tipoPago, [self::PAGO_TRANSFERENCIA, self::PAGO_TARJETA], true);
     }
 
     protected function seriesUsadasEnDetalle(?int $idProducto = null): array
@@ -1429,10 +1460,8 @@ new class extends Component
         $marca = trim((string) $marca);
         $nombre = trim((string) $nombre);
         $modelo = trim((string) $modelo);
-
         $nombreLower = strtolower($nombre);
         $marcaLower = strtolower($marca);
-
         $base = $nombre;
 
         if ($marca !== '' && ! str_starts_with($nombreLower, $marcaLower)) {
@@ -1570,7 +1599,6 @@ new class extends Component
 
         $idClienteCredito = DB::table('cliente_credito')->insertGetId([
             'Id_Cliente' => $clienteId,
-            'Limite_Credito' => 0,
             'Saldo_Actual' => 0,
             'Estado' => 'ACTIVO',
             'Fecha_Registro' => now(),
@@ -1618,6 +1646,239 @@ new class extends Component
         return $numero;
     }
 
+    // MODIFICADO: abre el modal de pendientes desde facturación.
+    public function abrirModalEntregasCredito(): void
+    {
+        $this->modalEntregasCredito = true;
+        $this->entregaMunicipio = '';
+        $this->entregaClienteId = '';
+        $this->entregasPendientes = [];
+        $this->recibidosPendientes = [];
+        $this->cargarMunicipiosEntregaCredito();
+        $this->cargarInstitucionesEntregaCredito();
+    }
+
+    public function cerrarModalEntregasCredito(): void
+    {
+        $this->modalEntregasCredito = false;
+        $this->entregaMunicipio = '';
+        $this->entregaClienteId = '';
+        $this->entregasPendientes = [];
+        $this->recibidosPendientes = [];
+    }
+
+    private function cargarMunicipiosEntregaCredito(): void
+    {
+        // MODIFICADO: se cargan municipios desde clientes institucionales activos,
+        // no solo desde pendientes. Así una institución nueva aparece aunque todavía no cargues la tabla.
+        $municipios = DB::table('cliente as c')
+            ->where('c.Estado', 1)
+            ->where('c.Tipo_Cliente', Cliente::TIPO_INSTITUCION)
+            ->whereNotNull('c.Municipio')
+            ->whereRaw("TRIM(c.Municipio) <> ''")
+            ->selectRaw('TRIM(c.Municipio) as municipio')
+            ->distinct()
+            ->orderBy('municipio')
+            ->get()
+            ->map(fn ($fila) => [
+                'id' => (string) $fila->municipio,
+                'name' => (string) $fila->municipio,
+            ])
+            ->values()
+            ->toArray();
+
+        array_unshift($municipios, ['id' => '', 'name' => 'Todos los municipios']);
+
+        $this->entregaMunicipiosOpciones = $municipios;
+    }
+
+    private function cargarInstitucionesEntregaCredito(): void
+    {
+        // MODIFICADO: se cargan todas las instituciones activas del municipio seleccionado.
+        // Antes solo salían instituciones con pendientes y podía ocultar clientes nuevos.
+        $instituciones = DB::table('cliente as c')
+            ->where('c.Estado', 1)
+            ->where('c.Tipo_Cliente', Cliente::TIPO_INSTITUCION)
+            ->when(trim($this->entregaMunicipio) !== '', function ($query) {
+                $query->whereRaw('TRIM(c.Municipio) = ?', [trim($this->entregaMunicipio)]);
+            })
+            ->selectRaw("c.Id_Cliente as id, COALESCE(NULLIF(TRIM(c.Institucion), ''), CONCAT('Institución #', c.Id_Cliente)) as name")
+            ->orderBy('name')
+            ->get()
+            ->map(fn ($fila) => [
+                'id' => (string) $fila->id,
+                'name' => (string) $fila->name,
+            ])
+            ->values()
+            ->toArray();
+
+        array_unshift($instituciones, ['id' => '', 'name' => 'Todas las instituciones']);
+
+        $this->entregaInstitucionesOpciones = $instituciones;
+    }
+
+    public function buscarPendientesEntregaCredito(): void
+    {
+        $municipio = trim($this->entregaMunicipio);
+        $clienteId = trim($this->entregaClienteId);
+
+        if ($municipio === '' && $clienteId === '') {
+            $this->mostrarToast('Seleccione al menos un municipio o una institución para cargar pendientes.', 'error');
+            return;
+        }
+
+        if ($clienteId !== '' && ! ctype_digit($clienteId)) {
+            $this->mostrarToast('La institución seleccionada no es válida.', 'error');
+            return;
+        }
+
+        $pendientes = DB::table('detalle_venta as dv')
+            ->join('venta as v', 'v.Id_Venta', '=', 'dv.Id_Venta')
+            ->join('credito as cr', 'cr.Id_Venta', '=', 'v.Id_Venta')
+            ->join('cliente as c', 'c.Id_Cliente', '=', 'v.Id_Cliente')
+            ->leftJoin('producto as p', 'p.Id_Producto', '=', 'dv.Id_Producto')
+            ->leftJoin('servicio as s', 's.Id_Servicio', '=', 'dv.Id_Servicio')
+            ->leftJoin('tarifa_copia as tc', 'tc.Id_Tarifa_Copia', '=', 'dv.Id_Tarifa_Copia')
+            ->where('v.Tipo_Venta', self::TIPO_CREDITO)
+            ->where('v.Estado', 1)
+            ->where('c.Estado', 1)
+            ->where('c.Tipo_Cliente', Cliente::TIPO_INSTITUCION)
+            ->where(function ($query) {
+                $query->whereNull('dv.Recibido_Por')
+                    ->orWhereRaw("TRIM(COALESCE(dv.Recibido_Por, '')) = ''");
+            })
+            ->when($municipio !== '', function ($query) use ($municipio) {
+                $query->whereRaw('TRIM(c.Municipio) = ?', [$municipio]);
+            })
+            ->when($clienteId !== '', function ($query) use ($clienteId) {
+                $query->where('c.Id_Cliente', (int) $clienteId);
+            })
+            // MODIFICADO: primero lo más reciente para que las ventas nuevas no queden escondidas por datos demo.
+            ->orderByDesc('v.Fecha_venta')
+            ->orderByDesc('v.Id_Venta')
+            ->orderBy('c.Institucion')
+            ->orderBy('dv.Id_Detalle_Venta')
+            ->limit(120)
+            ->select([
+                'dv.Id_Detalle_Venta',
+                'v.Numero_Factura',
+                'v.Fecha_venta',
+                'c.Institucion',
+                'c.Municipio',
+                'dv.Tipo_Detalle',
+                'dv.Nombre_Formato',
+                'dv.Formato_Copia',
+                'dv.Cantidad',
+                'dv.Precio_Unitario',
+                'dv.Subtotal',
+                'dv.Descuento',
+                'dv.Observacion',
+                'p.Nombre_Producto',
+                'p.Modelo',
+                's.Nombre_Servicio',
+                'tc.Nombre_Tarifa',
+            ])
+            ->get()
+            ->map(function ($fila) {
+                $id = (int) $fila->Id_Detalle_Venta;
+                $this->recibidosPendientes[$id] = $this->recibidosPendientes[$id] ?? '';
+
+                return [
+                    'id' => $id,
+                    'fecha' => $fila->Fecha_venta ? \Illuminate\Support\Carbon::parse($fila->Fecha_venta)->format('d/m/Y') : '',
+                    'factura' => (string) $fila->Numero_Factura,
+                    'institucion' => (string) ($fila->Institucion ?: 'Institución'),
+                    'municipio' => (string) ($fila->Municipio ?: '—'),
+                    'tipo' => (string) $fila->Tipo_Detalle,
+                    'item' => $this->nombreItemPendiente($fila),
+                    'area' => (string) ($fila->Observacion ?: '—'),
+                    'formato' => $this->formatoPendienteNombre($fila),
+                    'cantidad' => (float) $fila->Cantidad,
+                    'precio' => (float) $fila->Precio_Unitario,
+                    'monto' => (float) $fila->Subtotal,
+                ];
+            })
+            ->values()
+            ->toArray();
+
+        $this->entregasPendientes = $pendientes;
+
+        if (count($this->entregasPendientes) === 0) {
+            $this->mostrarToast('No hay pendientes de entrega para el filtro seleccionado.', 'info');
+        }
+    }
+
+    private function nombreItemPendiente(object $fila): string
+    {
+        if ((string) $fila->Tipo_Detalle === self::TIPO_COPIA) {
+            return (string) ($fila->Nombre_Formato ?: $fila->Nombre_Tarifa ?: 'Copia');
+        }
+
+        if ((string) $fila->Tipo_Detalle === self::TIPO_PRODUCTO) {
+            return trim('Producto: ' . ($fila->Nombre_Producto ?: 'Producto') . ($fila->Modelo ? ' - ' . $fila->Modelo : ''));
+        }
+
+        return trim('Servicio: ' . ($fila->Nombre_Servicio ?: 'Servicio'));
+    }
+
+    private function formatoPendienteNombre(object $fila): string
+    {
+        if ((string) $fila->Tipo_Detalle !== self::TIPO_COPIA) {
+            return '—';
+        }
+
+        return match ((int) $fila->Formato_Copia) {
+            1 => 'Carta',
+            2 => 'Oficio',
+            3 => 'A4',
+            4 => 'Legal',
+            default => '—',
+        };
+    }
+
+
+    public function guardarRecibidoPendiente(int $detalleVentaId): void
+    {
+        $recibidoPor = trim((string) ($this->recibidosPendientes[$detalleVentaId] ?? ''));
+
+        if (mb_strlen($recibidoPor) < 3) {
+            $this->mostrarToast('Ingrese el nombre de quien recibe.', 'error');
+            return;
+        }
+
+        $existePendiente = DB::table('detalle_venta as dv')
+            ->join('venta as v', 'v.Id_Venta', '=', 'dv.Id_Venta')
+            ->join('credito as cr', 'cr.Id_Venta', '=', 'v.Id_Venta')
+            ->join('cliente as c', 'c.Id_Cliente', '=', 'v.Id_Cliente')
+            ->where('dv.Id_Detalle_Venta', $detalleVentaId)
+            ->where('v.Tipo_Venta', self::TIPO_CREDITO)
+            ->where('v.Estado', 1)
+            ->where('c.Tipo_Cliente', Cliente::TIPO_INSTITUCION)
+            ->where(function ($query) {
+                $query->whereNull('dv.Recibido_Por')
+                    ->orWhereRaw("TRIM(COALESCE(dv.Recibido_Por, '')) = ''");
+            })
+            ->exists();
+
+        if (! $existePendiente) {
+            $this->mostrarToast('Este pendiente ya fue entregado o no existe.', 'warning');
+            $this->buscarPendientesEntregaCredito();
+            return;
+        }
+
+        DB::table('detalle_venta')
+            ->where('Id_Detalle_Venta', $detalleVentaId)
+            ->update([
+                'Recibido_Por' => Str::limit($recibidoPor, 150, ''),
+            ]);
+
+        unset($this->recibidosPendientes[$detalleVentaId]);
+        $this->mostrarToast('Pendiente marcado como entregado correctamente.');
+        $this->buscarPendientesEntregaCredito();
+        $this->cargarMunicipiosEntregaCredito();
+        $this->cargarInstitucionesEntregaCredito();
+    }
+
     protected function mostrarToast(string $mensaje, string $tipo = 'success'): void
     {
         match ($tipo) {
@@ -1645,6 +1906,10 @@ new class extends Component
             <div class="flex flex-wrap gap-2">
                 <x-button icon="o-document-text" label="Cotización" wire:click="generarCotizacion"
                     spinner="generarCotizacion"
+                    class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] shadow-sm hover:bg-[#F8FAFC]" />
+
+                <x-button icon="o-truck" label="Entregar pendientes" wire:click="abrirModalEntregasCredito"
+                    spinner="abrirModalEntregasCredito"
                     class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] shadow-sm hover:bg-[#F8FAFC]" />
 
                 <button type="button" wire:click="cambiarTipoVenta('CONTADO')"
@@ -1722,9 +1987,11 @@ new class extends Component
                     </div>
 
                     <div class="mt-3">
-                        <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Observación de la venta</label>
+                        <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                            Observación general de la venta
+                        </label>
                         <x-textarea wire:model.live.debounce.300ms="observacionVenta" rows="2" maxlength="255"
-                            placeholder="Ejemplo: entrega pendiente, observación del cliente o detalle interno"
+                            placeholder="Ejemplo: nota interna, entrega especial o comentario general"
                             class="min-h-20 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
                         <p class="mt-1 text-xs text-[#5F6B7A]">Opcional, máximo 255 caracteres.</p>
                     </div>
@@ -1756,7 +2023,6 @@ new class extends Component
                                         <span class="block truncate text-xs text-[#5F6B7A]">{{ $item['subtitulo']
                                             }}</span>
                                     </span>
-
                                     <span
                                         class="shrink-0 rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-bold text-[#0B6FE4]">
                                         {{ $item['precio_texto'] }}
@@ -1767,13 +2033,22 @@ new class extends Component
                             @endif
                         </div>
 
-                        <div class="min-w-0 xl:col-span-3">
+                        <div class="min-w-0 {{ $tipoVenta === 'CREDITO' ? 'xl:col-span-2' : 'xl:col-span-3' }}">
                             <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Seleccionado</label>
                             <div
                                 class="flex h-11 items-center rounded-xl bg-[#EAF2FB] px-3 text-sm font-semibold text-[#1A2B42]">
                                 <span class="truncate">{{ $descripcionSeleccionada ?: 'Ningún item' }}</span>
                             </div>
                         </div>
+
+                        @if ($tipoVenta === 'CREDITO')
+                        <div class="min-w-0 xl:col-span-2">
+                            <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Área del item</label>
+                            <x-input wire:model.live.debounce.250ms="areaItem" type="text" maxlength="255"
+                                placeholder="Ej. Contabilidad"
+                                class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                        </div>
+                        @endif
 
                         <div class="min-w-0 xl:col-span-1">
                             <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Stock</label>
@@ -1859,7 +2134,6 @@ new class extends Component
                 <x-card class="rounded-2xl border border-[#D7E4F3] bg-white p-4 shadow-sm">
                     <div class="mb-3 flex items-center justify-between gap-3">
                         <h2 class="text-lg font-bold text-[#1A2B42]">Detalle de venta</h2>
-
                         <span class="rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-semibold text-[#0B6FE4]">
                             {{ count($detalleVenta) }} items
                         </span>
@@ -1867,7 +2141,7 @@ new class extends Component
 
                     <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-white">
                         <div class="w-full overflow-x-auto">
-                            <table class="min-w-205 w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
+                            <table class="min-w-225 w-full border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
                                 <thead>
                                     <tr>
                                         <th
@@ -1875,6 +2149,8 @@ new class extends Component
                                             Código</th>
                                         <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">
                                             Descripción</th>
+                                        <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white">
+                                            Área</th>
                                         <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Tipo
                                         </th>
                                         <th class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white">Cant.
@@ -1890,30 +2166,28 @@ new class extends Component
                                             Acción</th>
                                     </tr>
                                 </thead>
-
                                 <tbody>
                                     @forelse ($detalleVenta as $item)
                                     <tr class="odd:bg-white even:bg-[#F8FBFF]">
                                         <td class="whitespace-nowrap px-3 py-3 font-semibold">{{ $item['codigo'] }}</td>
                                         <td class="px-3 py-3">{{ $item['descripcion'] }}</td>
+                                        <td class="min-w-36 px-3 py-3 text-sm text-[#1A2B42]">
+                                            {{ $item['area'] ?? '—' }}
+                                        </td>
                                         <td class="px-3 py-3 text-center">
                                             <span
                                                 class="{{ $item['tipo'] === 'COPIA' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700' }} rounded-full px-2.5 py-1 text-xs font-semibold">
                                                 {{ $item['tipo'] }}
                                             </span>
                                         </td>
-                                        <td class="whitespace-nowrap px-3 py-3 text-center">
-                                            {{ number_format($item['cantidad'], 0, '.', ',') }}
-                                        </td>
-                                        <td class="whitespace-nowrap px-3 py-3 text-right">
-                                            C$ {{ number_format($item['precio_unitario'], 0, '.', ',') }}
-                                        </td>
-                                        <td class="whitespace-nowrap px-3 py-3 text-right text-red-600">
-                                            C$ {{ number_format($item['descuento_valor'] ?? 0, 0, '.', ',') }}
-                                        </td>
-                                        <td class="whitespace-nowrap px-3 py-3 text-right font-semibold">
-                                            C$ {{ number_format($item['subtotal_valor'], 0, '.', ',') }}
-                                        </td>
+                                        <td class="whitespace-nowrap px-3 py-3 text-center">{{
+                                            number_format($item['cantidad'], 0, '.', ',') }}</td>
+                                        <td class="whitespace-nowrap px-3 py-3 text-right">C$ {{
+                                            number_format($item['precio_unitario'], 0, '.', ',') }}</td>
+                                        <td class="whitespace-nowrap px-3 py-3 text-right text-red-600">C$ {{
+                                            number_format($item['descuento_valor'] ?? 0, 0, '.', ',') }}</td>
+                                        <td class="whitespace-nowrap px-3 py-3 text-right font-semibold">C$ {{
+                                            number_format($item['subtotal_valor'], 0, '.', ',') }}</td>
                                         <td class="px-3 py-3 text-center">
                                             <button type="button" wire:click="eliminarDetalle('{{ $item['uid'] }}')"
                                                 class="rounded-lg bg-red-50 px-3 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-100">
@@ -1923,7 +2197,7 @@ new class extends Component
                                     </tr>
                                     @empty
                                     <tr>
-                                        <td colspan="8" class="px-4 py-10 text-center text-sm text-[#7B8794]">
+                                        <td colspan="9" class="px-4 py-10 text-center text-sm text-[#7B8794]">
                                             No hay items agregados.
                                         </td>
                                     </tr>
@@ -1981,6 +2255,143 @@ new class extends Component
         </div>
     </div>
 
+    <x-modal wire:model="modalEntregasCredito" class="backdrop-blur-sm"
+        box-class="w-[96vw] max-w-7xl max-h-[92vh] overflow-hidden rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
+
+        <div class="flex max-h-[88vh] flex-col">
+            <div class="mb-4 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                <div class="min-w-0">
+                    <h3 class="text-2xl font-bold text-[#1A2B42]">Entregar pendientes de crédito</h3>
+                    <p class="mt-1 text-sm text-[#5F6B7A]">
+                        Filtre por municipio o institución y registre el nombre de quien recibe cada pendiente.
+                    </p>
+                </div>
+
+                <span class="w-fit rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-bold text-[#0B6FE4]">
+                    {{ count($entregasPendientes) }} pendientes cargados
+                </span>
+            </div>
+
+            <div class="mb-4 rounded-2xl border border-[#D7E4F3] bg-[#F8FBFF] p-3">
+                <div class="grid grid-cols-1 gap-3 lg:grid-cols-12 lg:items-end">
+                    <div class="lg:col-span-4">
+                        <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Municipio</label>
+                        <x-select wire:model.live="entregaMunicipio" :options="$entregaMunicipiosOpciones"
+                            option-value="id" option-label="name"
+                            class="h-11 min-h-11 rounded-xl bg-white text-sm text-[#1A2B42]" />
+                    </div>
+
+                    <div class="lg:col-span-5">
+                        <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Institución</label>
+                        <x-select wire:model.live="entregaClienteId" :options="$entregaInstitucionesOpciones"
+                            option-value="id" option-label="name"
+                            class="h-11 min-h-11 rounded-xl bg-white text-sm text-[#1A2B42]" />
+                    </div>
+
+                    <div class="lg:col-span-3">
+                        <x-button icon="o-magnifying-glass" label="Cargar pendientes"
+                            wire:click="buscarPendientesEntregaCredito" spinner="buscarPendientesEntregaCredito"
+                            class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#2E8BC0] text-sm font-semibold text-white shadow-sm hover:bg-[#0B6FE4]" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-[#D7E4F3] bg-[#F8FBFF] p-3">
+                <div class="space-y-3">
+                    @forelse ($entregasPendientes as $pendiente)
+                    <div wire:key="pendiente-entrega-{{ $pendiente['id'] }}"
+                        class="rounded-2xl border border-[#D7E4F3] bg-white p-3 shadow-sm">
+                        <div class="grid grid-cols-1 gap-3 xl:grid-cols-12 xl:items-center">
+                            <div class="xl:col-span-2">
+                                <p class="text-[11px] font-bold uppercase tracking-wide text-[#5F6B7A]">Factura</p>
+                                <p class="mt-1 text-sm font-black text-[#1A2B42]">{{ $pendiente['factura'] }}</p>
+                                <p class="mt-1 text-xs font-semibold text-[#5F6B7A]">{{ $pendiente['fecha'] }}</p>
+                            </div>
+
+                            <div class="xl:col-span-3">
+                                <p class="text-[11px] font-bold uppercase tracking-wide text-[#5F6B7A]">Institución</p>
+                                <p class="mt-1 text-sm font-bold text-[#1A2B42]">{{ $pendiente['institucion'] }}</p>
+                                <p class="mt-1 text-xs font-semibold text-[#5F6B7A]">{{ $pendiente['municipio'] }}</p>
+                            </div>
+
+                            <div class="xl:col-span-3">
+                                <p class="text-[11px] font-bold uppercase tracking-wide text-[#5F6B7A]">Nombre del
+                                    formato</p>
+                                <p class="mt-1 text-sm font-bold leading-5 text-[#1A2B42]">{{ $pendiente['item'] }}</p>
+                                <div class="mt-2 flex flex-wrap gap-1.5">
+                                    <span
+                                        class="rounded-full bg-[#EAF2FB] px-2 py-1 text-[11px] font-black text-[#0B6FE4]">
+                                        {{ $pendiente['tipo'] }}
+                                    </span>
+                                    <span
+                                        class="rounded-full bg-[#F0F3F7] px-2 py-1 text-[11px] font-black text-[#1A2B42]">
+                                        Cant: {{ number_format($pendiente['cantidad'], 0, '.', ',') }}
+                                    </span>
+                                </div>
+                                <p class="mt-2 text-xs text-[#5F6B7A]">
+                                    Área: <span class="font-semibold text-[#1A2B42]">{{ $pendiente['area'] }}</span>
+                                </p>
+                            </div>
+
+                            <div class="xl:col-span-2">
+                                <div class="grid grid-cols-2 gap-2 text-center sm:grid-cols-4 xl:grid-cols-2">
+                                    <div class="rounded-xl bg-[#F0F3F7] px-2 py-2">
+                                        <p class="text-[10px] font-bold uppercase text-[#5F6B7A]">Tamaño</p>
+                                        <p class="text-sm font-black text-[#1A2B42]">{{ $pendiente['formato'] }}</p>
+                                    </div>
+                                    <div class="rounded-xl bg-[#F0F3F7] px-2 py-2">
+                                        <p class="text-[10px] font-bold uppercase text-[#5F6B7A]">Cant.</p>
+                                        <p class="text-sm font-black text-[#1A2B42]">{{
+                                            number_format($pendiente['cantidad'], 0, '.', ',') }}</p>
+                                    </div>
+                                    <div class="rounded-xl bg-[#F0F3F7] px-2 py-2">
+                                        <p class="text-[10px] font-bold uppercase text-[#5F6B7A]">P/Unit</p>
+                                        <p class="text-sm font-black text-[#1A2B42]">C$ {{
+                                            number_format($pendiente['precio'], 0, '.', ',') }}</p>
+                                    </div>
+                                    <div class="rounded-xl bg-[#EAF2FB] px-2 py-2">
+                                        <p class="text-[10px] font-bold uppercase text-[#0B6FE4]">Monto</p>
+                                        <p class="text-sm font-black text-[#1A2B42]">C$ {{
+                                            number_format($pendiente['monto'], 0, '.', ',') }}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="xl:col-span-2">
+                                <label class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-[#5F6B7A]">
+                                    Recibí conforme
+                                </label>
+                                <div class="flex flex-col gap-2 sm:flex-row xl:flex-col 2xl:flex-row">
+                                    <x-input wire:model.live.debounce.250ms="recibidosPendientes.{{ $pendiente['id'] }}"
+                                        type="text" placeholder="Nombre de quien recibe"
+                                        class="h-10 min-h-10 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+
+                                    <x-button label="Guardar"
+                                        wire:click="guardarRecibidoPendiente({{ $pendiente['id'] }})"
+                                        spinner="guardarRecibidoPendiente({{ $pendiente['id'] }})"
+                                        class="h-10 min-h-10 shrink-0 rounded-xl border-0 bg-[#0E48A1] px-4 text-xs font-semibold text-white hover:bg-[#0B6FE4]" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    @empty
+                    <div class="rounded-2xl border border-dashed border-[#D7E4F3] bg-white px-4 py-14 text-center">
+                        <p class="text-sm font-bold text-[#1A2B42]">No hay pendientes cargados.</p>
+                        <p class="mt-1 text-sm text-[#7B8794]">
+                            Seleccione un municipio o institución y presione “Cargar pendientes”.
+                        </p>
+                    </div>
+                    @endforelse
+                </div>
+            </div>
+        </div>
+
+        <x-slot:actions>
+            <x-button label="Cerrar" type="button" wire:click="cerrarModalEntregasCredito"
+                class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]" />
+        </x-slot:actions>
+    </x-modal>
+
     <x-modal wire:model="modalNuevaCopiaRapida" class="backdrop-blur-sm"
         box-class="w-full max-w-xl rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
 
@@ -2035,7 +2446,6 @@ new class extends Component
         </x-slot:actions>
     </x-modal>
 
-
     <x-modal wire:model="modalCotizacionRapida" class="backdrop-blur-sm"
         box-class="w-full max-w-6xl rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
 
@@ -2060,9 +2470,7 @@ new class extends Component
             <iframe src="{{ $cotizacionPreviewUrl }}#toolbar=0&navpanes=0&scrollbar=1&view=FitH" loading="eager"
                 class="h-[76vh] w-full bg-white"></iframe>
             @else
-            <div class="px-4 py-16 text-center text-sm text-[#7B8794]">
-                No hay cotización para mostrar.
-            </div>
+            <div class="px-4 py-16 text-center text-sm text-[#7B8794]">No hay cotización para mostrar.</div>
             @endif
         </div>
 
@@ -2077,18 +2485,14 @@ new class extends Component
 
         <div class="mb-4">
             <h3 class="text-2xl font-bold text-[#1A2B42]">Voucher de venta</h3>
-            <p class="mt-1 text-sm text-[#5F6B7A]">
-                Revise el voucher. Solo se imprimirá si confirma la impresión.
-            </p>
+            <p class="mt-1 text-sm text-[#5F6B7A]">Revise el voucher. Solo se imprimirá si confirma la impresión.</p>
         </div>
 
         <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-[#F8FBFF]">
             @if ($voucherPreviewUrl !== '')
             <iframe src="{{ $voucherPreviewUrl }}" class="h-[68vh] w-full bg-white"></iframe>
             @else
-            <div class="px-4 py-12 text-center text-sm text-[#7B8794]">
-                No hay voucher para mostrar.
-            </div>
+            <div class="px-4 py-12 text-center text-sm text-[#7B8794]">No hay voucher para mostrar.</div>
             @endif
         </div>
 
@@ -2109,9 +2513,8 @@ new class extends Component
                 {{ $tipoVenta === 'CONTADO' ? 'Finalizar venta' : 'Guardar venta al crédito' }}
             </h3>
             <p class="mt-1 text-sm text-[#5F6B7A]">
-                {{ $tipoVenta === 'CONTADO'
-                ? 'Confirme el cobro antes de guardar.'
-                : 'Esta venta se guardará como crédito completo. El cobro se realizará desde abonos.' }}
+                {{ $tipoVenta === 'CONTADO' ? 'Confirme el cobro antes de guardar.' : 'Esta venta se guardará como
+                crédito completo. El cobro se realizará desde abonos.' }}
             </p>
         </div>
 
@@ -2183,20 +2586,12 @@ new class extends Component
 
             <div
                 class="md:col-span-2 grid grid-cols-1 gap-2 rounded-xl bg-[#F8FBFF] px-4 py-3 text-sm text-[#1A2B42] md:grid-cols-3">
-                <div>
-                    <span class="block text-xs text-[#5F6B7A]">Recibido C$</span>
-                    <strong>C$ {{ $pagoCordobas !== '' ? $pagoCordobas : '0' }}</strong>
-                </div>
-
-                <div>
-                    <span class="block text-xs text-[#5F6B7A]">Recibido US$</span>
-                    <strong>US$ {{ $pagoDolares !== '' ? $pagoDolares : '0' }}</strong>
-                </div>
-
-                <div>
-                    <span class="block text-xs text-[#5F6B7A]">Cambio entregado</span>
-                    <strong>C$ {{ number_format($this->cambioEntregadoCordobas(), 0, '.', ',') }}</strong>
-                </div>
+                <div><span class="block text-xs text-[#5F6B7A]">Recibido C$</span><strong>C$ {{ $pagoCordobas !== '' ?
+                        $pagoCordobas : '0' }}</strong></div>
+                <div><span class="block text-xs text-[#5F6B7A]">Recibido US$</span><strong>US$ {{ $pagoDolares !== '' ?
+                        $pagoDolares : '0' }}</strong></div>
+                <div><span class="block text-xs text-[#5F6B7A]">Cambio entregado</span><strong>C$ {{
+                        number_format($this->cambioEntregadoCordobas(), 0, '.', ',') }}</strong></div>
             </div>
             @endif
 
