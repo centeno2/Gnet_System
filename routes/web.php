@@ -12,6 +12,7 @@ use App\Http\Controllers\Reportes\ArqueosCajaReporteController;
 use App\Http\Controllers\Ventas\CotizacionVoucherController;
 use App\Http\Controllers\Ventas\VentaVoucherController;
 use App\Http\Controllers\Reportes\ComprasProveedorReporteController;
+use App\Http\Controllers\Compras\CompraComprobanteController;
 
 Route::get('/', function () {
     return auth()->check()
@@ -147,7 +148,8 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
     Route::get('/reportes/compras-proveedor/word', [ComprasProveedorReporteController::class, 'word'])
         ->name('reportes.compras-proveedor.word');
 
-
+    Route::get('/compras/comprobante/{compra}', [CompraComprobanteController::class, 'show'])
+    ->name('compras.comprobante');
 });
 
 Route ::middleware (['auth', 'cargo: 1, 2'])->group(function () {
