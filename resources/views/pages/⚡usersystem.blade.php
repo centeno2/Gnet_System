@@ -2,16 +2,19 @@
 
 use App\Models\Trabajador;
 use App\Models\Usuario;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Livewire\WithPagination;
-use Illuminate\Pagination\LengthAwarePaginator;
+use Mary\Traits\Toast;
 
 new class extends Component
 {
     use WithPagination;
+    use Toast;
+
     public string $idTrabajador = '';
     public string $nombreUsuario = '';
     public string $correo = '';
@@ -28,10 +31,6 @@ new class extends Component
     public string $cargoEditarNombre = '';
     public string $estadoEditar = '1';
 
-    public string $toastMensaje = '';
-    public string $toastTipo = 'success';
-    public bool $mostrarToast = false;
-
     public array $trabajadores = [];
 
     public array $headers = [
@@ -43,9 +42,9 @@ new class extends Component
     ];
 
     public function paginationView(): string
-{
-    return 'vendor.pagination.gnet';
-}
+    {
+        return 'vendor.pagination.gnet';
+    }
 
     public function mount(): void
     {
@@ -394,59 +393,40 @@ new class extends Component
 
     protected function mostrarToast(string $mensaje, string $tipo = 'success'): void
     {
-        $this->toastMensaje = $mensaje;
-        $this->toastTipo = $tipo;
-        $this->mostrarToast = true;
-    }
+        $type = $tipo === 'error' ? 'error' : 'success';
 
-    public function cerrarToast(): void
-    {
-        $this->mostrarToast = false;
-        $this->toastMensaje = '';
-        $this->toastTipo = 'success';
+        $this->toast(
+            type: $type,
+            title: $mensaje,
+            position: 'toast-top toast-end',
+            icon: $type === 'error' ? 'o-x-circle' : 'o-check-circle',
+            css: $type === 'error' ? 'alert-error text-white' : 'alert-success text-white',
+            timeout: 3000
+        );
     }
 };
 ?>
 
-<div class="min-h-screen bg-[#F0F3F7] p-6 space-y-6">
-    <div>
-        <h1 class="text-3xl font-bold text-[#1A2B42]">Usuarios</h1>
+<div class="min-h-screen bg-[#F0F3F7] px-4 pb-6 pt-2 sm:px-6 sm:pt-3 lg:px-8 lg:pb-8 lg:pt-3 space-y-5">
+    <x-toast position="toast-top toast-end" />
+
+    <div class="mb-1">
+        <h1 class="text-3xl font-bold leading-tight text-[#1A2B42]">Usuarios</h1>
         <p class="mt-1 text-sm text-[#5F6B7A]">
             Gestión e ingreso de usuarios del sistema.
         </p>
     </div>
 
-    @if ($mostrarToast)
-        <div class="fixed right-5 top-5 z-999 w-full max-w-sm">
-            <div
-                class="{{ $toastTipo === 'success'
-                    ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#1A2B42]'
-                    : 'border-red-200 bg-red-50 text-red-700' }} rounded-2xl border px-4 py-4 shadow-lg">
-                <div class="flex items-start justify-between gap-3">
-                    <p class="text-sm font-medium">{{ $toastMensaje }}</p>
-
-                    <button
-                        type="button"
-                        wire:click="cerrarToast"
-                        class="text-lg leading-none text-[#5F6B7A] hover:text-[#1A2B42]"
-                    >
-                        ×
-                    </button>
-                </div>
-            </div>
-        </div>
-    @endif
-
     <form wire:submit.prevent="guardarUsuario">
         <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
-            <div class="mb-6">
-                <h2 class="text-2xl font-bold text-[#1A2B42]">Registrar usuario</h2>
-                <p class="text-base text-[#5F6B7A]">
+            <div class="mb-5">
+                <h2 class="text-2xl font-bold leading-tight text-[#1A2B42]">Registrar usuario</h2>
+                <p class="mt-1 text-sm text-[#5F6B7A]">
                     Complete los campos para crear un nuevo usuario.
                 </p>
             </div>
 
-            <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
                 <div>
                     <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
                         Trabajador
@@ -535,6 +515,7 @@ new class extends Component
                     label="Guardar usuario"
                     type="submit"
                     icon="o-check-circle"
+                    spinner="guardarUsuario"
                     class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4] focus:ring-2 focus:ring-[#0E48A1]/30"
                 />
             </x-slot:actions>
@@ -544,8 +525,8 @@ new class extends Component
     <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
         <div class="mb-4 space-y-3">
             <div>
-                <h2 class="text-2xl font-bold text-[#1A2B42]">Listado de usuarios</h2>
-                <p class="text-sm text-[#5F6B7A]">
+                <h2 class="text-2xl font-bold leading-tight text-[#1A2B42]">Listado de usuarios</h2>
+                <p class="mt-1 text-sm text-[#5F6B7A]">
                     Usuarios creados a partir de trabajadores registrados.
                 </p>
             </div>
@@ -585,6 +566,7 @@ new class extends Component
                     <x-button
                         icon="o-pencil-square"
                         wire:click="abrirModalEditarUsuario({{ $usuario['id_usuario'] }})"
+                        spinner
                         title="Editar usuario"
                         aria-label="Editar usuario"
                         class="btn-sm h-10 w-10 min-h-0 rounded-xl border border-[#0B6FE4] bg-[#0B6FE4] p-0 text-white shadow-sm hover:bg-[#2E8BC0] hover:text-white"
@@ -594,6 +576,7 @@ new class extends Component
                         :label="$usuario['status'] === 'Activo' ? 'Inactivar' : 'Activar'"
                         :icon="$usuario['status'] === 'Activo' ? 'o-no-symbol' : 'o-check-circle'"
                         wire:click="cambiarEstadoUsuario({{ $usuario['id_usuario'] }})"
+                        spinner
                         class="{{ $usuario['status'] === 'Activo'
                             ? 'bg-red-600 hover:bg-red-700'
                             : 'bg-green-600 hover:bg-green-700' }} h-8 min-h-8 border-0 px-3 text-xs text-white"
@@ -609,7 +592,7 @@ new class extends Component
         box-class="w-full max-w-xl rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl"
     >
         <div class="mb-5">
-            <h3 class="text-2xl font-bold text-[#1A2B42]">Editar usuario</h3>
+            <h3 class="text-2xl font-bold leading-tight text-[#1A2B42]">Editar usuario</h3>
             <p class="mt-1 text-sm text-[#5F6B7A]">
                 Modifique el nombre de usuario, correo o estado de acceso.
             </p>
@@ -707,6 +690,7 @@ new class extends Component
                     type="button"
                     icon="o-check"
                     wire:click="actualizarUsuario"
+                    spinner="actualizarUsuario"
                     class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]"
                 />
             </x-slot:actions>
