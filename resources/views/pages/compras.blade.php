@@ -52,6 +52,7 @@ new class extends Component
     public string $productoModelo = '';
     public float $precioVentaActual = 0;
     public bool $precioVentaEditable = false;
+    public bool $precioVentaEditadoManual = false;
 
     public string $nuevoNombreProducto = '';
     public string $nuevoModelo = '';
@@ -154,16 +155,39 @@ new class extends Component
 
         if ($this->modoProducto === 'nuevo') {
             $this->precioVentaEditable = true;
+            $this->precioVentaEditadoManual = false;
             return;
         }
 
         if ($this->modoProducto === 'existente' && $this->idProducto !== '') {
-            $this->precioVentaEditable = $precioCompra > $this->precioVentaActual;
+            $habilitadoAutomatico = $this->precioVentaActual > 0 && $precioCompra >= $this->precioVentaActual;
+
+            $this->precioVentaEditable = $habilitadoAutomatico || $this->precioVentaEditadoManual;
 
             if (! $this->precioVentaEditable) {
                 $this->precioVenta = (string) $this->precioVentaActual;
             }
         }
+    }
+
+    public function habilitarEdicionPrecioVenta(): void
+    {
+        if ($this->modoProducto !== 'existente' || $this->idProducto === '') {
+            return;
+        }
+
+        $this->precioVentaEditable = true;
+        $this->precioVentaEditadoManual = true;
+        $this->resetErrorBag('precioVenta');
+        $this->mostrarToast('Precio de venta habilitado para edición manual.');
+    }
+
+    public function precioVentaHabilitadoAutomaticamente(): bool
+    {
+        return $this->modoProducto === 'existente'
+            && $this->idProducto !== ''
+            && $this->precioVentaActual > 0
+            && (float) $this->precioCompra >= $this->precioVentaActual;
     }
 
     public function updatedTipoCompra(): void
@@ -475,6 +499,7 @@ new class extends Component
         $this->modoProducto = $modo;
         $this->limpiarDetalleProducto();
         $this->precioVentaEditable = $modo === 'nuevo';
+        $this->precioVentaEditadoManual = false;
     }
 
     public function desbloquearProveedor(): void
@@ -678,7 +703,8 @@ new class extends Component
 
         $this->precioVentaActual = (float) $producto->Precio_Venta;
         $this->precioVenta = (string) $this->precioVentaActual;
-        $this->precioVentaEditable = ((float) $this->precioCompra) > $this->precioVentaActual;
+        $this->precioVentaEditadoManual = false;
+        $this->precioVentaEditable = $this->precioVentaHabilitadoAutomaticamente();
 
         $this->buscarProducto = trim(
             $this->productoMarca . ' ' .
@@ -884,7 +910,7 @@ new class extends Component
                 'idProducto' => 'required|exists:producto,Id_Producto',
             ]), $mensajesDetalle);
 
-            if ((float) $this->precioCompra > $this->precioVentaActual && (float) $this->precioVenta < (float) $this->precioCompra) {
+            if ($this->precioVentaEditable && (float) $this->precioVenta < (float) $this->precioCompra) {
                 $this->addError('precioVenta', 'El precio de venta debe ser mayor o igual al precio de compra.');
                 return null;
             }
@@ -986,7 +1012,7 @@ new class extends Component
             'garantia_proveedor' => $garantiaProveedor,
             'subtotal' => $subtotal,
             'series' => $series,
-            'actualizar_precio_venta' => $this->modoProducto === 'nuevo' || $precioVenta > $this->precioVentaActual,
+            'actualizar_precio_venta' => $this->modoProducto === 'nuevo' || ($this->precioVentaEditable && abs($precioVenta - $this->precioVentaActual) > 0.009),
         ];
     }
 
@@ -1055,8 +1081,11 @@ new class extends Component
             $this->precioVenta = (string) $detalle['precio_venta'];
             $this->precioCompra = (string) $detalle['precio_compra'];
 
-            $this->precioVentaEditable = ((float) $this->precioCompra) > $this->precioVentaActual
-                || ((float) $this->precioVenta) > $this->precioVentaActual;
+            $habilitadoAutomatico = $this->precioVentaHabilitadoAutomaticamente();
+            $precioCambiado = abs((float) $this->precioVenta - $this->precioVentaActual) > 0.009;
+
+            $this->precioVentaEditadoManual = $precioCambiado && ! $habilitadoAutomatico;
+            $this->precioVentaEditable = $habilitadoAutomatico || $this->precioVentaEditadoManual;
 
             $this->buscarProducto = trim(
                 $this->productoMarca . ' ' .
@@ -1081,6 +1110,7 @@ new class extends Component
             $this->productoModelo = '';
             $this->precioVentaActual = 0;
             $this->precioVentaEditable = true;
+            $this->precioVentaEditadoManual = false;
 
             $this->nuevoNombreProducto = $detalle['nombre_producto'];
             $this->nuevoModelo = $detalle['modelo'];
@@ -1599,6 +1629,7 @@ new class extends Component
         $this->cantidad = '1';
         $this->precioCompra = '0';
         $this->precioVenta = '0';
+        $this->precioVentaEditadoManual = false;
         $this->garantiaProveedor = '';
         $this->seriesTexto = '';
 
@@ -1622,6 +1653,7 @@ new class extends Component
         $this->productoMarca = '';
         $this->productoModelo = '';
         $this->precioVentaActual = 0;
+        $this->precioVentaEditadoManual = false;
 
         $this->nuevoNombreProducto = '';
         $this->nuevoModelo = '';
@@ -2398,21 +2430,40 @@ new class extends Component
                     @enderror
                 </div>
 
-                <div class="sm:col-span-1 xl:col-span-2">
+                <div class="sm:col-span-1 xl:col-span-3">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                         Precio venta
-                        @if ($modoProducto === 'existente' && ! $precioVentaEditable)
-                            <span class="text-xs font-normal text-[#5F6B7A]">👁️</span>
-                        @endif
                     </label>
-                    <x-input
-                        wire:model.defer="precioVenta"
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        :readonly="! $precioVentaEditable"
-                        class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
-                    />
+
+                    <div class="flex flex-col gap-2 sm:flex-row">
+                        <x-input
+                            wire:model.defer="precioVenta"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            :readonly="! $precioVentaEditable"
+                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]"
+                        />
+
+                        @if ($modoProducto === 'existente' && $idProducto !== '')
+                            <button
+                                type="button"
+                                wire:click="habilitarEdicionPrecioVenta"
+                                class="inline-flex h-10 min-h-10 w-full shrink-0 items-center justify-center gap-2 rounded-lg border px-3 text-sm font-semibold transition sm:w-auto {{ $precioVentaEditable ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]' }}"
+                            >
+                                <span>{{ $precioVentaEditable ? 'Editable' : 'Editar' }}</span>
+                            </button>
+                        @endif
+                    </div>
+
+                    @if ($modoProducto === 'existente' && $idProducto !== '' && $precioVentaEditable)
+                        <div class="mt-2 rounded-lg border {{ $this->precioVentaHabilitadoAutomaticamente() && ! $precioVentaEditadoManual ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800' }} px-3 py-2 text-xs font-medium">
+                            {{ $this->precioVentaHabilitadoAutomaticamente() && ! $precioVentaEditadoManual
+                                ? 'Habilitado para edición: el precio de compra es igual o mayor al precio de venta actual.'
+                                : 'Edición manual habilitada. El nuevo precio de venta se actualizará al guardar la compra.' }}
+                        </div>
+                    @endif
+
                     @error('precioVenta')
                         <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                     @enderror
@@ -2437,7 +2488,7 @@ new class extends Component
 
                 </div>
 
-                <div class="sm:col-span-2 xl:col-span-5">
+                <div class="sm:col-span-2 xl:col-span-4">
                     <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">
                         Número de serie
                         <span class="text-xs font-normal text-[#5F6B7A]">
@@ -2610,7 +2661,20 @@ new class extends Component
                                     </div>
                                 </div>
 
-                                <div class="mt-4 flex justify-end">
+                                <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                                    <a
+                                        href="{{ route('compras.comprobante', $compraRealizada->Id_Compra) }}"
+                                        target="_blank"
+                                        rel="noopener"
+                                        title="Imprimir comprobante de compra"
+                                        aria-label="Imprimir comprobante de compra"
+                                        class="inline-flex h-9 min-h-9 w-full items-center justify-center rounded-lg border border-[#D7E4F3] bg-white px-3 text-[#1A2B42] transition hover:bg-[#F0F3F7] sm:w-10"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" class="h-5 w-5">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 9V3.75h10.5V9m-10.5 8.25H5.25A2.25 2.25 0 0 1 3 15v-3.75A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25V15a2.25 2.25 0 0 1-2.25 2.25h-1.5m-10.5 0v3h10.5v-6.75H6.75v3.75Z" />
+                                        </svg>
+                                    </a>
+
                                     <x-button
                                         label="Editar"
                                         icon="o-pencil-square"
