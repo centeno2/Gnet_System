@@ -7,6 +7,7 @@ use App\Services\Reportes\Base\BaseReporteService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 
 class CreditosInstitucionalesReporteService extends BaseReporteService
 {
@@ -27,14 +28,14 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
 
     public function titulo(): string
     {
-        return 'Reporte de créditos institucionales';
+        return 'Recepción de créditos institucionales';
     }
 
     public function nombreArchivo(): string
     {
         $institucion = $this->clienteId ? 'institucion-' . $this->clienteId : 'sin-institucion';
 
-        return 'reporte-creditos-institucionales-' . $this->desde . '-' . $this->hasta . '-' . $institucion;
+        return 'recepcion-creditos-institucionales-' . $this->desde . '-' . $this->hasta . '-' . $institucion;
     }
 
     public function consultar(): Collection
@@ -49,24 +50,58 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
             ->when($this->hasta !== '', fn($query) => $query->whereDate('Fecha_Credito', '<=', $this->hasta))
             ->orderBy('Fecha_Credito')
             ->orderBy('Numero_Factura')
-            ->orderBy('Tipo_Detalle')
+            ->orderByRaw("
+                CASE Tipo_Detalle
+                    WHEN 'COPIA' THEN 1
+                    WHEN 'PRODUCTO' THEN 2
+                    WHEN 'SERVICIO' THEN 3
+                    ELSE 4
+                END
+            ")
+            ->orderBy('Formato_Copia')
             ->orderBy('Item')
             ->get();
     }
 
     public function resumen(Collection $datos): array
     {
-        $productos = $datos->where('Tipo_Detalle', 'PRODUCTO');
         $copias = $datos->where('Tipo_Detalle', 'COPIA');
-        $servicios = $datos->where('Tipo_Detalle', 'SERVICIO');
+        $pendientes = $datos->filter(fn($fila) => trim((string) ($fila->Recibido_Por ?? '')) === '');
 
-        return [
+        $resumen = [
+            'Institución' => $this->texto($datos->first()?->Institucion ?? 'Institución no seleccionada'),
+            'Municipio' => $this->texto($datos->first()?->Municipio ?? '—'),
+            'Periodo' => $this->periodoTexto(),
             'Facturas' => number_format($datos->pluck('Id_Venta')->unique()->count()),
-            'Productos' => number_format((float) $productos->sum('Cantidad'), 2) . ' / C$ ' . number_format((float) $productos->sum('Total_Linea'), 2),
-            'Copias' => number_format((float) $copias->sum('Cantidad'), 2) . ' / C$ ' . number_format((float) $copias->sum('Total_Linea'), 2),
-            'Servicios' => number_format((float) $servicios->sum('Cantidad'), 2) . ' / C$ ' . number_format((float) $servicios->sum('Total_Linea'), 2),
-            'Total general' => 'C$ ' . number_format((float) $datos->sum('Total_Linea'), 2),
         ];
+
+        foreach ($this->formatosCopia() as $formatoId => $nombreFormato) {
+            $copiasFormato = $copias->where('Formato_Copia', $formatoId);
+
+            if ($copiasFormato->isEmpty()) {
+                continue;
+            }
+
+            $resumen['Copias ' . strtolower($nombreFormato)] =
+                $this->formatearCantidad((float) $copiasFormato->sum('Cantidad'))
+                . ' / '
+                . $this->formatearDinero((float) $copiasFormato->sum('Total_Linea'));
+        }
+
+        if ($copias->isNotEmpty()) {
+            $resumen['Total copias'] =
+                $this->formatearCantidad((float) $copias->sum('Cantidad'))
+                . ' / '
+                . $this->formatearDinero((float) $copias->sum('Total_Linea'));
+        }
+
+        if ($pendientes->isNotEmpty()) {
+            $resumen['Pendientes'] = number_format($pendientes->count());
+        }
+
+        $resumen['Total general'] = $this->formatearDinero((float) $datos->sum('Total_Linea'));
+
+        return $resumen;
     }
 
     public function columnas(): array
@@ -76,87 +111,84 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
                 'key' => 'fecha',
                 'label' => 'Fecha',
                 'pdf' => 18,
-                'word' => 900,
-                'tipo' => 'date',
+                'word' => 1000,
+                'tipo' => 'text',
+                'align_pdf' => 'C',
+                'align_excel' => 'center',
+                'align_word' => 'center',
             ],
             [
                 'key' => 'factura',
                 'label' => 'Factura',
-                'pdf' => 25,
+                'pdf' => 24,
                 'word' => 1300,
                 'tipo' => 'text',
                 'limit' => 18,
             ],
             [
-                'key' => 'tipo',
-                'label' => 'Tipo',
-                'pdf' => 18,
-                'word' => 900,
+                'key' => 'item',
+                'label' => 'Nombre del formato / producto / servicio',
+                'pdf' => 62,
+                'word' => 3800,
+                'tipo' => 'text',
+                'limit' => 55,
+            ],
+            [
+                'key' => 'area',
+                'label' => 'Área',
+                'pdf' => 34,
+                'word' => 1900,
+                'tipo' => 'text',
+                'limit' => 28,
+            ],
+            [
+                'key' => 'tamano',
+                'label' => 'Tamaño',
+                'pdf' => 20,
+                'word' => 1100,
                 'tipo' => 'text',
                 'limit' => 12,
-            ],
-            [
-                'key' => 'item',
-                'label' => 'Detalle',
-                'pdf' => 58,
-                'word' => 3300,
-                'tipo' => 'text',
-                'limit' => 42,
-            ],
-            [
-                'key' => 'categoria',
-                'label' => 'Categoría',
-                'pdf' => 28,
-                'word' => 1600,
-                'tipo' => 'text',
-                'limit' => 18,
+                'align_pdf' => 'C',
+                'align_excel' => 'center',
+                'align_word' => 'center',
             ],
             [
                 'key' => 'cantidad',
                 'label' => 'Cant.',
-                'pdf' => 16,
-                'word' => 800,
-                'tipo' => 'number',
+                'pdf' => 18,
+                'word' => 900,
+                'tipo' => 'text',
                 'align_pdf' => 'R',
                 'align_excel' => 'right',
                 'align_word' => 'right',
             ],
             [
                 'key' => 'precio',
-                'label' => 'Precio',
-                'pdf' => 23,
-                'word' => 1200,
-                'tipo' => 'money',
+                'label' => 'P/Unit',
+                'pdf' => 24,
+                'word' => 1300,
+                'tipo' => 'text',
                 'align_pdf' => 'R',
                 'align_excel' => 'right',
                 'align_word' => 'right',
             ],
             [
-                'key' => 'descuento',
-                'label' => 'Desc.',
-                'pdf' => 22,
-                'word' => 1100,
-                'tipo' => 'money',
+                'key' => 'monto',
+                'label' => 'Monto',
+                'pdf' => 28,
+                'word' => 1500,
+                'tipo' => 'text',
                 'align_pdf' => 'R',
                 'align_excel' => 'right',
                 'align_word' => 'right',
             ],
             [
-                'key' => 'total',
-                'label' => 'Total',
-                'pdf' => 30,
-                'word' => 1400,
-                'tipo' => 'money',
-                'align_pdf' => 'R',
-                'align_excel' => 'right',
-                'align_word' => 'right',
-            ],
-            [
-                'key' => 'estado',
-                'label' => 'Estado',
-                'pdf' => 25,
-                'word' => 1200,
-                'tipo' => 'badge',
+                'key' => 'recibi',
+                'label' => 'Recibí conforme',
+                'pdf' => 28,
+                'word' => 1700,
+                'tipo' => 'text',
+                'limit' => 24,
             ],
         ];
     }
@@ -165,17 +197,17 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
     {
         return [
             'fecha' => $fila->Fecha_Credito
-                ? Carbon::parse($fila->Fecha_Credito)->format('Y-m-d')
+                ? Carbon::parse($fila->Fecha_Credito)->format('d/m/Y')
                 : '',
-            'factura' => (string) $fila->Numero_Factura,
-            'tipo' => (string) $fila->Tipo_Detalle_Nombre,
-            'item' => (string) $fila->Item,
-            'categoria' => (string) $fila->Categoria,
-            'cantidad' => (float) $fila->Cantidad,
-            'precio' => (float) $fila->Precio_Unitario,
-            'descuento' => (float) $fila->Descuento,
-            'total' => (float) $fila->Total_Linea,
-            'estado' => (string) $fila->Estado_Credito,
+
+            'factura' => $this->texto($fila->Numero_Factura ?? ''),
+            'item' => $this->nombreItem($fila),
+            'area' => $this->texto($fila->Area ?? '—'),
+            'tamano' => $this->tamanoItem($fila),
+            'cantidad' => $this->formatearCantidad((float) ($fila->Cantidad ?? 0)),
+            'precio' => $this->formatearDinero((float) ($fila->Precio_Unitario ?? 0)),
+            'monto' => $this->formatearDinero((float) ($fila->Total_Linea ?? 0)),
+            'recibi' => $this->texto($fila->Recibido_Por ?? ''),
         ];
     }
 
@@ -187,31 +219,144 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
             return $filas;
         }
 
-        $productos = $datos->where('Tipo_Detalle', 'PRODUCTO');
+        $totales = collect();
+
         $copias = $datos->where('Tipo_Detalle', 'COPIA');
+        $productos = $datos->where('Tipo_Detalle', 'PRODUCTO');
         $servicios = $datos->where('Tipo_Detalle', 'SERVICIO');
 
-        return $filas->concat([
-            $this->filaTotal('TOTAL PRODUCTOS', $productos),
-            $this->filaTotal('TOTAL COPIAS', $copias),
-            $this->filaTotal('TOTAL SERVICIOS', $servicios),
-            $this->filaTotal('TOTAL GENERAL', $datos),
-        ]);
+        foreach ($this->formatosCopia() as $formatoId => $nombreFormato) {
+            $copiasFormato = $copias->where('Formato_Copia', $formatoId);
+
+            if ($copiasFormato->isEmpty()) {
+                continue;
+            }
+
+            $totales->push($this->filaTotal(
+                'TOTAL COPIAS ' . mb_strtoupper($nombreFormato),
+                $nombreFormato,
+                $this->formatearCantidad((float) $copiasFormato->sum('Cantidad')),
+                $this->formatearDinero((float) $copiasFormato->sum('Total_Linea'))
+            ));
+        }
+
+        if ($productos->isNotEmpty()) {
+            $totales->push($this->filaTotal(
+                'TOTAL PRODUCTOS',
+                '—',
+                $this->formatearCantidad((float) $productos->sum('Cantidad')),
+                $this->formatearDinero((float) $productos->sum('Total_Linea'))
+            ));
+        }
+
+        if ($servicios->isNotEmpty()) {
+            $totales->push($this->filaTotal(
+                'TOTAL SERVICIOS',
+                '—',
+                $this->formatearCantidad((float) $servicios->sum('Cantidad')),
+                $this->formatearDinero((float) $servicios->sum('Total_Linea'))
+            ));
+        }
+
+        $totales->push($this->filaTotal(
+            'TOTAL GENERAL',
+            '',
+            '',
+            $this->formatearDinero((float) $datos->sum('Total_Linea'))
+        ));
+
+        return $filas->concat($totales);
     }
 
-    private function filaTotal(string $label, Collection $datos): array
+    private function filaTotal(string $label, string $tamano, string $cantidad, string $monto): array
     {
         return [
             'fecha' => '',
             'factura' => '',
-            'tipo' => 'TOTAL',
             'item' => $label,
-            'categoria' => '',
-            'cantidad' => (float) $datos->sum('Cantidad'),
-            'precio' => 0,
-            'descuento' => (float) $datos->sum('Descuento'),
-            'total' => (float) $datos->sum('Total_Linea'),
-            'estado' => 'Completado',
+            'area' => '',
+            'tamano' => $tamano,
+            'cantidad' => $cantidad,
+            'precio' => '',
+            'monto' => $monto,
+            'recibi' => '',
         ];
+    }
+
+    private function nombreItem(mixed $fila): string
+    {
+        $tipo = (string) ($fila->Tipo_Detalle ?? '');
+        $item = $this->texto($fila->Item ?? '—');
+
+        return match ($tipo) {
+            'PRODUCTO' => 'Producto: ' . $item,
+            'SERVICIO' => 'Servicio: ' . $item,
+            'COPIA' => $item,
+            default => $item,
+        };
+    }
+
+    private function tamanoItem(mixed $fila): string
+    {
+        $tipo = (string) ($fila->Tipo_Detalle ?? '');
+
+        if ($tipo !== 'COPIA') {
+            return '—';
+        }
+
+        return $this->texto($fila->Formato_Copia_Nombre ?? '—');
+    }
+
+    private function formatosCopia(): array
+    {
+        return [
+            1 => 'Carta',
+            2 => 'Oficio',
+            3 => 'A4',
+            4 => 'Legal',
+        ];
+    }
+
+    private function formatearCantidad(float $cantidad): string
+    {
+        if ($cantidad === 0.0) {
+            return '0';
+        }
+
+        return floor($cantidad) == $cantidad
+            ? number_format($cantidad, 0, '.', ',')
+            : number_format($cantidad, 2, '.', ',');
+    }
+
+    private function formatearDinero(float $monto): string
+    {
+        return 'C$ ' . number_format($monto, 2, '.', ',');
+    }
+
+    private function texto(mixed $valor): string
+    {
+        $texto = trim((string) $valor);
+
+        if ($texto === '') {
+            return '—';
+        }
+
+        return Str::of($texto)
+            ->replaceMatches('/\s+/', ' ')
+            ->trim()
+            ->toString();
+    }
+
+    private function periodoTexto(): string
+    {
+        $desde = $this->desde !== ''
+            ? Carbon::parse($this->desde)->format('d/m/Y')
+            : '—';
+
+        $hasta = $this->hasta !== ''
+            ? Carbon::parse($this->hasta)->format('d/m/Y')
+            : '—';
+
+        return $desde . ' - ' . $hasta;
     }
 }

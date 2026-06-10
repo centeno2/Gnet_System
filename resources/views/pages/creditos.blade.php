@@ -23,7 +23,8 @@ new class extends Component
     public array $sugerenciasCredito = [];
     public bool $mostrarSugerenciasCredito = false;
 
-    public int $idCreditoSeleccionado = 0;
+    public int $idClienteSeleccionado = 0;
+    public int $idClienteCreditoSeleccionado = 0;
 
     public string $cliente = '';
     public string $cedula = '';
@@ -34,9 +35,10 @@ new class extends Component
 
     public string $saldoOriginal = '0.00';
     public string $saldoPendiente = '0.00';
+    public int $totalCreditosPendientes = 0;
 
-    public string $abonarCordobas = '0.00';
-    public string $abonarDolares = '0.00';
+    public string $abonarCordobas = '';
+    public string $abonarDolares = '';
     public string $tasaCambio = '36.5000';
     public string $saldoFavorVista = '0.00';
 
@@ -54,7 +56,7 @@ new class extends Component
 
     public function mount(): void
     {
-        $this->fechaPago = now()->toDateString();
+        $this->fechaPago = now()->format('Y-m-d H:i:s');
         $this->tasaCambio = $this->obtenerTasaCambioDelDia();
 
         $this->metodosPagoOptions = [
@@ -65,13 +67,13 @@ new class extends Component
         ];
 
         $this->headersDetalle = [
-            ['key' => 'numero', 'label' => 'No.', 'class' => 'w-14'],
-            ['key' => 'fecha_pago', 'label' => 'Fecha', 'class' => 'min-w-[120px]'],
-            ['key' => 'monto', 'label' => 'Monto aplicado', 'class' => 'min-w-[150px]'],
-            ['key' => 'moneda', 'label' => 'Moneda', 'class' => 'min-w-[100px]'],
-            ['key' => 'referencia', 'label' => 'Referencia', 'class' => 'min-w-[160px]'],
-            ['key' => 'observacion', 'label' => 'Observación', 'class' => 'min-w-[260px]'],
-            ['key' => 'estado', 'label' => 'Tipo', 'class' => 'min-w-[110px]'],
+            ['key' => 'codigo', 'label' => 'Crédito', 'class' => 'min-w-[110px]'],
+            ['key' => 'fecha_credito', 'label' => 'Fecha', 'class' => 'min-w-[135px]'],
+            ['key' => 'factura', 'label' => 'Factura', 'class' => 'min-w-[130px]'],
+            ['key' => 'total', 'label' => 'Total crédito', 'class' => 'min-w-[150px]'],
+            ['key' => 'abonado', 'label' => 'Abonado', 'class' => 'min-w-[140px]'],
+            ['key' => 'pendiente', 'label' => 'Pendiente', 'class' => 'min-w-[150px]'],
+            ['key' => 'estado', 'label' => 'Estado', 'class' => 'min-w-[120px]'],
         ];
 
         $this->headersSaldoFavor = [
@@ -106,19 +108,11 @@ new class extends Component
 
     public function updatedAbonarCordobas(): void
     {
-        if (trim($this->abonarCordobas) === '') {
-            $this->abonarCordobas = '0.00';
-        }
-
         $this->calcularSaldoFavorVista();
     }
 
     public function updatedAbonarDolares(): void
     {
-        if (trim($this->abonarDolares) === '') {
-            $this->abonarDolares = '0.00';
-        }
-
         $this->calcularSaldoFavorVista();
     }
 
@@ -147,106 +141,69 @@ new class extends Component
             return;
         }
 
-        $idCreditoBuscado = null;
-        $soloNumerosBusqueda = preg_replace('/\D+/', '', $busqueda);
-
-        if ($soloNumerosBusqueda !== '' && preg_match('/^(CR[-\s]*)?\d+$/i', $busqueda)) {
-            $idCreditoBuscado = (int) $soloNumerosBusqueda;
-        }
-
-        $creditos = Credito::query()
-            ->with([
-                'venta.cliente.persona',
-                'clienteCredito.cliente.persona',
-            ])
-            ->where(function ($query) use ($busqueda, $idCreditoBuscado) {
-                if ($idCreditoBuscado) {
-                    $query->where('Id_Credito', $idCreditoBuscado);
+        $clientesCredito = ClienteCredito::query()
+            ->with(['cliente.persona'])
+            ->where(function ($query) use ($busqueda) {
+                if (ctype_digit($busqueda)) {
+                    $query->where('Id_Cliente_Credito', (int) $busqueda)
+                        ->orWhere('Id_Cliente', (int) $busqueda);
                 }
 
-                $query
-                    ->orWhereHas('venta', function ($ventaQuery) use ($busqueda) {
-                        $ventaQuery->where('Numero_Factura', 'like', "%{$busqueda}%");
-
-                        if (ctype_digit($busqueda)) {
-                            $ventaQuery->orWhere('Id_Venta', (int) $busqueda);
-                        }
-                    })
-                    ->orWhereHas('clienteCredito.cliente', function ($clienteQuery) use ($busqueda) {
-                        $this->aplicarFiltroCliente($clienteQuery, $busqueda);
-                    })
-                    ->orWhereHas('venta.cliente', function ($clienteQuery) use ($busqueda) {
-                        $this->aplicarFiltroCliente($clienteQuery, $busqueda);
-                    });
+                $query->orWhereHas('cliente', function ($clienteQuery) use ($busqueda) {
+                    $this->aplicarFiltroCliente($clienteQuery, $busqueda);
+                });
             })
-            ->orderByRaw("
-                CASE
-                    WHEN Estado = ? THEN 1
-                    WHEN Estado = ? THEN 2
-                    WHEN Estado = ? THEN 3
-                    ELSE 4
-                END
-            ", [
-                Credito::ESTADO_PENDIENTE,
-                Credito::ESTADO_PARCIAL,
-                Credito::ESTADO_VENCIDO,
-            ])
-            ->orderByDesc('Id_Credito')
-            ->limit(8)
+            ->orderByDesc('Id_Cliente_Credito')
+            ->limit(12)
             ->get();
 
-        $this->sugerenciasCredito = $creditos
-            ->map(function (Credito $credito) {
-                $credito->loadMissing([
-                    'venta.cliente.persona',
-                    'clienteCredito.cliente.persona',
-                ]);
+        $this->sugerenciasCredito = $clientesCredito
+            ->map(function (ClienteCredito $clienteCredito) {
+                $resumen = $this->resumenClienteCredito($clienteCredito);
 
-                $abonos = $this->obtenerAbonosCredito($credito);
-                $cliente = $credito->clienteCredito?->cliente ?? $credito->venta?->cliente;
-                $saldoPendienteReal = $this->calcularSaldoPendienteReal($credito, $abonos);
+                if ($resumen['saldo_pendiente_valor'] <= 0 || $resumen['creditos_pendientes'] <= 0) {
+                    return null;
+                }
 
                 return [
-                    'id' => (int) $credito->Id_Credito,
-                    'codigo' => 'CR-' . str_pad((string) $credito->Id_Credito, 5, '0', STR_PAD_LEFT),
-                    'cliente' => $this->nombreCliente($cliente),
-                    'documento' => $this->documentoCliente($cliente),
-                    'ubicacion' => $this->ubicacionCliente($cliente),
-                    'factura' => $credito->venta?->Numero_Factura ?: 'Sin factura',
-                    'estado' => (string) ($saldoPendienteReal <= 0 ? Credito::ESTADO_CANCELADO : $credito->Estado),
-                    'saldo' => 'C$ ' . $this->formatoMoneda($saldoPendienteReal),
+                    'id' => (int) $clienteCredito->Id_Cliente_Credito,
+                    'cliente' => $this->nombreCliente($clienteCredito->cliente),
+                    'documento' => $this->documentoCliente($clienteCredito->cliente),
+                    'ubicacion' => $this->ubicacionCliente($clienteCredito->cliente),
+                    'factura' => $resumen['creditos_pendientes'] . ' crédito(s) pendiente(s)',
+                    'estado' => 'CUENTA',
+                    'saldo' => 'C$ ' . $this->formatoMoneda($resumen['saldo_pendiente_valor']),
                 ];
             })
+            ->filter()
+            ->take(8)
             ->values()
             ->toArray();
 
         $this->mostrarSugerenciasCredito = count($this->sugerenciasCredito) > 0;
     }
 
-    public function seleccionarCredito(int $idCredito): void
+    public function seleccionarClienteCredito(int $idClienteCredito): void
     {
-        $credito = Credito::query()
-            ->with([
-                'venta.cliente.persona',
-                'clienteCredito.cliente.persona',
-            ])
-            ->whereKey($idCredito)
+        $clienteCredito = ClienteCredito::query()
+            ->with(['cliente.persona'])
+            ->whereKey($idClienteCredito)
             ->first();
 
-        if (! $credito) {
+        if (! $clienteCredito) {
             $this->limpiarCreditoCargado();
 
             $this->notificar(
                 type: 'error',
-                title: 'Crédito no encontrado',
-                description: 'El crédito seleccionado ya no está disponible.'
+                title: 'Cliente no encontrado',
+                description: 'El cliente seleccionado ya no está disponible.'
             );
 
             return;
         }
 
-        $this->cargarCreditoSeleccionado($credito);
-        $this->valorBusqueda = $this->codigoCredito . ' - ' . $this->cliente;
+        $this->cargarClienteSeleccionado($clienteCredito);
+        $this->valorBusqueda = $this->cliente;
         $this->limpiarSugerenciasCredito();
     }
 
@@ -302,33 +259,31 @@ new class extends Component
     {
         $this->resetErrorBag();
 
-        $this->fechaPago = now()->toDateString();
+        $this->fechaPago = now()->format('Y-m-d H:i:s');
         $this->tasaCambio = $this->obtenerTasaCambioDelDia();
 
         $validator = Validator::make(
             [
-                'idCreditoSeleccionado' => $this->idCreditoSeleccionado,
+                'idClienteCreditoSeleccionado' => $this->idClienteCreditoSeleccionado,
                 'abonarCordobas' => $this->abonarCordobas,
                 'abonarDolares' => $this->abonarDolares,
                 'tasaCambio' => $this->tasaCambio,
                 'metodoPago' => $this->metodoPago,
                 'referenciaPago' => $this->referenciaPago,
-                'fechaPago' => $this->fechaPago,
                 'observacion' => $this->observacion,
             ],
             [
-                'idCreditoSeleccionado' => 'required|integer|exists:credito,Id_Credito',
+                'idClienteCreditoSeleccionado' => 'required|integer|exists:cliente_credito,Id_Cliente_Credito',
                 'abonarCordobas' => 'nullable|numeric|min:0',
                 'abonarDolares' => 'nullable|numeric|min:0',
                 'tasaCambio' => 'nullable|numeric|min:0',
                 'metodoPago' => 'required|in:efectivo,transferencia,tarjeta,deposito',
                 'referenciaPago' => 'nullable|string|max:100',
-                'fechaPago' => 'required|date|before_or_equal:today',
                 'observacion' => 'nullable|string|max:300',
             ],
             [
-                'idCreditoSeleccionado.required' => 'Debe seleccionar un crédito.',
-                'idCreditoSeleccionado.exists' => 'El crédito seleccionado no existe.',
+                'idClienteCreditoSeleccionado.required' => 'Debe seleccionar un cliente con créditos pendientes.',
+                'idClienteCreditoSeleccionado.exists' => 'El cliente seleccionado no tiene cuenta de crédito.',
                 'abonarCordobas.numeric' => 'El abono en córdobas debe ser numérico.',
                 'abonarCordobas.min' => 'El abono en córdobas no puede ser negativo.',
                 'abonarDolares.numeric' => 'El abono en dólares debe ser numérico.',
@@ -338,9 +293,6 @@ new class extends Component
                 'metodoPago.required' => 'Debe seleccionar el método de pago.',
                 'metodoPago.in' => 'El método de pago seleccionado no es válido.',
                 'referenciaPago.max' => 'La referencia no debe superar los 100 caracteres.',
-                'fechaPago.required' => 'Debe indicar la fecha del pago.',
-                'fechaPago.date' => 'La fecha de pago no es válida.',
-                'fechaPago.before_or_equal' => 'La fecha de pago no puede ser futura.',
                 'observacion.max' => 'La observación no debe superar los 300 caracteres.',
             ]
         );
@@ -405,6 +357,8 @@ new class extends Component
 
         $montoAplicadoTotal = 0.0;
         $saldoFavorGenerado = 0.0;
+        $creditosCancelados = 0;
+        $fechaHoraPago = now();
 
         try {
             DB::transaction(function () use (
@@ -413,101 +367,154 @@ new class extends Component
                 $montoDolares,
                 $tasaCambio,
                 $idUsuario,
+                $fechaHoraPago,
                 &$montoAplicadoTotal,
-                &$saldoFavorGenerado
+                &$saldoFavorGenerado,
+                &$creditosCancelados
             ) {
-                $credito = Credito::query()
-                    ->with([
-                        'venta',
-                        'venta.cliente.persona',
-                        'clienteCredito',
-                        'clienteCredito.cliente.persona',
-                    ])
-                    ->whereKey((int) $datos['idCreditoSeleccionado'])
+                $clienteCredito = ClienteCredito::query()
+                    ->with(['cliente.persona'])
+                    ->whereKey((int) $datos['idClienteCreditoSeleccionado'])
                     ->lockForUpdate()
                     ->first();
 
-                if (! $credito) {
+                if (! $clienteCredito) {
                     throw ValidationException::withMessages([
-                        'idCreditoSeleccionado' => 'El crédito seleccionado no existe.',
+                        'idClienteCreditoSeleccionado' => 'El cliente seleccionado no tiene cuenta de crédito.',
                     ]);
                 }
 
-                $clienteCredito = $this->resolverClienteCredito($credito);
+                $idCliente = (int) $clienteCredito->Id_Cliente;
 
-                $abonosPrevios = $this->obtenerAbonosCredito($credito, true);
-                $saldoPendienteReal = $this->calcularSaldoPendienteReal($credito, $abonosPrevios);
+                $creditos = $this->obtenerCreditosCliente(
+                    idCliente: $idCliente,
+                    idClienteCredito: (int) $clienteCredito->Id_Cliente_Credito,
+                    bloquear: true
+                );
 
-                if ((string) $credito->Estado === Credito::ESTADO_CANCELADO || $saldoPendienteReal <= 0) {
-                    $credito->Saldo_Actual = 0;
-                    $credito->Estado = Credito::ESTADO_CANCELADO;
+                $creditosConSaldo = collect();
+                $saldoPendienteCuenta = 0.0;
+
+                foreach ($creditos as $credito) {
+                    $abonosPrevios = $this->obtenerAbonosCredito($credito, true);
+                    $saldoPendienteReal = $this->calcularSaldoPendienteReal($credito, $abonosPrevios);
+
+                    if ($saldoPendienteReal <= 0) {
+                        $credito->Saldo_Actual = 0;
+                        $credito->Estado = Credito::ESTADO_CANCELADO;
+                        $credito->save();
+                        continue;
+                    }
+
+                    if (! $credito->Id_Cliente_Credito) {
+                        $credito->Id_Cliente_Credito = (int) $clienteCredito->Id_Cliente_Credito;
+                    }
+
+                    $credito->Saldo_Actual = $saldoPendienteReal;
+                    $credito->Estado = $this->resolverEstadoCredito($saldoPendienteReal, $credito, $abonosPrevios);
                     $credito->save();
 
+                    $creditosConSaldo->push([
+                        'credito' => $credito,
+                        'saldo' => $saldoPendienteReal,
+                    ]);
+
+                    $saldoPendienteCuenta = round($saldoPendienteCuenta + $saldoPendienteReal, 2);
+                }
+
+                if ($creditosConSaldo->isEmpty() || $saldoPendienteCuenta <= 0) {
                     throw ValidationException::withMessages([
-                        'idCreditoSeleccionado' => 'Este crédito ya está cancelado.',
+                        'idClienteCreditoSeleccionado' => 'Este cliente no tiene créditos pendientes por cancelar.',
                     ]);
                 }
 
-                $credito->Saldo_Actual = $saldoPendienteReal;
-                $credito->Estado = $this->resolverEstadoCredito($saldoPendienteReal, $credito, $abonosPrevios);
-                $credito->save();
-
                 $totalRecibidoCordobas = round($montoCordobas + ($montoDolares * $tasaCambio), 2);
+                $saldoFavorGenerado = max(round($totalRecibidoCordobas - $saldoPendienteCuenta, 2), 0);
 
-                $montoAplicadoTotal = min($totalRecibidoCordobas, $saldoPendienteReal);
-                $saldoFavorGenerado = max(round($totalRecibidoCordobas - $saldoPendienteReal, 2), 0);
+                $bolsasPago = [
+                    [
+                        'moneda' => AbonoCredito::MONEDA_CORDOBA,
+                        'monto_disponible' => $montoCordobas,
+                        'cordobas_disponible' => $montoCordobas,
+                        'tipo_cambio' => 1.0,
+                    ],
+                    [
+                        'moneda' => AbonoCredito::MONEDA_DOLAR,
+                        'monto_disponible' => $montoDolares,
+                        'cordobas_disponible' => round($montoDolares * $tasaCambio, 2),
+                        'tipo_cambio' => $tasaCambio,
+                    ],
+                ];
 
-                $saldoRestanteParaAplicar = $montoAplicadoTotal;
+                foreach ($creditosConSaldo as $item) {
+                    /** @var Credito $credito */
+                    $credito = $item['credito'];
+                    $saldoCredito = round((float) $item['saldo'], 2);
+                    $aplicadoCredito = 0.0;
 
-                if ($montoCordobas > 0 && $saldoRestanteParaAplicar > 0) {
-                    $aplicadoCordobas = min($montoCordobas, $saldoRestanteParaAplicar);
+                    foreach ($bolsasPago as $indice => $bolsa) {
+                        if ($saldoCredito <= 0) {
+                            break;
+                        }
 
-                    $this->crearAbonoCredito(
-                        credito: $credito,
-                        idUsuario: $idUsuario,
-                        moneda: AbonoCredito::MONEDA_CORDOBA,
-                        monto: $aplicadoCordobas,
-                        tipoCambio: 1,
-                        montoEquivalenteCordobas: $aplicadoCordobas,
-                        fechaPago: $datos['fechaPago'],
-                        referencia: $datos['referenciaPago'] ?? null,
-                        metodoPago: $datos['metodoPago'],
-                        observacion: $datos['observacion'] ?? null
-                    );
+                        if ($bolsasPago[$indice]['cordobas_disponible'] <= 0) {
+                            continue;
+                        }
 
-                    $saldoRestanteParaAplicar = round($saldoRestanteParaAplicar - $aplicadoCordobas, 2);
+                        $aplicadoCordobas = min($saldoCredito, $bolsasPago[$indice]['cordobas_disponible']);
+                        $aplicadoCordobas = round($aplicadoCordobas, 2);
+
+                        if ($aplicadoCordobas <= 0) {
+                            continue;
+                        }
+
+                        $montoMoneda = $bolsa['moneda'] === AbonoCredito::MONEDA_DOLAR
+                            ? round($aplicadoCordobas / $tasaCambio, 2)
+                            : $aplicadoCordobas;
+
+                        $this->crearAbonoCredito(
+                            credito: $credito,
+                            idUsuario: $idUsuario,
+                            moneda: $bolsa['moneda'],
+                            monto: $montoMoneda,
+                            tipoCambio: $bolsa['tipo_cambio'],
+                            montoEquivalenteCordobas: $aplicadoCordobas,
+                            fechaPago: $fechaHoraPago,
+                            referencia: $datos['referenciaPago'] ?? null,
+                            metodoPago: $datos['metodoPago'],
+                            observacion: $datos['observacion'] ?? null
+                        );
+
+                        $bolsasPago[$indice]['monto_disponible'] = max(round($bolsasPago[$indice]['monto_disponible'] - $montoMoneda, 2), 0);
+                        $bolsasPago[$indice]['cordobas_disponible'] = max(round($bolsasPago[$indice]['cordobas_disponible'] - $aplicadoCordobas, 2), 0);
+
+                        $saldoCredito = max(round($saldoCredito - $aplicadoCordobas, 2), 0);
+                        $aplicadoCredito = round($aplicadoCredito + $aplicadoCordobas, 2);
+                        $montoAplicadoTotal = round($montoAplicadoTotal + $aplicadoCordobas, 2);
+                    }
+
+                    if ($aplicadoCredito > 0) {
+                        $nuevoSaldoCredito = max(round((float) $item['saldo'] - $aplicadoCredito, 2), 0);
+
+                        $credito->Saldo_Actual = $nuevoSaldoCredito;
+                        $credito->Estado = $nuevoSaldoCredito <= 0
+                            ? Credito::ESTADO_CANCELADO
+                            : Credito::ESTADO_PARCIAL;
+                        $credito->save();
+
+                        if ($nuevoSaldoCredito <= 0) {
+                            $creditosCancelados++;
+                        }
+                    }
                 }
 
-                if ($montoDolares > 0 && $saldoRestanteParaAplicar > 0) {
-                    $montoDolaresCordobas = round($montoDolares * $tasaCambio, 2);
-                    $aplicadoDolaresCordobas = min($montoDolaresCordobas, $saldoRestanteParaAplicar);
-                    $aplicadoDolares = round($aplicadoDolaresCordobas / $tasaCambio, 2);
-
-                    $this->crearAbonoCredito(
-                        credito: $credito,
-                        idUsuario: $idUsuario,
-                        moneda: AbonoCredito::MONEDA_DOLAR,
-                        monto: $aplicadoDolares,
-                        tipoCambio: $tasaCambio,
-                        montoEquivalenteCordobas: $aplicadoDolaresCordobas,
-                        fechaPago: $datos['fechaPago'],
-                        referencia: $datos['referenciaPago'] ?? null,
-                        metodoPago: $datos['metodoPago'],
-                        observacion: $datos['observacion'] ?? null
-                    );
-
-                    $saldoRestanteParaAplicar = round($saldoRestanteParaAplicar - $aplicadoDolaresCordobas, 2);
+                if ($montoAplicadoTotal <= 0) {
+                    throw ValidationException::withMessages([
+                        'abonarCordobas' => 'No se pudo aplicar el monto recibido a los créditos pendientes.',
+                    ]);
                 }
 
-                $nuevoSaldoCredito = max(round($saldoPendienteReal - $montoAplicadoTotal, 2), 0);
-
-                $credito->Saldo_Actual = $nuevoSaldoCredito;
-                $credito->Estado = $nuevoSaldoCredito <= 0
-                    ? Credito::ESTADO_CANCELADO
-                    : Credito::ESTADO_PARCIAL;
-                $credito->save();
-
-                if ($clienteCredito && $saldoFavorGenerado > 0) {
+                if ($saldoFavorGenerado > 0) {
                     $this->sumarSaldoFavorClienteCredito(
                         clienteCredito: $clienteCredito,
                         saldoFavorGenerado: $saldoFavorGenerado
@@ -524,15 +531,21 @@ new class extends Component
             $this->notificar(
                 type: 'error',
                 title: 'No se pudo registrar',
-                description: collect($e->errors())->flatten()->first() ?? 'Revisa los datos del crédito.'
+                description: collect($e->errors())->flatten()->first() ?? 'Revisa los datos del cliente.'
             );
 
             return;
         }
 
-        $mensaje = $saldoFavorGenerado > 0
-            ? 'Pago guardado. Saldo a favor: C$ ' . $this->formatoMoneda($saldoFavorGenerado) . '.'
-            : 'Pago guardado correctamente.';
+        $mensaje = 'Pago guardado. Aplicado: C$ ' . $this->formatoMoneda($montoAplicadoTotal) . '.';
+
+        if ($creditosCancelados > 0) {
+            $mensaje .= ' Créditos cancelados: ' . $creditosCancelados . '.';
+        }
+
+        if ($saldoFavorGenerado > 0) {
+            $mensaje .= ' Saldo a favor: C$ ' . $this->formatoMoneda($saldoFavorGenerado) . '.';
+        }
 
         $this->limpiarBusqueda();
         $this->cargarClientesSaldoFavor();
@@ -609,46 +622,66 @@ new class extends Component
         return (int) $usuario->Id_Usuario;
     }
 
-    protected function resolverClienteCredito(Credito $credito): ?ClienteCredito
+    protected function obtenerCreditosCliente(int $idCliente, int $idClienteCredito = 0, bool $bloquear = false)
     {
-        if ($credito->Id_Cliente_Credito) {
-            $clienteCredito = ClienteCredito::query()
-                ->whereKey((int) $credito->Id_Cliente_Credito)
-                ->lockForUpdate()
-                ->first();
+        $query = Credito::query()
+            ->with(['venta', 'venta.cliente.persona', 'clienteCredito', 'clienteCredito.cliente.persona'])
+            ->where(function ($query) use ($idCliente, $idClienteCredito) {
+                if ($idClienteCredito > 0) {
+                    $query->where('Id_Cliente_Credito', $idClienteCredito);
+                }
 
-            if ($clienteCredito) {
-                $credito->setRelation('clienteCredito', $clienteCredito);
-                return $clienteCredito;
+                $query->orWhereHas('venta', function ($ventaQuery) use ($idCliente) {
+                    $ventaQuery->where('Id_Cliente', $idCliente);
+                });
+            })
+            ->where(function ($query) {
+                $query->whereNull('Estado')
+                    ->orWhereIn('Estado', [
+                        Credito::ESTADO_PENDIENTE,
+                        Credito::ESTADO_PARCIAL,
+                        Credito::ESTADO_VENCIDO,
+                    ]);
+            })
+            ->orderBy('Fecha_Credito')
+            ->orderBy('Id_Credito');
+
+        if ($bloquear) {
+            $query->lockForUpdate();
+        }
+
+        return $query->get();
+    }
+
+    protected function resumenClienteCredito(ClienteCredito $clienteCredito): array
+    {
+        $creditos = $this->obtenerCreditosCliente(
+            idCliente: (int) $clienteCredito->Id_Cliente,
+            idClienteCredito: (int) $clienteCredito->Id_Cliente_Credito
+        );
+
+        $saldoOriginal = 0.0;
+        $saldoPendiente = 0.0;
+        $creditosPendientes = 0;
+
+        foreach ($creditos as $credito) {
+            $abonos = $this->obtenerAbonosCredito($credito);
+            $pendiente = $this->calcularSaldoPendienteReal($credito, $abonos);
+
+            if ($pendiente <= 0) {
+                continue;
             }
+
+            $saldoOriginal = round($saldoOriginal + $this->calcularTotalCreditoBase($credito, $abonos), 2);
+            $saldoPendiente = round($saldoPendiente + $pendiente, 2);
+            $creditosPendientes++;
         }
 
-        $idCliente = $credito->venta?->Id_Cliente;
-
-        if (! $idCliente) {
-            return null;
-        }
-
-        $clienteCredito = ClienteCredito::query()
-            ->where('Id_Cliente', (int) $idCliente)
-            ->lockForUpdate()
-            ->first();
-
-        if (! $clienteCredito) {
-            $clienteCredito = ClienteCredito::query()->create([
-                'Id_Cliente' => (int) $idCliente,
-                'Saldo_Actual' => 0,
-                'Estado' => ClienteCredito::ESTADO_ACTIVO,
-                'Fecha_Registro' => now(),
-            ]);
-        }
-
-        $credito->Id_Cliente_Credito = (int) $clienteCredito->Id_Cliente_Credito;
-        $credito->save();
-
-        $credito->setRelation('clienteCredito', $clienteCredito);
-
-        return $clienteCredito;
+        return [
+            'saldo_original_valor' => $saldoOriginal,
+            'saldo_pendiente_valor' => $saldoPendiente,
+            'creditos_pendientes' => $creditosPendientes,
+        ];
     }
 
     protected function resolverEstadoCredito(float $saldoPendiente, Credito $credito, $abonosPrevios): string
@@ -671,7 +704,7 @@ new class extends Component
         float $monto,
         float $tipoCambio,
         float $montoEquivalenteCordobas,
-        string $fechaPago,
+        Carbon|string $fechaPago,
         ?string $referencia,
         string $metodoPago,
         ?string $observacion
@@ -783,69 +816,61 @@ new class extends Component
         $clienteCredito->save();
     }
 
-    protected function cargarCreditoSeleccionado(Credito $credito): void
+    protected function cargarClienteSeleccionado(ClienteCredito $clienteCredito): void
     {
-        $credito->loadMissing([
-            'venta',
-            'venta.cliente.persona',
-            'clienteCredito.cliente.persona',
-        ]);
+        $clienteCredito->loadMissing(['cliente.persona']);
 
-        $abonos = $this->obtenerAbonosCredito($credito);
+        $resumen = $this->resumenClienteCredito($clienteCredito);
+        $creditos = $this->obtenerCreditosCliente(
+            idCliente: (int) $clienteCredito->Id_Cliente,
+            idClienteCredito: (int) $clienteCredito->Id_Cliente_Credito
+        );
 
-        $cliente = $credito->clienteCredito?->cliente ?? $credito->venta?->cliente;
-
-        $saldoOriginal = $this->calcularTotalCreditoBase($credito, $abonos);
-        $saldoPendienteReal = $this->calcularSaldoPendienteReal($credito, $abonos);
-
-        $this->idCreditoSeleccionado = (int) $credito->Id_Credito;
-        $this->cliente = $this->nombreCliente($cliente);
-        $this->cedula = $this->documentoCliente($cliente);
-        $this->codigoCredito = 'CR-' . str_pad((string) $credito->Id_Credito, 5, '0', STR_PAD_LEFT);
-        $this->estadoCredito = $saldoPendienteReal <= 0
+        $this->idClienteSeleccionado = (int) $clienteCredito->Id_Cliente;
+        $this->idClienteCreditoSeleccionado = (int) $clienteCredito->Id_Cliente_Credito;
+        $this->cliente = $this->nombreCliente($clienteCredito->cliente);
+        $this->cedula = $this->documentoCliente($clienteCredito->cliente);
+        $this->codigoCredito = 'Cuenta #' . str_pad((string) $clienteCredito->Id_Cliente_Credito, 5, '0', STR_PAD_LEFT);
+        $this->estadoCredito = $resumen['saldo_pendiente_valor'] <= 0
             ? Credito::ESTADO_CANCELADO
-            : ($credito->Estado ?: Credito::ESTADO_PENDIENTE);
-        $this->fechaCredito = $this->formatearFecha($credito->Fecha_Credito);
+            : Credito::ESTADO_PENDIENTE;
+        $this->fechaCredito = $this->formatearFecha($creditos->min('Fecha_Credito'));
         $this->proximoPago = '—';
+        $this->totalCreditosPendientes = (int) $resumen['creditos_pendientes'];
 
-        $this->saldoOriginal = $this->formatoMoneda($saldoOriginal);
-        $this->saldoPendiente = $this->formatoMoneda($saldoPendienteReal);
+        $this->saldoOriginal = $this->formatoMoneda($resumen['saldo_original_valor']);
+        $this->saldoPendiente = $this->formatoMoneda($resumen['saldo_pendiente_valor']);
 
-        $this->detalleCredito = $this->mapearDetalleCredito($credito, $abonos);
+        $this->detalleCredito = $this->mapearDetalleCreditosCliente($creditos);
 
         $this->limpiarPago();
         $this->calcularSaldoFavorVista();
     }
 
-    protected function mapearDetalleCredito(Credito $credito, $abonos = null): array
+    protected function mapearDetalleCreditosCliente($creditos): array
     {
         $filas = [];
 
-        if ((float) $credito->Abono_Inicial > 0) {
+        foreach ($creditos as $credito) {
+            $abonos = $this->obtenerAbonosCredito($credito);
+            $pendiente = $this->calcularSaldoPendienteReal($credito, $abonos);
+
+            if ($pendiente <= 0) {
+                continue;
+            }
+
+            $total = $this->calcularTotalCreditoBase($credito, $abonos);
+            $abonado = max(round($total - $pendiente, 2), 0);
+            $estado = $pendiente <= 0 ? Credito::ESTADO_CANCELADO : ($credito->Estado ?: Credito::ESTADO_PENDIENTE);
+
             $filas[] = [
-                'numero' => 1,
-                'fecha_pago' => $this->formatearFecha($credito->Fecha_Credito),
-                'monto' => 'C$ ' . $this->formatoMoneda((float) $credito->Abono_Inicial),
-                'moneda' => 'NIO',
-                'referencia' => 'Abono inicial',
-                'observacion' => 'Pago inicial registrado al crear el crédito',
-                'estado' => 'Inicial',
-            ];
-        }
-
-        $abonos = $abonos ?? $this->obtenerAbonosCredito($credito);
-
-        $numero = count($filas) + 1;
-
-        foreach ($abonos as $abono) {
-            $filas[] = [
-                'numero' => $numero++,
-                'fecha_pago' => $this->formatearFecha($abono->Fecha_Abono),
-                'monto' => 'C$ ' . $this->formatoMoneda((float) $abono->Monto_Equivalente_Cordobas),
-                'moneda' => $abono->moneda_nombre ?? (string) $abono->Moneda,
-                'referencia' => $abono->Numero_Transferencia ?: '—',
-                'observacion' => $abono->Observacion ?: '—',
-                'estado' => 'Abono',
+                'codigo' => 'CR-' . str_pad((string) $credito->Id_Credito, 5, '0', STR_PAD_LEFT),
+                'fecha_credito' => $this->formatearFecha($credito->Fecha_Credito),
+                'factura' => $credito->venta?->Numero_Factura ?: 'Sin factura',
+                'total' => 'C$ ' . $this->formatoMoneda($total),
+                'abonado' => 'C$ ' . $this->formatoMoneda($abonado),
+                'pendiente' => 'C$ ' . $this->formatoMoneda($pendiente),
+                'estado' => $estado,
             ];
         }
 
@@ -914,7 +939,8 @@ new class extends Component
 
     protected function limpiarCreditoCargado(bool $limpiarPago = true): void
     {
-        $this->idCreditoSeleccionado = 0;
+        $this->idClienteSeleccionado = 0;
+        $this->idClienteCreditoSeleccionado = 0;
         $this->cliente = '';
         $this->cedula = '';
         $this->codigoCredito = '';
@@ -923,6 +949,7 @@ new class extends Component
         $this->proximoPago = '';
         $this->saldoOriginal = '0.00';
         $this->saldoPendiente = '0.00';
+        $this->totalCreditosPendientes = 0;
         $this->detalleCredito = [];
 
         if ($limpiarPago) {
@@ -932,12 +959,12 @@ new class extends Component
 
     public function limpiarPago(bool $limpiarSaldoFavor = true): void
     {
-        $this->abonarCordobas = '0.00';
-        $this->abonarDolares = '0.00';
+        $this->abonarCordobas = '';
+        $this->abonarDolares = '';
         $this->tasaCambio = $this->obtenerTasaCambioDelDia();
         $this->referenciaPago = '';
         $this->observacion = '';
-        $this->fechaPago = now()->toDateString();
+        $this->fechaPago = now()->format('Y-m-d H:i:s');
 
         if ($limpiarSaldoFavor) {
             $this->saldoFavorVista = '0.00';
@@ -1078,11 +1105,11 @@ new class extends Component
 
     $readonlyFieldClass = 'rounded-xl border-[#D7E4F3] bg-[#EEF3F8] font-semibold text-[#1A2B42] [&_.fieldset-legend]:text-[#1A2B42] [&_.label]:text-[#1A2B42] [&_label]:text-[#1A2B42]';
 
-    $cardClass = 'border border-[#D7E4F3] bg-white shadow-sm [&_.text-base-content\\/70]:text-[#5F6B7A] [&_.text-sm]:text-[#5F6B7A] [&_.text-base-content]:text-[#1A2B42] [&_.card-title]:text-[#1A2B42] [&_label]:text-[#1A2B42] [&_.fieldset-legend]:text-[#1A2B42]';
+    $cardClass = 'border border-[#D7E4F3] bg-white shadow-sm [&_.text-base-content\/70]:text-[#5F6B7A] [&_.text-sm]:text-[#5F6B7A] [&_.text-base-content]:text-[#1A2B42] [&_.card-title]:text-[#1A2B42] [&_label]:text-[#1A2B42] [&_.fieldset-legend]:text-[#1A2B42]';
 
     $primaryButtonClass = 'btn-sm border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4] disabled:border-0 disabled:bg-[#B8CADB] disabled:text-white';
 
-    $pagoBloqueado = $idCreditoSeleccionado === 0
+    $pagoBloqueado = $idClienteCreditoSeleccionado === 0
         || $estadoCredito === \App\Models\Credito::ESTADO_CANCELADO
         || (float) str_replace(',', '', $saldoPendiente) <= 0;
 
@@ -1102,21 +1129,21 @@ new class extends Component
     <div class="flex shrink-0 items-center justify-between">
         <h1 class="text-2xl font-bold text-[#1A2B42]">Gestión de Créditos</h1>
 
-        @if ($idCreditoSeleccionado > 0)
+        @if ($idClienteCreditoSeleccionado > 0)
             <span class="rounded-full border border-[#B7D6F2] bg-[#EAF4FD] px-3 py-1.5 text-xs font-semibold text-[#0B6FE4]">
-                {{ $codigoCredito }}
+                {{ $codigoCredito }} · {{ $totalCreditosPendientes }} crédito(s)
             </span>
         @endif
     </div>
 
     <div class="grid min-h-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div class="flex min-h-0 flex-col gap-4 overflow-hidden">
-            <x-card title="Buscar crédito" shadow separator class="{{ $cardClass }}">
+            <x-card title="Buscar cliente con crédito" shadow separator class="{{ $cardClass }}">
                 <div class="relative">
                     <x-input
-                        label="Cliente, crédito o venta"
+                        label="Cliente"
                         wire:model.live.debounce.300ms="valorBusqueda"
-                        placeholder="Ej: Juan Pérez, Comercial Norte, CR-00025 o FV-00025"
+                        placeholder="Ej: Comercial Norte, Juan Pérez, cédula, RUC o teléfono"
                         icon="o-magnifying-glass"
                         autocomplete="off"
                         class="{{ $fieldClass }}"
@@ -1127,7 +1154,7 @@ new class extends Component
                             @foreach ($sugerenciasCredito as $sugerencia)
                                 <button
                                     type="button"
-                                    wire:click="seleccionarCredito({{ $sugerencia['id'] }})"
+                                    wire:click="seleccionarClienteCredito({{ $sugerencia['id'] }})"
                                     class="block w-full border-b border-[#EEF3F8] px-4 py-3 text-left last:border-b-0 hover:bg-[#EAF4FD]"
                                 >
                                     <div class="flex items-start justify-between gap-3">
@@ -1141,7 +1168,7 @@ new class extends Component
                                             </p>
 
                                             <p class="mt-1 truncate text-xs text-[#5F6B7A]">
-                                                {{ $sugerencia['codigo'] }} · {{ $sugerencia['factura'] }}
+                                                {{ $sugerencia['factura'] }}
                                             </p>
                                         </div>
 
@@ -1151,7 +1178,7 @@ new class extends Component
                                             </p>
 
                                             <span class="mt-1 inline-flex rounded-full bg-[#EAF4FD] px-2 py-0.5 text-[11px] font-bold text-[#0B6FE4]">
-                                                {{ ucfirst(strtolower($sugerencia['estado'])) }}
+                                                Cuenta
                                             </span>
                                         </div>
                                     </div>
@@ -1169,20 +1196,20 @@ new class extends Component
                     </div>
 
                     <div class="min-w-0 rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
-                        <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Crédito</p>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Cuenta</p>
                         <p class="mt-1 truncate text-sm font-bold text-[#1A2B42]">{{ $codigoCredito ?: '—' }}</p>
-                        <p class="mt-1 text-xs text-[#5F6B7A]">Fecha: {{ $fechaCredito ?: '—' }}</p>
+                        <p class="mt-1 text-xs text-[#5F6B7A]">Créditos pendientes: {{ $totalCreditosPendientes }}</p>
                     </div>
 
                     <div class="min-w-0 rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
-                        <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Saldo original</p>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Total original</p>
                         <p class="mt-1 text-base font-black text-[#1A2B42]">C$ {{ $saldoOriginal }}</p>
                     </div>
 
                     <div class="min-w-0 rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
                         <div class="flex items-start justify-between gap-2">
                             <div class="min-w-0">
-                                <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Pendiente</p>
+                                <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Total pendiente</p>
                                 <p class="mt-1 text-base font-black text-[#1A2B42]">C$ {{ $saldoPendiente }}</p>
                             </div>
 
@@ -1194,30 +1221,18 @@ new class extends Component
                 </div>
             </x-card>
 
-            <x-card title="Detalle del crédito" shadow separator class="flex min-h-0 flex-1 flex-col {{ $cardClass }}">
+            <x-card title="Créditos pendientes del cliente" shadow separator class="flex min-h-0 flex-1 flex-col {{ $cardClass }}">
                 <div class="min-h-[230px] max-h-[360px] overflow-hidden rounded-2xl border border-[#D7E4F3]">
                     <div class="h-full max-h-[360px] overflow-auto overscroll-contain">
                         <x-table
                             :headers="$headersDetalle"
                             :rows="$detalleCredito"
                             no-hover
-                            class="min-w-[960px] [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_td]:border-[#D7E4F3] [&_tbody_td]:text-[#1A2B42] [&_tbody_tr:hover]:!bg-[#EAF4FD]"
+                            class="min-w-[980px] [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_td]:border-[#D7E4F3] [&_tbody_td]:text-[#1A2B42] [&_tbody_tr:hover]:!bg-[#EAF4FD]"
                         >
                             @scope('cell_estado', $fila)
-                                <span class="{{ $fila['estado'] === 'Inicial' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">
-                                    {{ $fila['estado'] }}
-                                </span>
-                            @endscope
-
-                            @scope('cell_observacion', $fila)
-                                <span class="block max-w-[260px] truncate" title="{{ $fila['observacion'] }}">
-                                    {{ $fila['observacion'] }}
-                                </span>
-                            @endscope
-
-                            @scope('cell_referencia', $fila)
-                                <span class="block max-w-[160px] truncate" title="{{ $fila['referencia'] }}">
-                                    {{ $fila['referencia'] }}
+                                <span class="{{ $fila['estado'] === \App\Models\Credito::ESTADO_VENCIDO ? 'bg-red-100 text-red-700' : 'bg-[#EAF4FD] text-[#0B6FE4]' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">
+                                    {{ ucfirst(strtolower($fila['estado'])) }}
                                 </span>
                             @endscope
                         </x-table>
@@ -1227,11 +1242,11 @@ new class extends Component
         </div>
 
         <aside class="flex min-h-0 flex-col gap-4 overflow-hidden xl:sticky xl:top-4 xl:max-h-[calc(100vh-5rem)]">
-            <x-card title="Registrar pago" shadow separator class="{{ $cardClass }}">
+            <x-card title="Registrar pago a cuenta" shadow separator class="{{ $cardClass }}">
                 <x-form wire:submit="registrarPago" no-separator>
                     <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
                         <x-input
-                            label="Saldo pendiente"
+                            label="Total pendiente"
                             wire:model="saldoPendiente"
                             prefix="C$"
                             readonly
@@ -1249,20 +1264,24 @@ new class extends Component
                         <x-input
                             label="Abonar en C$"
                             wire:model.live.debounce.250ms="abonarCordobas"
+                            placeholder="0.00"
+                            type="number"
+                            step="0.01"
+                            inputmode="decimal"
                             prefix="C$"
                             :disabled="$pagoBloqueado"
-                            x-on:focus="$event.target.select()"
-                            x-on:mouseup.prevent
                             class="{{ $fieldClass }}"
                         />
 
                         <x-input
                             label="Abonar en US$"
                             wire:model.live.debounce.250ms="abonarDolares"
+                            placeholder="0.00"
+                            type="number"
+                            step="0.01"
+                            inputmode="decimal"
                             prefix="US$"
                             :disabled="$pagoBloqueado"
-                            x-on:focus="$event.target.select()"
-                            x-on:mouseup.prevent
                             class="{{ $fieldClass }}"
                         />
 
