@@ -2402,6 +2402,9 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                         Crédito
                     </button>
 
+                    <x-button icon="o-folder-open" label="Buscar pendientes" wire:click="abrirPendientes"
+                        class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-bold text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]" />
+
                     <x-button icon="o-document-plus" label="Nuevo" wire:click="nuevoIngreso"
                         class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-bold text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]" />
                 </div>
@@ -2734,65 +2737,7 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                 <div class="space-y-4">
 
                     <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
-                        <div class="mb-3 flex items-start justify-between gap-3">
-                            <div>
-                                <h2 class="text-lg font-black text-[#1A2B42]">Pendientes rápidos</h2>
-                                <p class="text-sm text-[#5F6B7A]">Buscá y cargá sin abrir otra ventana.</p>
-                            </div>
-
-                            <span class="rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-black text-[#0B6FE4]">
-                                {{ count($serviciosPendientes) }}
-                            </span>
-                        </div>
-
-                        <x-input wire:model.live.debounce.350ms="filtroPendientes" icon="o-magnifying-glass"
-                            placeholder="Orden, cliente, equipo..."
-                            class="mb-3 h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
-
-                        <div class="space-y-2">
-                            @forelse(array_slice($serviciosPendientes, 0, 7) as $item)
-                            <button type="button" wire:click="cargarPendiente({{ $item['id'] }}, false)"
-                                class="w-full rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3 text-left transition hover:border-[#2E8BC0] hover:bg-[#EAF2FB]">
-                                <div class="flex items-start justify-between gap-2">
-                                    <div class="min-w-0">
-                                        <p class="truncate text-sm font-black text-[#1A2B42]">
-                                            {{ $item['numero'] }}
-                                        </p>
-
-                                        <p class="truncate text-xs font-semibold text-[#5F6B7A]">
-                                            {{ $item['cliente'] }}
-                                        </p>
-                                    </div>
-
-                                    <span
-                                        class="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] font-black text-[#0B6FE4] ring-1 ring-[#D7E4F3]">
-                                        {{ $this->estadoNombre($item['estado']) }}
-                                    </span>
-                                </div>
-
-                                <div class="mt-2 flex items-center justify-between gap-3">
-                                    <p class="truncate text-xs text-[#5F6B7A]">{{ $item['equipo'] }}</p>
-                                    <p class="shrink-0 text-xs font-black text-[#1A2B42]">
-                                        C$ {{ number_format((float) ($item['saldo'] ?? $item['total']), 2) }}
-                                    </p>
-                                </div>
-                            </button>
-                            @empty
-                            <div
-                                class="rounded-2xl border border-dashed border-[#D7E4F3] bg-[#F7F9FC] px-4 py-8 text-center">
-                                <p class="text-sm font-bold text-[#1A2B42]">Sin pendientes</p>
-                                <p class="text-xs text-[#5F6B7A]">No hay resultados con ese filtro.</p>
-                            </div>
-                            @endforelse
-                        </div>
-
-                        <x-button icon="o-folder-open" label="Abrir listado completo" wire:click="abrirPendientes"
-                            class="mt-3 h-10 min-h-10 w-full rounded-xl border border-[#D7E4F3] bg-white text-sm font-bold text-[#1A2B42] hover:bg-[#F7F9FC]" />
-                    </x-card>
-
-                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
-                        <h2 class="text-lg font-black text-[#1A2B42]">Resumen</h2>
-                        <p class="mb-3 text-sm text-[#5F6B7A]">Vista rápida antes de guardar.</p>
+                        <h2 class="mb-3 text-lg font-black text-[#1A2B42]">Resumen</h2>
 
                         <div class="grid grid-cols-2 gap-3">
                             <div class="rounded-2xl bg-[#F7F9FC] p-3">
@@ -2825,13 +2770,7 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                         </div>
 
                         <div class="mt-3 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3">
-                            <div class="mb-3 flex items-center justify-between gap-2">
-                                <div>
-                                    <h3 class="text-sm font-black text-[#1A2B42]">Pago recibido</h3>
-                                    <p class="text-xs text-[#5F6B7A]">Guarda C$ y US$ separados; el cambio queda en C$.
-                                    </p>
-                                </div>
-                            </div>
+                            <h3 class="mb-3 text-sm font-black text-[#1A2B42]">Pago recibido</h3>
 
                             <div class="grid grid-cols-1 gap-2">
                                 <div>
@@ -2839,8 +2778,6 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                                         actual</label>
                                     <x-input wire:model.live.debounce.250ms="tipoCambio" type="text" inputmode="decimal"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
-                                    <p class="mt-1 text-[11px] font-semibold text-[#5F6B7A]">Se carga desde la última
-                                        tasa registrada al abrir/actualizar caja.</p>
                                 </div>
 
                                 <div class="grid grid-cols-2 gap-2">
@@ -2950,24 +2887,31 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                             wire:click="guardar" spinner="guardar"
                             class="mt-3 h-11 min-h-11 w-full rounded-xl border-0 bg-[#2E8BC0] text-sm font-black text-white hover:bg-[#0B6FE4]" />
                     </x-card>
+
+
                 </div>
             </div>
         </div>
     </div>
 
-    <x-modal wire:model="modalPendientes" title="Servicios técnicos pendientes" separator class="backdrop-blur"
-        box-class="w-[95vw] max-w-6xl">
-        <div class="space-y-3">
+    <x-modal wire:model="modalPendientes" class="backdrop-blur-sm"
+        box-class="w-[96vw] max-w-7xl max-h-[90vh] overflow-hidden rounded-3xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
+        <div class="flex max-h-[86vh] flex-col gap-3">
+            <div
+                class="flex flex-col gap-3 border-b border-[#D7E4F3] pb-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                    <h3 class="text-2xl font-black text-[#1A2B42]">Servicios técnicos pendientes</h3>
+                </div>
+
+                <span class="w-fit rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-black text-[#0B6FE4]">
+                    Página {{ $paginaPendientes }} / {{ $totalPaginasPendientes }}
+                </span>
+            </div>
             <x-input wire:model.live.debounce.350ms="filtroPendientes" icon="o-magnifying-glass"
                 placeholder="Buscar por orden, cliente, equipo, marca o modelo..."
                 class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
 
-            <div
-                class="flex flex-col gap-2 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] px-3 py-2 text-xs text-[#5F6B7A] md:flex-row md:items-center md:justify-between">
-                <span>
-                    Mostrando página {{ $paginaPendientes }} de {{ $totalPaginasPendientes }} · {{ $totalPendientes }}
-                    pendiente(s) encontrado(s).
-                </span>
+            <div class="flex justify-end rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] px-3 py-2">
                 <div class="flex gap-2">
                     <x-button icon="o-chevron-left" label="Anterior" wire:click="paginaAnteriorPendientes"
                         :disabled="$paginaPendientes <= 1"
@@ -2978,7 +2922,7 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                 </div>
             </div>
 
-            <div class="max-h-[60vh] overflow-auto rounded-2xl border border-[#D7E4F3]">
+            <div class="min-h-0 flex-1 overflow-auto rounded-2xl border border-[#D7E4F3]">
                 <table class="w-full min-w-190 text-left text-sm">
                     <thead class="sticky top-0 z-10 bg-[#2E8BC0] text-white">
                         <tr>
@@ -3028,8 +2972,8 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
         </x-slot:actions>
     </x-modal>
 
-    <x-modal wire:model="modalClientes" title="Listado completo de clientes" separator class="backdrop-blur"
-        box-class="w-[95vw] max-w-5xl">
+    <x-modal wire:model="modalClientes" title="Listado completo de clientes" separator class="backdrop-blur-sm"
+        box-class="w-[95vw] max-w-5xl rounded-3xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
         <div class="space-y-3">
             <x-input wire:model.live.debounce.350ms="filtroListadoClientes" icon="o-magnifying-glass"
                 placeholder="Buscar por nombre, institución, teléfono o código..."
@@ -3088,7 +3032,8 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
     </x-modal>
 
     <x-modal wire:model="modalProductos" title="Listado completo de productos disponibles" separator
-        class="backdrop-blur" box-class="w-[95vw] max-w-5xl">
+        class="backdrop-blur-sm"
+        box-class="w-[95vw] max-w-5xl rounded-3xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
         <div class="space-y-3">
             <x-input wire:model.live.debounce.350ms="filtroListadoProductos" icon="o-magnifying-glass"
                 placeholder="Buscar por producto, marca, modelo o código..."
