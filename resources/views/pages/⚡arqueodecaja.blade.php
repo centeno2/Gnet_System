@@ -25,6 +25,7 @@ new class extends Component
     public ?int $aperturaCajaId = null;
 
     public string $montoApertura = '0.00';
+    public string $montoAperturaFormulario = '';
     public string $tasaOficial = '0.00';
     public string $nuevaTasaOficial = '';
     public string $tasaCambioApertura = '';
@@ -141,6 +142,21 @@ new class extends Component
         $this->descripcionEgreso = '';
     }
 
+    private function limpiarFormularioApertura(bool $recargarCajaReal = false): void
+    {
+        $this->resetValidation([
+            'montoAperturaFormulario',
+            'tasaCambioApertura',
+        ]);
+
+        $this->montoAperturaFormulario = '';
+        $this->tasaCambioApertura = '';
+
+        if ($recargarCajaReal) {
+            $this->cargarAperturaAbierta();
+        }
+    }
+
     private function reiniciarConteos(): void
     {
         foreach ($this->denominacionesCordobas as $denominacion) {
@@ -150,6 +166,36 @@ new class extends Component
         foreach ($this->denominacionesDolares as $denominacion) {
             $this->conteoDolares[$denominacion] = 0;
         }
+    }
+
+    public function updatedConteoCordobas($valor, $denominacion): void
+    {
+        $denominacion = (int) $denominacion;
+
+        if (! in_array($denominacion, $this->denominacionesCordobas, true)) {
+            return;
+        }
+
+        $limpio = preg_replace('/[^0-9]/', '', (string) $valor);
+
+        $this->conteoCordobas[$denominacion] = $limpio === ''
+            ? 0
+            : (int) $limpio;
+    }
+
+    public function updatedConteoDolares($valor, $denominacion): void
+    {
+        $denominacion = (int) $denominacion;
+
+        if (! in_array($denominacion, $this->denominacionesDolares, true)) {
+            return;
+        }
+
+        $limpio = preg_replace('/[^0-9]/', '', (string) $valor);
+
+        $this->conteoDolares[$denominacion] = $limpio === ''
+            ? 0
+            : (int) $limpio;
     }
 
     private function conteosMonedasValidos(): bool
@@ -184,6 +230,13 @@ new class extends Component
         }
 
         return false;
+    }
+
+    public function updatedAbrirCajaModal(bool $abierto): void
+    {
+        if (! $abierto) {
+            $this->limpiarFormularioApertura(true);
+        }
     }
 
     private function rangoCajaActual(): ?array
@@ -395,17 +448,14 @@ new class extends Component
         $this->cargarTasaCambio();
 
         $this->caja = (string) AperturaCaja::siguienteNumeroCajaHoy();
-        $this->montoApertura = '';
-        $this->tasaCambioApertura = '';
+        $this->limpiarFormularioApertura(false);
 
         $this->abrirCajaModal = true;
     }
 
     public function cerrarModalCaja(): void
     {
-        $this->resetValidation();
-
-        $this->tasaCambioApertura = '';
+        $this->limpiarFormularioApertura(true);
         $this->abrirCajaModal = false;
     }
 
@@ -450,12 +500,12 @@ new class extends Component
     public function guardarApertura(): void
     {
         $this->validate([
-            'montoApertura' => ['required', 'numeric', 'min:0.01'],
+            'montoAperturaFormulario' => ['required', 'numeric', 'min:0.01'],
             'tasaCambioApertura' => ['nullable', 'numeric', 'min:0.01'],
         ], [
-            'montoApertura.required' => 'El monto de apertura es obligatorio.',
-            'montoApertura.numeric' => 'El monto de apertura debe ser numérico.',
-            'montoApertura.min' => 'El monto de apertura debe ser mayor a C$ 0.00.',
+            'montoAperturaFormulario.required' => 'El monto de apertura es obligatorio.',
+            'montoAperturaFormulario.numeric' => 'El monto de apertura debe ser numérico.',
+            'montoAperturaFormulario.min' => 'El monto de apertura debe ser mayor a C$ 0.00.',
 
             'tasaCambioApertura.numeric' => 'La tasa de cambio debe ser numérica.',
             'tasaCambioApertura.min' => 'La tasa de cambio debe ser mayor a 0.',
@@ -464,7 +514,7 @@ new class extends Component
         $usuarioId = $this->usuarioActualId();
 
         if (! $usuarioId) {
-            $this->addError('montoApertura', 'No se pudo identificar al usuario en sesión.');
+            $this->addError('montoAperturaFormulario', 'No se pudo identificar al usuario en sesión.');
             return;
         }
 
@@ -504,7 +554,7 @@ new class extends Component
                 $apertura = AperturaCaja::create([
                     'Id_Usuario' => $usuarioId,
                     'Numero_Caja' => $numeroCaja,
-                    'Monto_Apertura' => number_format((float) $this->montoApertura, 2, '.', ''),
+                    'Monto_Apertura' => number_format((float) $this->montoAperturaFormulario, 2, '.', ''),
                     'Fecha_Apertura' => now(),
                     'Estado_Apertura' => AperturaCaja::ABIERTO,
                 ]);
@@ -516,7 +566,7 @@ new class extends Component
             });
 
             $this->abrirCajaModal = false;
-            $this->tasaCambioApertura = '';
+            $this->limpiarFormularioApertura(false);
 
             $this->cargarTasaCambio();
             $this->cargarAbonosCreditoHoy();
@@ -530,7 +580,7 @@ new class extends Component
             $this->notificar($mensaje, 'success');
         } catch (RuntimeException $e) {
             $this->abrirCajaModal = false;
-            $this->tasaCambioApertura = '';
+            $this->limpiarFormularioApertura(false);
 
             $this->cargarAperturaAbierta();
 
@@ -539,7 +589,7 @@ new class extends Component
             report($e);
 
             $this->abrirCajaModal = false;
-            $this->tasaCambioApertura = '';
+            $this->limpiarFormularioApertura(false);
 
             $this->cargarAperturaAbierta();
 
@@ -605,22 +655,40 @@ new class extends Component
         $montoCordobas = round((float) ($this->montoEgresoCordobas ?: 0), 2);
         $montoDolares = round((float) ($this->montoEgresoDolares ?: 0), 2);
 
-        if (in_array($this->monedaEgreso, ['cordoba', 'ambas'], true) && $montoCordobas <= 0) {
-            $this->addError('montoEgresoCordobas', 'Debes ingresar un monto en córdobas mayor a 0.');
-            return;
-        }
-
-        if (in_array($this->monedaEgreso, ['dolar', 'ambas'], true) && $montoDolares <= 0) {
-            $this->addError('montoEgresoDolares', 'Debes ingresar un monto en dólares mayor a 0.');
-            return;
-        }
-
         if ($this->monedaEgreso === 'cordoba') {
             $montoDolares = 0;
         }
 
         if ($this->monedaEgreso === 'dolar') {
             $montoCordobas = 0;
+        }
+
+        if ($this->monedaEgreso === 'cordoba' && $montoCordobas <= 0) {
+            $this->addError('montoEgresoCordobas', 'El monto a egresar debe ser mayor a C$ 0.00.');
+            return;
+        }
+
+        if ($this->monedaEgreso === 'dolar' && $montoDolares <= 0) {
+            $this->addError('montoEgresoDolares', 'El monto a egresar debe ser mayor a $ 0.00.');
+            return;
+        }
+
+        if ($this->monedaEgreso === 'ambas') {
+            $hayErrorMonto = false;
+
+            if ($montoCordobas <= 0) {
+                $this->addError('montoEgresoCordobas', 'El monto en córdobas debe ser mayor a C$ 0.00.');
+                $hayErrorMonto = true;
+            }
+
+            if ($montoDolares <= 0) {
+                $this->addError('montoEgresoDolares', 'El monto en dólares debe ser mayor a $ 0.00.');
+                $hayErrorMonto = true;
+            }
+
+            if ($hayErrorMonto) {
+                return;
+            }
         }
 
         if ($montoCordobas > $this->disponibleEgresoCordobas()) {
@@ -974,11 +1042,23 @@ new class extends Component
     @php
         $cardClass = 'rounded-2xl border border-[#D7E4F3] bg-white shadow-sm';
         $softCardClass = 'rounded-xl border border-[#D7E4F3] bg-[#F8FAFC]';
-        $inputReadonlyClass = 'w-full rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-[#1A2B42]';
-        $inputEditableClass = 'w-full rounded-xl border-[#D7E4F3] bg-white text-[#1A2B42]';
+        $inputReadonlyClass = 'w-full rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-[#1A2B42] gnet-number-input';
+        $inputEditableClass = 'w-full rounded-xl border-[#D7E4F3] bg-white text-[#1A2B42] gnet-number-input';
+        $inputCounterClass = 'w-full rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-[#1A2B42] gnet-counter-native';
 
         $modalCloseStableClass = 'backdrop-blur-sm [&_.btn-circle]:!bg-[#F0F3F7] [&_.btn-circle]:!text-[#1A2B42] [&_.btn-circle]:!border-[#D7E4F3] [&_.btn-circle:hover]:!bg-[#F0F3F7] [&_.btn-circle:hover]:!text-[#1A2B42] [&_.btn-circle:hover]:!border-[#D7E4F3] [&_.btn-circle:focus]:!bg-[#F0F3F7] [&_.btn-circle:focus]:!text-[#1A2B42] [&_.btn-circle:focus]:!border-[#D7E4F3] [&_.btn-circle:active]:!bg-[#F0F3F7] [&_.btn-circle:active]:!text-[#1A2B42] [&_.btn-circle:active]:!border-[#D7E4F3]';
+        $modalAperturaClass = 'backdrop-blur-sm [&_.btn-circle]:!hidden';
+        $modalEgresoClass = 'backdrop-blur-sm [&_.btn-circle]:!hidden';
     @endphp
+
+    @once
+        <style>
+            input.gnet-number-input[type="number"],
+            input.gnet-counter-native[type="number"] {
+                color-scheme: light;
+            }
+        </style>
+    @endonce
 
     <div class="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <div class="{{ $cardClass }} flex flex-col gap-5 p-5 lg:flex-row lg:items-center lg:justify-between">
@@ -1101,10 +1181,11 @@ new class extends Component
                             <x-input
                                 type="number"
                                 min="0"
+                                step="1"
                                 placeholder="0"
                                 prefix="C$"
                                 wire:model.live="conteoCordobas.{{ $denominacion }}"
-                                class="{{ $inputReadonlyClass }}"
+                                class="{{ $inputCounterClass }}"
                             />
 
                             <span class="mt-2 block text-sm font-medium text-[#5F6B7A]">
@@ -1143,10 +1224,11 @@ new class extends Component
                             <x-input
                                 type="number"
                                 min="0"
+                                step="1"
                                 placeholder="0"
                                 prefix="$"
                                 wire:model.live="conteoDolares.{{ $denominacion }}"
-                                class="{{ $inputReadonlyClass }}"
+                                class="{{ $inputCounterClass }}"
                             />
 
                             <span class="mt-2 block text-sm font-medium text-[#5F6B7A]">
@@ -1188,7 +1270,7 @@ new class extends Component
 
     <x-modal
         wire:model="abrirCajaModal"
-        class="{{ $modalCloseStableClass }}"
+        class="{{ $modalAperturaClass }}"
         box-class="max-w-md rounded-2xl border border-[#D7E4F3] bg-white p-0 shadow-2xl"
     >
         <div class="p-6">
@@ -1230,17 +1312,11 @@ new class extends Component
                             type="number"
                             step="0.01"
                             min="0.01"
-                            wire:model="montoApertura"
+                            wire:model="montoAperturaFormulario"
                             placeholder="0.00"
                             prefix="C$"
                             class="{{ $inputEditableClass }}"
                         />
-
-                        @error('montoApertura')
-                            <span class="mt-2 block text-sm font-semibold text-red-600">
-                                {{ $message }}
-                            </span>
-                        @enderror
                     </div>
 
                     <div class="rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-4">
@@ -1272,12 +1348,6 @@ new class extends Component
                                     prefix="TC"
                                     class="{{ $inputEditableClass }}"
                                 />
-
-                                @error('tasaCambioApertura')
-                                    <span class="mt-2 block text-sm font-semibold text-red-600">
-                                        {{ $message }}
-                                    </span>
-                                @enderror
                             </div>
                         </div>
                     </div>
@@ -1365,63 +1435,50 @@ new class extends Component
 
     <x-modal
         wire:model="registrarEgresoModal"
-        class="{{ $modalCloseStableClass }}"
-        box-class="max-w-4xl rounded-2xl border border-[#D7E4F3] bg-white p-0 shadow-2xl"
+        class="{{ $modalEgresoClass }}"
+        box-class="max-w-2xl rounded-2xl border border-[#D7E4F3] bg-white p-0 shadow-2xl"
     >
-        <div class="p-6">
-            <div class="mb-6 flex items-center gap-3">
-                <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#EAF2FB] text-[#0B6FE4]">
+        <div class="overflow-hidden rounded-2xl bg-white">
+            <div class="flex items-center gap-3 border-b border-[#D7E4F3] bg-white px-5 py-4">
+                <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#EAF2FB] text-[#0B6FE4]">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-19.5 0v3A2.25 2.25 0 0 0 4.5 18h15a2.25 2.25 0 0 0 2.25-2.25v-3m-19.5 0h19.5" />
                     </svg>
                 </div>
 
-                <div>
-                    <h2 class="text-xl font-bold text-[#1A2B42]">Egresos de Caja</h2>
-                    <p class="text-sm text-[#5F6B7A]">Registra egresos de una moneda específica o ambas</p>
+                <div class="min-w-0">
+                    <h2 class="text-lg font-bold text-[#1A2B42]">Egresos de Caja</h2>
+                    <p class="text-sm text-[#5F6B7A]">Registra salidas de una moneda específica o ambas.</p>
                 </div>
             </div>
 
-            <div class="rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-5">
-                <div class="mb-5">
-                    <h3 class="text-lg font-bold text-[#1A2B42]">Nuevo egreso</h3>
-                    <p class="text-sm text-[#5F6B7A]">
-                        Selecciona la moneda del egreso y registra la descripción obligatoria.
-                    </p>
-                </div>
+            <x-form wire:submit="guardarEgreso" no-separator>
+                <div class="space-y-4 bg-[#F8FAFC] px-5 py-4">
+                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div class="rounded-xl border border-[#D7E4F3] bg-white px-4 py-3">
+                            <span class="block text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
+                                Disponible C$
+                            </span>
 
-                <x-form wire:submit="guardarEgreso" no-separator>
-                    <div class="space-y-5">
-                        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-                            <div>
-                                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                                    Disponible en caja C$
-                                </label>
-
-                                <x-input
-                                    :value="$this->formatear($this->disponibleEgresoCordobas())"
-                                    readonly
-                                    prefix="C$"
-                                    class="{{ $inputReadonlyClass }}"
-                                />
-                            </div>
-
-                            <div>
-                                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                                    Disponible en caja $
-                                </label>
-
-                                <x-input
-                                    :value="$this->formatear($this->disponibleEgresoDolares())"
-                                    readonly
-                                    prefix="$"
-                                    class="{{ $inputReadonlyClass }}"
-                                />
-                            </div>
+                            <span class="mt-1 block text-base font-extrabold text-[#1A2B42]">
+                                C$ {{ $this->formatear($this->disponibleEgresoCordobas()) }}
+                            </span>
                         </div>
 
+                        <div class="rounded-xl border border-[#D7E4F3] bg-white px-4 py-3">
+                            <span class="block text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
+                                Disponible $
+                            </span>
+
+                            <span class="mt-1 block text-base font-extrabold text-[#1A2B42]">
+                                $ {{ $this->formatear($this->disponibleEgresoDolares()) }}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div>
-                            <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
+                            <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
                                 Moneda del egreso
                             </label>
 
@@ -1430,120 +1487,90 @@ new class extends Component
                                 :options="$monedasEgreso"
                                 class="{{ $inputEditableClass }}"
                             />
-
-                            @error('monedaEgreso')
-                                <span class="mt-2 block text-sm font-semibold text-red-600">
-                                    {{ $message }}
-                                </span>
-                            @enderror
                         </div>
 
-                        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-                            @if ($this->mostrarMontoEgresoCordobas())
-                                <div>
-                                    <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                                        Monto a egresar en córdobas
-                                    </label>
+                        @if ($this->mostrarMontoEgresoCordobas())
+                            <div>
+                                <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                                    Monto en córdobas
+                                </label>
 
-                                    <x-input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        wire:model="montoEgresoCordobas"
-                                        placeholder="0.00"
-                                        prefix="C$"
-                                        class="{{ $inputEditableClass }}"
-                                    />
+                                <x-input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    wire:model="montoEgresoCordobas"
+                                    placeholder="0.00"
+                                    prefix="C$"
+                                    class="{{ $inputEditableClass }}"
+                                />
+                            </div>
+                        @endif
 
-                                    @error('montoEgresoCordobas')
-                                        <span class="mt-2 block text-sm font-semibold text-red-600">
-                                            {{ $message }}
-                                        </span>
-                                    @enderror
-                                </div>
-                            @endif
+                        @if ($this->mostrarMontoEgresoDolares())
+                            <div>
+                                <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                                    Monto en dólares
+                                </label>
 
-                            @if ($this->mostrarMontoEgresoDolares())
-                                <div>
-                                    <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                                        Monto a egresar en dólares
-                                    </label>
-
-                                    <x-input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        wire:model="montoEgresoDolares"
-                                        placeholder="0.00"
-                                        prefix="$"
-                                        class="{{ $inputEditableClass }}"
-                                    />
-
-                                    @error('montoEgresoDolares')
-                                        <span class="mt-2 block text-sm font-semibold text-red-600">
-                                            {{ $message }}
-                                        </span>
-                                    @enderror
-                                </div>
-                            @endif
-                        </div>
-
-                        <div>
-                            <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                                Motivo del egreso
-                            </label>
-
-                            <x-select
-                                wire:model="motivoEgreso"
-                                :options="$motivosEgreso"
-                                placeholder="Seleccione un motivo"
-                                class="{{ $inputEditableClass }}"
-                            />
-
-                            @error('motivoEgreso')
-                                <span class="mt-2 block text-sm font-semibold text-red-600">
-                                    {{ $message }}
-                                </span>
-                            @enderror
-                        </div>
-
-                        <div>
-                            <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                                Descripción del egreso
-                            </label>
-
-                            <x-textarea
-                                wire:model="descripcionEgreso"
-                                rows="4"
-                                placeholder="Detalle obligatorio del egreso..."
-                                class="rounded-xl border-[#D7E4F3] bg-white text-[#1A2B42] placeholder:text-[#7B8794]"
-                            />
-
-                            @error('descripcionEgreso')
-                                <span class="mt-2 block text-sm font-semibold text-red-600">
-                                    {{ $message }}
-                                </span>
-                            @enderror
-                        </div>
+                                <x-input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    wire:model="montoEgresoDolares"
+                                    placeholder="0.00"
+                                    prefix="$"
+                                    class="{{ $inputEditableClass }}"
+                                />
+                            </div>
+                        @endif
                     </div>
 
-                    <x-slot:actions>
+                    <div>
+                        <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                            Motivo del egreso
+                        </label>
+
+                        <x-select
+                            wire:model="motivoEgreso"
+                            :options="$motivosEgreso"
+                            placeholder="Seleccione un motivo"
+                            class="{{ $inputEditableClass }}"
+                        />
+                    </div>
+
+                    <div>
+                        <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                            Descripción del egreso
+                        </label>
+
+                        <x-textarea
+                            wire:model="descripcionEgreso"
+                            rows="3"
+                            placeholder="Detalle obligatorio del egreso..."
+                            class="rounded-xl border-[#D7E4F3] bg-white text-[#1A2B42] placeholder:text-[#7B8794]"
+                        />
+                    </div>
+                </div>
+
+                <x-slot:actions>
+                    <div class="flex w-full flex-col-reverse justify-end gap-3 border-t border-[#D7E4F3] bg-white px-5 py-4 sm:flex-row">
                         <x-button
                             label="Volver"
                             type="button"
                             wire:click="cerrarModalEgreso"
-                            class="bg-[#6B7280] text-white"
+                            class="min-h-0 rounded-xl bg-[#6B7280] px-5 py-2.5 text-white shadow-sm hover:bg-[#5B6472]"
                         />
 
                         <x-button
                             label="Guardar egreso"
                             type="submit"
                             spinner="guardarEgreso"
-                            class="bg-[#0B6FE4] text-white"
+                            class="min-h-0 rounded-xl bg-[#0B6FE4] px-5 py-2.5 text-white shadow-sm hover:bg-[#2E8BC0]"
                         />
-                    </x-slot:actions>
-                </x-form>
-            </div>
+                    </div>
+                </x-slot:actions>
+            </x-form>
         </div>
     </x-modal>
 </div>
