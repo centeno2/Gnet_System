@@ -197,6 +197,8 @@ new class extends Component
         $apertura = AperturaCaja::query()
             ->where('Id_Apertura_Caja', $this->aperturaCajaId)
             ->where('Id_Usuario', $usuarioId)
+            ->where('Estado_Apertura', AperturaCaja::ABIERTO)
+            ->whereDate('Fecha_Apertura', now()->toDateString())
             ->first();
 
         if (! $apertura) {
@@ -280,18 +282,23 @@ new class extends Component
     public function cargarAbonosCreditoHoy(): void
     {
         $usuarioId = $this->usuarioActualId();
+        $rangoCaja = $this->rangoCajaActual();
 
-        if (! $usuarioId) {
+        if (! $usuarioId || ! $rangoCaja) {
+
             $this->totalAbonoCordobas = 0;
             $this->totalAbonoDolares = 0;
             return;
         }
 
         $fechaHoy = now()->toDateString();
+        [$inicioCaja, $finCaja] = $rangoCaja;
 
         $baseAbonos = DB::table('abono_credito')
             ->where('Id_Usuario', $usuarioId)
-            ->whereDate('Fecha_Abono', $fechaHoy);
+            ->whereDate('Fecha_Abono', now()->toDateString())
+            ->whereBetween('Fecha_Abono', [$inicioCaja, $finCaja]);
+
 
         $this->totalAbonoCordobas = round((float) (clone $baseAbonos)
             ->whereRaw('UPPER(TRIM(Moneda)) = ?', ['NIO'])
@@ -1021,8 +1028,7 @@ new class extends Component
                             icon="o-pencil-square"
                             wire:click="abrirModalTasa"
                             title="Modificar tasa de cambio"
-                            class="h-12 min-h-0 rounded-xl border border-[#0B6FE4] bg-[#0B6FE4] text-white shadow-sm hover:bg-[#2E8BC0] hover:text-white"
-                        />
+                            class="h-12 min-h-0 rounded-xl border border-[#0B6FE4] bg-[#0B6FE4] text-white shadow-sm hover:bg-[#2E8BC0] hover:text-white"                        />
                     </div>
                 </div>
             </div>
