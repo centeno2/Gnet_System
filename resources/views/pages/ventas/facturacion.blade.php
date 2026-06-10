@@ -2065,7 +2065,7 @@ new class extends Component
                             <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Precio</label>
                             <x-input wire:model.live.debounce.250ms="precioItem" type="text" inputmode="numeric"
                                 placeholder="{{ $tipoItemSeleccionado === 'COPIA' ? 'Manual' : '0' }}"
-                                class="h-11 min-h-11 w-full min-w-[120px] rounded-xl border-0 bg-[#F0F3F7] px-3 text-right text-sm font-semibold text-[#1A2B42] placeholder:text-left placeholder:font-normal placeholder:text-[#7B8794]" />
+                                class="h-11 min-h-11 w-full min-w-30 rounded-xl border-0 bg-[#F0F3F7] px-3 text-right text-sm font-semibold text-[#1A2B42] placeholder:text-left placeholder:font-normal placeholder:text-[#7B8794]" />
                         </div>
 
                         <div class="min-w-0 xl:col-span-1">
@@ -2096,7 +2096,7 @@ new class extends Component
                     @endif
 
                     <div
-                        class="mt-4 rounded-2xl border border-[#D7E4F3] bg-gradient-to-br from-[#F8FBFF] to-white p-3 shadow-[0_8px_24px_rgba(11,111,228,0.04)]">
+                        class="mt-4 rounded-2xl border border-[#D7E4F3] bg-linear-to-br from-[#F8FBFF] to-white p-3 shadow-[0_8px_24px_rgba(11,111,228,0.04)]">
                         <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                                 <h3 class="text-sm font-black uppercase tracking-wide text-[#1A2B42]">
