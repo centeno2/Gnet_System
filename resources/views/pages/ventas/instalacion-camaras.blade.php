@@ -2234,6 +2234,10 @@ new class extends Component
                         Crédito
                     </button>
 
+                    <x-button icon="o-folder-open" label="Buscar pendientes" wire:click="abrirPendientes"
+                        spinner="abrirPendientes"
+                        class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-bold text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]" />
+
                     <x-button icon="o-document-plus" label="Nuevo" wire:click="nuevoContrato"
                         class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-bold text-[#1A2B42] shadow-sm hover:bg-[#F7F9FC]" />
                 </div>
@@ -2721,68 +2725,7 @@ new class extends Component
                 <div class="space-y-4">
 
                     <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
-                        <div class="mb-3 flex items-start justify-between gap-3">
-                            <div>
-                                <h2 class="text-lg font-black text-[#1A2B42]">Pendientes rápidos</h2>
-                                <p class="text-sm text-[#5F6B7A]">Buscá y cargá contratos sin salir de esta pantalla.
-                                </p>
-                            </div>
-
-                            <span class="rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-black text-[#0B6FE4]">
-                                {{ $totalPendientes }}
-                            </span>
-                        </div>
-
-                        <x-input wire:model.live.debounce.350ms="filtroPendientes" icon="o-magnifying-glass"
-                            placeholder="Contrato, cliente, municipio..."
-                            class="mb-3 h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
-
-                        <div class="space-y-2">
-                            @forelse(array_slice($contratosPendientes, 0, 7) as $item)
-                            <button type="button" wire:click="cargarPendiente({{ $item['id'] }}, false)"
-                                class="w-full rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3 text-left transition hover:border-[#2E8BC0] hover:bg-[#EAF2FB]">
-                                <div class="flex items-start justify-between gap-2">
-                                    <div class="min-w-0">
-                                        <p class="truncate text-sm font-black text-[#1A2B42]">
-                                            {{ $item['numero'] }}
-                                        </p>
-
-                                        <p class="truncate text-xs font-semibold text-[#5F6B7A]">
-                                            {{ $item['cliente'] }}
-                                        </p>
-                                    </div>
-
-                                    <span
-                                        class="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] font-black text-[#0B6FE4] ring-1 ring-[#D7E4F3]">
-                                        {{ $this->estadoNombre($item['estado']) }}
-                                    </span>
-                                </div>
-
-                                <div class="mt-2 flex items-center justify-between gap-3">
-                                    <p class="truncate text-xs text-[#5F6B7A]">{{ $item['ubicacion'] }}</p>
-                                    <p class="shrink-0 text-xs font-black text-[#1A2B42]">
-                                        C$ {{ number_format((float) $item['saldo'], 2) }}
-                                    </p>
-                                </div>
-                            </button>
-                            @empty
-                            <div
-                                class="rounded-2xl border border-dashed border-[#D7E4F3] bg-[#F7F9FC] px-4 py-8 text-center">
-                                <p class="text-sm font-bold text-[#1A2B42]">Sin pendientes</p>
-                                <p class="text-xs text-[#5F6B7A]">No hay contratos con ese filtro.</p>
-                            </div>
-                            @endforelse
-                        </div>
-
-                        <x-button icon="o-folder-open" label="Abrir listado completo" wire:click="abrirPendientes"
-                            class="mt-3 h-10 min-h-10 w-full rounded-xl border border-[#D7E4F3] bg-white text-sm font-bold text-[#1A2B42] hover:bg-[#F7F9FC]" />
-                    </x-card>
-
-                    <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
-                        <h2 class="text-lg font-black text-[#1A2B42]">Resumen</h2>
-                        <p class="mb-3 text-sm text-[#5F6B7A]">
-                            Vista rápida antes de guardar el contrato.
-                        </p>
+                        <h2 class="mb-3 text-lg font-black text-[#1A2B42]">Resumen</h2>
 
                         <div class="grid grid-cols-2 gap-3">
                             <div class="rounded-2xl bg-[#F7F9FC] p-3">
@@ -2831,7 +2774,6 @@ new class extends Component
                         <div class="mt-3 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3">
                             <div class="mb-3">
                                 <h3 class="text-sm font-black text-[#1A2B42]">Pago recibido</h3>
-                                <p class="text-xs text-[#5F6B7A]">Guarda C$ y US$ separados; el cambio queda en C$.</p>
                             </div>
 
                             <div class="grid grid-cols-1 gap-2">
@@ -2914,8 +2856,6 @@ new class extends Component
                         @if($tipoOperacion === 'CREDITO')
                         <div class="mt-3 rounded-2xl border border-[#B7D6F2] bg-[#EAF4FD] p-3">
                             <h3 class="text-sm font-black text-[#1A2B42]">Crédito institucional</h3>
-                            <p class="text-xs text-[#5F6B7A]">Solo instituciones. Se aplica el saldo a favor disponible
-                                y el restante queda en crédito.</p>
 
                             <div class="mt-3 grid grid-cols-3 gap-2 text-xs">
                                 <div class="rounded-xl bg-white p-2">
@@ -2952,10 +2892,7 @@ new class extends Component
 
 
                     <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
-                        <h2 class="text-lg font-black text-[#1A2B42]">Materiales agregados</h2>
-                        <p class="mb-3 text-sm text-[#5F6B7A]">
-                            Control rápido de productos cargados al contrato.
-                        </p>
+                        <h2 class="mb-3 text-lg font-black text-[#1A2B42]">Materiales agregados</h2>
 
                         <div class="space-y-2">
                             @forelse(array_slice($productosUsados, 0, 6) as $item)
@@ -3005,7 +2942,8 @@ new class extends Component
     </div>
 
 
-    <x-modal wire:model="modalPendientes" title="Contratos de instalación pendientes" separator class="backdrop-blur">
+    <x-modal wire:model="modalPendientes" title="Contratos de instalación pendientes" separator class="backdrop-blur-sm"
+        box-class="w-[96vw] max-w-6xl rounded-3xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
         <div class="space-y-3">
             <x-input wire:model.live.debounce.350ms="filtroPendientes" icon="o-magnifying-glass"
                 placeholder="Buscar por contrato, cliente, municipio o dirección..."
@@ -3053,20 +2991,12 @@ new class extends Component
                 </table>
             </div>
 
-            <div
-                class="flex flex-col gap-2 rounded-2xl bg-[#F7F9FC] px-3 py-2 text-xs font-semibold text-[#5F6B7A] sm:flex-row sm:items-center sm:justify-between">
-                <span>
-                    Página {{ $paginaPendientes }} de {{ $totalPaginasPendientes }} · {{ $totalPendientes }}
-                    pendiente(s)
-                </span>
-
-                <div class="flex justify-end gap-2">
-                    <x-button label="Anterior" wire:click="paginaAnteriorPendientes" :disabled="$paginaPendientes <= 1"
-                        class="h-8 min-h-8 rounded-xl border border-[#D7E4F3] bg-white px-3 text-xs font-bold text-[#1A2B42] hover:bg-[#EAF2FB]" />
-                    <x-button label="Siguiente" wire:click="paginaSiguientePendientes"
-                        :disabled="$paginaPendientes >= $totalPaginasPendientes"
-                        class="h-8 min-h-8 rounded-xl border border-[#D7E4F3] bg-white px-3 text-xs font-bold text-[#1A2B42] hover:bg-[#EAF2FB]" />
-                </div>
+            <div class="flex justify-end gap-2">
+                <x-button label="Anterior" wire:click="paginaAnteriorPendientes" :disabled="$paginaPendientes <= 1"
+                    class="h-8 min-h-8 rounded-xl border border-[#D7E4F3] bg-white px-3 text-xs font-bold text-[#1A2B42] hover:bg-[#EAF2FB]" />
+                <x-button label="Siguiente" wire:click="paginaSiguientePendientes"
+                    :disabled="$paginaPendientes >= $totalPaginasPendientes"
+                    class="h-8 min-h-8 rounded-xl border border-[#D7E4F3] bg-white px-3 text-xs font-bold text-[#1A2B42] hover:bg-[#EAF2FB]" />
             </div>
         </div>
 

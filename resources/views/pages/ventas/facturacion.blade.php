@@ -1195,9 +1195,11 @@ new class extends Component
             $this->limpiarVentaActual();
             $this->cerrarModalCobro();
 
-            if ($ventaIncluyeProductos) {
+            if ($tipoVentaActual === self::TIPO_CONTADO && $ventaIncluyeProductos) {
                 $this->prepararVoucherVenta((int) $resultado['id_venta']);
                 $this->mostrarToast('Venta guardada. Revise el voucher antes de imprimir. Factura: ' . $resultado['numero_factura'], 'info');
+            } elseif ($tipoVentaActual === self::TIPO_CREDITO) {
+                $this->mostrarToast('Crédito guardado correctamente. Factura: ' . $resultado['numero_factura']);
             } else {
                 $this->mostrarToast('Venta de copias guardada correctamente. Factura: ' . $resultado['numero_factura']);
             }
@@ -1891,8 +1893,8 @@ new class extends Component
 };
 ?>
 
-<div class="min-h-[calc(100vh-3rem)] w-full overflow-x-hidden bg-[#F0F3F7] px-3 py-3 md:px-5 md:py-4">
-    <div class="mx-auto flex w-full max-w-330 flex-col gap-4">
+<div class="min-h-[calc(100vh-3rem)] w-full overflow-x-hidden bg-[#F0F3F7] px-2 py-3 md:px-3 md:py-4">
+    <div class="mx-0 flex w-full max-w-none flex-col gap-4">
 
         <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div class="min-w-0">
@@ -1924,10 +1926,21 @@ new class extends Component
             </div>
         </div>
 
-        <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_270px]">
+        <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
             <div class="min-w-0 space-y-4">
 
                 <x-card class="rounded-2xl border border-[#D7E4F3] bg-white p-4 shadow-sm">
+                    <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div class="min-w-0">
+                            <h2 class="text-lg font-bold text-[#1A2B42]">Datos de la venta</h2>
+                        </div>
+
+                        <span
+                            class="{{ $tipoVenta === 'CREDITO' ? 'bg-[#EAF2FB] text-[#0B6FE4]' : 'bg-emerald-50 text-emerald-700' }} w-fit rounded-full px-3 py-1 text-xs font-bold">
+                            {{ $tipoVenta === 'CREDITO' ? 'Crédito institucional' : 'Venta contado' }}
+                        </span>
+                    </div>
+
                     <div class="grid grid-cols-1 gap-3 lg:grid-cols-12">
                         <div
                             class="relative min-w-0 {{ $tipoVenta === 'CREDITO' ? 'lg:col-span-5' : 'lg:col-span-7' }}">
@@ -1942,7 +1955,7 @@ new class extends Component
 
                                 @if ($tipoVenta === 'CONTADO')
                                 <button type="button" wire:click="usarConsumidorFinal"
-                                    class="inline-flex h-11 shrink-0 items-center justify-center rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] hover:bg-[#F8FAFC]">
+                                    class="inline-flex h-11 shrink-0 items-center justify-center rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] shadow-sm transition hover:bg-[#F8FAFC]">
                                     Final
                                 </button>
                                 @endif
@@ -1954,9 +1967,10 @@ new class extends Component
                                 @foreach ($clientesEncontrados as $cliente)
                                 <button type="button" wire:key="cliente-{{ $cliente['id'] }}"
                                     wire:click="seleccionarCliente({{ $cliente['id'] }})"
-                                    class="flex w-full flex-col border-b border-[#EAF2FB] px-4 py-3 text-left hover:bg-[#EAF4FD] last:border-b-0">
-                                    <span class="truncate text-sm font-semibold text-[#1A2B42]">{{ $cliente['nombre']
-                                        }}</span>
+                                    class="flex w-full flex-col border-b border-[#EAF2FB] px-4 py-3 text-left transition hover:bg-[#EAF4FD] last:border-b-0">
+                                    <span class="truncate text-sm font-semibold text-[#1A2B42]">
+                                        {{ $cliente['nombre'] }}
+                                    </span>
                                     <span class="text-xs text-[#5F6B7A]">
                                         {{ $cliente['telefono'] }}
                                         @if($cliente['municipio']) · {{ $cliente['municipio'] }} @endif
@@ -1968,32 +1982,24 @@ new class extends Component
                         </div>
 
                         <div class="min-w-0 {{ $tipoVenta === 'CREDITO' ? 'lg:col-span-3' : 'lg:col-span-5' }}">
-                            <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Cliente
-                                seleccionado</label>
+                            <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                                Cliente seleccionado
+                            </label>
                             <div
-                                class="flex h-11 items-center rounded-xl bg-[#EAF2FB] px-3 text-sm font-semibold text-[#1A2B42]">
+                                class="flex h-11 items-center rounded-xl border border-[#D7E4F3] bg-[#EAF2FB] px-3 text-sm font-semibold text-[#1A2B42]">
                                 <span class="truncate">{{ $clienteNombre }}</span>
                             </div>
                         </div>
 
                         @if ($tipoVenta === 'CREDITO')
                         <div class="min-w-0 lg:col-span-4">
-                            <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Departamento /
-                                municipio</label>
+                            <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                                Departamento / municipio
+                            </label>
                             <x-input wire:model="departamentoMunicipio" type="text" placeholder="Ingrese municipio"
-                                class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                                class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
                         </div>
                         @endif
-                    </div>
-
-                    <div class="mt-3">
-                        <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
-                            Observación general de la venta
-                        </label>
-                        <x-textarea wire:model.live.debounce.300ms="observacionVenta" rows="2" maxlength="255"
-                            placeholder="Ejemplo: nota interna, entrega especial o comentario general"
-                            class="min-h-20 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
-                        <p class="mt-1 text-xs text-[#5F6B7A]">Opcional, máximo 255 caracteres.</p>
                     </div>
                 </x-card>
 
@@ -2003,7 +2009,8 @@ new class extends Component
                     </div>
 
                     <div class="grid grid-cols-1 gap-3 xl:grid-cols-12">
-                        <div class="relative min-w-0 xl:col-span-4">
+                        <div
+                            class="relative min-w-0 {{ $tipoVenta === 'CONTADO' ? 'xl:col-span-3' : 'xl:col-span-4' }}">
                             <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Buscar producto</label>
                             <x-input wire:model.live.debounce.250ms="buscarItem" type="text" autocomplete="off"
                                 placeholder="Producto, serie o copia"
@@ -2033,7 +2040,7 @@ new class extends Component
                             @endif
                         </div>
 
-                        <div class="min-w-0 {{ $tipoVenta === 'CREDITO' ? 'xl:col-span-2' : 'xl:col-span-3' }}">
+                        <div class="min-w-0 xl:col-span-3">
                             <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Seleccionado</label>
                             <div
                                 class="flex h-11 items-center rounded-xl bg-[#EAF2FB] px-3 text-sm font-semibold text-[#1A2B42]">
@@ -2041,14 +2048,6 @@ new class extends Component
                             </div>
                         </div>
 
-                        @if ($tipoVenta === 'CREDITO')
-                        <div class="min-w-0 xl:col-span-2">
-                            <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Área del item</label>
-                            <x-input wire:model.live.debounce.250ms="areaItem" type="text" maxlength="255"
-                                placeholder="Ej. Contabilidad"
-                                class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                        </div>
-                        @endif
 
                         <div class="min-w-0 xl:col-span-1">
                             <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Stock</label>
@@ -2062,11 +2061,11 @@ new class extends Component
                                 class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-center text-sm text-[#1A2B42]" />
                         </div>
 
-                        <div class="min-w-0 xl:col-span-1">
+                        <div class="min-w-0 xl:col-span-2">
                             <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Precio</label>
                             <x-input wire:model.live.debounce.250ms="precioItem" type="text" inputmode="numeric"
                                 placeholder="{{ $tipoItemSeleccionado === 'COPIA' ? 'Manual' : '0' }}"
-                                class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                                class="h-11 min-h-11 w-full min-w-[120px] rounded-xl border-0 bg-[#F0F3F7] px-3 text-right text-sm font-semibold text-[#1A2B42] placeholder:text-left placeholder:font-normal placeholder:text-[#7B8794]" />
                         </div>
 
                         <div class="min-w-0 xl:col-span-1">
@@ -2076,11 +2075,13 @@ new class extends Component
                                 class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
                         </div>
 
+                        @if ($tipoVenta === 'CONTADO')
                         <div class="xl:col-span-1">
                             <label class="mb-1.5 block text-sm font-semibold text-transparent">Acción</label>
                             <x-button label="+" wire:click="agregarItem"
                                 class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#2E8BC0] text-lg font-bold text-white shadow-sm hover:bg-[#0B6FE4]" />
                         </div>
+                        @endif
                     </div>
 
                     @if (count($seriesDisponibles) > 0)
@@ -2094,40 +2095,95 @@ new class extends Component
                     </div>
                     @endif
 
-                    <div class="mt-4 rounded-2xl border border-[#E3EDF8] bg-[#F8FBFF] p-3">
-                        <div class="grid grid-cols-1 gap-3 xl:grid-cols-12">
-                            <div class="min-w-0 xl:col-span-4">
-                                <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Copia rápida</label>
-                                <x-select wire:model.live="copiaRapidaId" :options="$copiasRapidas" option-value="id"
-                                    option-label="name" placeholder="Seleccione una copia"
-                                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-white text-sm text-[#1A2B42]" />
+                    <div
+                        class="mt-4 rounded-2xl border border-[#D7E4F3] bg-gradient-to-br from-[#F8FBFF] to-white p-3 shadow-[0_8px_24px_rgba(11,111,228,0.04)]">
+                        <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <h3 class="text-sm font-black uppercase tracking-wide text-[#1A2B42]">
+                                    Copias rápidas
+                                </h3>
                             </div>
 
-                            <div class="xl:col-span-2">
-                                <label class="mb-1.5 block text-sm font-semibold text-transparent">Nueva</label>
-                                <x-button icon="o-plus" label="Nueva copia" wire:click="abrirModalNuevaCopiaRapida"
-                                    class="h-11 min-h-11 w-full rounded-xl border border-[#D7E4F3] bg-white text-sm font-semibold text-[#1A2B42] shadow-sm hover:bg-[#F8FAFC]" />
+                            <span class="w-fit rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-bold text-[#0B6FE4]">
+                                Precio manual
+                            </span>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-3 xl:grid-cols-12 xl:items-end">
+                            <div class="min-w-0 {{ $tipoVenta === 'CREDITO' ? 'xl:col-span-6' : 'xl:col-span-5' }}">
+                                <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                                    Copia rápida
+                                </label>
+
+                                <div class="flex gap-2">
+                                    <div class="min-w-0 flex-1">
+                                        <x-select wire:model.live="copiaRapidaId" :options="$copiasRapidas"
+                                            option-value="id" option-label="name" placeholder="Seleccione una copia"
+                                            class="h-11 min-h-11 w-full rounded-xl border-0 bg-white text-sm text-[#1A2B42]" />
+                                    </div>
+
+                                    <x-button icon="o-plus" label="Nueva" wire:click="abrirModalNuevaCopiaRapida"
+                                        class="h-11 min-h-11 shrink-0 rounded-xl border border-[#D7E4F3] bg-white px-3 text-sm font-semibold text-[#0E48A1] shadow-sm transition hover:bg-[#EAF4FD]" />
+                                </div>
                             </div>
 
                             <div class="min-w-0 xl:col-span-2">
-                                <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Cantidad</label>
+                                <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                                    Cantidad
+                                </label>
                                 <x-input wire:model="cantidadCopiaRapida" type="number" min="1"
-                                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-white text-center text-sm text-[#1A2B42]" />
+                                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-white text-center text-sm font-semibold text-[#1A2B42]" />
                             </div>
 
-                            <div class="min-w-0 xl:col-span-2">
-                                <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Precio unit.</label>
+                            <div class="min-w-0 {{ $tipoVenta === 'CREDITO' ? 'xl:col-span-4' : 'xl:col-span-2' }}">
+                                <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                                    Precio unit.
+                                </label>
                                 <x-input wire:model.live.debounce.250ms="precioCopiaRapida" type="text"
                                     inputmode="numeric" placeholder="Ej. 2"
-                                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-white text-sm text-[#1A2B42]" />
+                                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-white text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
                             </div>
 
-                            <div class="xl:col-span-2">
-                                <label class="mb-1.5 block text-sm font-semibold text-transparent">Acción</label>
-                                <x-button label="Agregar copia" wire:click="agregarCopiaRapida"
-                                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#0E48A1] text-sm font-semibold text-white shadow-sm hover:bg-[#0B6FE4]" />
+                            @if ($tipoVenta === 'CONTADO')
+                            <div class="xl:col-span-3">
+                                <x-button icon="o-plus-circle" label="Agregar copia" wire:click="agregarCopiaRapida"
+                                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#0E48A1] text-sm font-semibold text-white shadow-sm transition hover:bg-[#0B6FE4]" />
+                            </div>
+                            @endif
+                        </div>
+                    </div>
+
+                    @if ($tipoVenta === 'CREDITO')
+                    <div class="mt-4 rounded-2xl border border-[#D7E4F3] bg-white p-3 shadow-sm">
+                        <div class="grid grid-cols-1 gap-3 xl:grid-cols-12 xl:items-end">
+                            <div class="min-w-0 xl:col-span-6">
+                                <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Área del item</label>
+                                <x-input wire:model.live.debounce.250ms="areaItem" type="text" maxlength="255"
+                                    placeholder="Ej. Contabilidad"
+                                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+                            </div>
+
+                            <div class="xl:col-span-3">
+                                <x-button icon="o-plus" label="Agregar item" wire:click="agregarItem"
+                                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#2E8BC0] text-sm font-semibold text-white shadow-sm transition hover:bg-[#0B6FE4]" />
+                            </div>
+
+                            <div class="xl:col-span-3">
+                                <x-button icon="o-plus-circle" label="Agregar copia" wire:click="agregarCopiaRapida"
+                                    class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#0E48A1] text-sm font-semibold text-white shadow-sm transition hover:bg-[#0B6FE4]" />
                             </div>
                         </div>
+                    </div>
+                    @endif
+
+                    <div class="mt-4 rounded-2xl border border-[#D7E4F3] bg-white p-3 shadow-sm">
+                        <h3 class="mb-2 text-sm font-black uppercase tracking-wide text-[#1A2B42]">
+                            Observación general
+                        </h3>
+
+                        <x-textarea wire:model.live.debounce.300ms="observacionVenta" rows="2" maxlength="255"
+                            placeholder="Ejemplo: entregar por la tarde, nota interna o comentario general"
+                            class="min-h-20 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
                     </div>
                 </x-card>
 
@@ -2490,7 +2546,8 @@ new class extends Component
 
         <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-[#F8FBFF]">
             @if ($voucherPreviewUrl !== '')
-            <iframe src="{{ $voucherPreviewUrl }}" class="h-[68vh] w-full bg-white"></iframe>
+            <iframe src="{{ $voucherPreviewUrl }}#toolbar=0&navpanes=0&scrollbar=1&view=FitH" loading="eager"
+                class="h-[68vh] w-full bg-white"></iframe>
             @else
             <div class="px-4 py-12 text-center text-sm text-[#7B8794]">No hay voucher para mostrar.</div>
             @endif
