@@ -12,6 +12,7 @@ use App\Http\Controllers\Reportes\ArqueosCajaReporteController;
 use App\Http\Controllers\Ventas\CotizacionVoucherController;
 use App\Http\Controllers\Ventas\VentaVoucherController;
 use App\Http\Controllers\Reportes\ComprasProveedorReporteController;
+use App\Http\Controllers\Reportes\PlanillaExportController;
 use App\Http\Controllers\Compras\CompraComprobanteController;
 
 Route::get('/', function () {
@@ -131,8 +132,6 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
         ->name('reportes.arqueos-caja.word');
 
     //vouchers
-
-
     Route::get('/ventas/cotizacion/{key}', [CotizacionVoucherController::class, 'show'])
         ->name('ventas.cotizacion');
 
@@ -140,7 +139,7 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
         ->name('ventas.voucher');
         
     Route::get('/reportes/compras-proveedor/pdf', [ComprasProveedorReporteController::class, 'pdf'])
-    ->name('reportes.compras-proveedor.pdf');
+        ->name('reportes.compras-proveedor.pdf');
 
     Route::get('/reportes/compras-proveedor/excel', [ComprasProveedorReporteController::class, 'excel'])
         ->name('reportes.compras-proveedor.excel');
@@ -149,10 +148,10 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
         ->name('reportes.compras-proveedor.word');
 
     Route::get('/compras/comprobante/{compra}', [CompraComprobanteController::class, 'show'])
-    ->name('compras.comprobante');
+        ->name('compras.comprobante');
 });
 
-Route ::middleware (['auth', 'cargo: 1, 2'])->group(function () {
+Route::middleware(['auth', 'cargo: 1, 2'])->group(function () {
 
     Route::livewire('/trabajadores', 'pages::trabajadores')->name('trabajadores');
     Route::livewire('/planillapago', 'pages::planillapago')->name('planillapago');
@@ -165,9 +164,18 @@ Route ::middleware (['auth', 'cargo: 1, 2'])->group(function () {
     Route::livewire('/productos', 'pages::productos')->name('productos.index');
     Route::livewire('/productos/listado', 'pages::components.productos.listado')->name('productos.listado');
 
+    //exportación de comprobante, liquidación y reporte anual de planilla
+    Route::get('/planillapago/exportar/comprobante/{planilla}/{formato}', [PlanillaExportController::class, 'comprobante'])
+        ->whereNumber('planilla')
+        ->where('formato', 'pdf|excel|xlsx|word|docx')
+        ->name('planillapago.exportar.comprobante');
 
-
+    Route::get('/planillapago/exportar/anual/{year}/{formato}', [PlanillaExportController::class, 'anual'])
+        ->whereNumber('year')
+        ->where('formato', 'pdf|excel|xlsx|word|docx')
+        ->name('planillapago.exportar.anual');
 });
+
 Route::middleware(['auth', 'cargo: 1,2,3'])->group(function () {
 
     Route::livewire('/main', 'pages::main')->name('main');
