@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Carbon;
 use Livewire\Component;
 use Mary\Traits\Toast;
 use App\Models\Proveedor;
@@ -38,6 +39,19 @@ new class extends Component
     public string $credClienteId = '';
     public array $credInstitucionesOpciones = [];
 
+    public string $planillaModo = 'ultima';
+    public string $planillaVista = 'general';
+    public string $planillaDesde = '';
+    public string $planillaHasta = '';
+    public array $planillaModoOpciones = [
+        ['id' => 'ultima', 'name' => 'Última planilla generada'],
+        ['id' => 'rango', 'name' => 'Por quincena'],
+    ];
+    public array $planillaVistaOpciones = [
+        ['id' => 'general', 'name' => 'General / cabecera'],
+        ['id' => 'detalle', 'name' => 'Detalle por trabajador'],
+    ];
+
     public bool $visorActivo = false;
     public string $visorTitulo = '';
     public string $visorUrl = '';
@@ -65,6 +79,10 @@ new class extends Component
 
         $this->credDesde = $inicioMes;
         $this->credHasta = $hoy;
+
+        $this->planillaModo = 'ultima';
+        $this->planillaVista = 'general';
+        $this->establecerQuincenaActualPlanilla();
 
         $this->cargarUsuariosVentas();
         $this->cargarCajerosArqueo();
@@ -201,6 +219,7 @@ new class extends Component
             'stock-proximo' => $this->generarStockProximoAgotarse($formato),
             'salidas' => $this->generarSalidas($formato),
             'creditos' => $this->generarCreditos($formato),
+            'planilla-pago' => $this->generarPlanillaPago($formato),
             default => $this->mostrarToast('Reporte no disponible.', 'error'),
         };
     }
@@ -214,12 +233,27 @@ new class extends Component
         $this->arqUsuarioId = '0';
         $this->salTipoSalida = '';
         $this->credClienteId = '';
+        $this->planillaModo = 'ultima';
+        $this->planillaVista = 'general';
+        $this->establecerQuincenaActualPlanilla();
         $this->provProveedorId = '';
         $this->provCoincidencias = [];
 
         $this->cerrarVisor();
 
         $this->mostrarToast('Filtros restablecidos.', 'success');
+    }
+
+    public function updatedPlanillaModo(string $valor): void
+    {
+        if ($valor === 'rango') {
+            $this->establecerQuincenaActualPlanilla();
+            return;
+        }
+
+        if ($valor !== 'ultima') {
+            $this->planillaModo = 'ultima';
+        }
     }
 
     public function cerrarVisor(): void
@@ -356,6 +390,42 @@ new class extends Component
                         'model' => 'credClienteId',
                         'opciones' => 'credInstitucionesOpciones',
                         'span' => 'sm:col-span-2',
+                    ],
+                ],
+            ],
+            [
+                'id' => 'planilla-pago',
+                'titulo' => 'Planilla de pago',
+                'descripcion' => 'Última planilla o quincena específica.',
+                'icono' => 'o-clipboard-document-list',
+                'color' => 'azul',
+                'boton' => 'Generar',
+                'campos' => [
+                    [
+                        'tipo' => 'select',
+                        'label' => 'Vista',
+                        'model' => 'planillaVista',
+                        'opciones' => 'planillaVistaOpciones',
+                        'span' => 'sm:col-span-2',
+                    ],
+                    [
+                        'tipo' => 'select',
+                        'label' => 'Consulta',
+                        'model' => 'planillaModo',
+                        'opciones' => 'planillaModoOpciones',
+                        'span' => 'sm:col-span-2',
+                    ],
+                    [
+                        'tipo' => 'date',
+                        'label' => 'Inicial',
+                        'model' => 'planillaDesde',
+                        'mostrar_si' => ['model' => 'planillaModo', 'value' => 'rango'],
+                    ],
+                    [
+                        'tipo' => 'date',
+                        'label' => 'Final',
+                        'model' => 'planillaHasta',
+                        'mostrar_si' => ['model' => 'planillaModo', 'value' => 'rango'],
                     ],
                 ],
             ],
@@ -520,6 +590,51 @@ new class extends Component
             ),
             'excel' => redirect()->to(route('reportes.creditos-institucionales.excel', $parametros)),
             'word' => redirect()->to(route('reportes.creditos-institucionales.word', $parametros)),
+            default => $this->mostrarToast('Formato no disponible.', 'error'),
+        };
+    }
+
+    private function generarPlanillaPago(string $formato)
+    {
+        $modo = trim($this->planillaModo);
+        $vista = trim($this->planillaVista);
+
+        if (! in_array($modo, ['ultima', 'rango'], true)) {
+            $this->mostrarToast('Selecciona un modo válido para planilla.', 'error');
+            return null;
+        }
+
+        if (! in_array($vista, ['general', 'detalle'], true)) {
+            $this->mostrarToast('Selecciona una vista válida para planilla.', 'error');
+            return null;
+        }
+
+        $parametros = [
+            'modo' => $modo,
+            'vista' => $vista,
+        ];
+
+        if ($modo === 'rango') {
+            if (! $this->quincenaPlanillaValida($this->planillaDesde, $this->planillaHasta)) {
+                return null;
+            }
+
+            $parametros['desde'] = $this->planillaDesde;
+            $parametros['hasta'] = $this->planillaHasta;
+        }
+
+        $parametros = $this->parametrosLimpios($parametros);
+        $titulo = $vista === 'detalle'
+            ? 'Detalle de planilla de pago'
+            : 'Planilla de pago';
+
+        return match ($formato) {
+            'pdf' => $this->abrirVisor(
+                $titulo,
+                route('reportes.planilla-pago.pdf', $parametros) . '#toolbar=1&navpanes=0&view=FitH'
+            ),
+            'excel' => redirect()->to(route('reportes.planilla-pago.excel', $parametros)),
+            'word' => redirect()->to(route('reportes.planilla-pago.word', $parametros)),
             default => $this->mostrarToast('Formato no disponible.', 'error'),
         };
     }
@@ -714,6 +829,61 @@ private function nombreProveedorReporte(Proveedor $proveedor): string
         return true;
     }
 
+    private function establecerQuincenaActualPlanilla(): void
+    {
+        $hoy = now();
+
+        if ((int) $hoy->day <= 15) {
+            $this->planillaDesde = $hoy->copy()->startOfMonth()->toDateString();
+            $this->planillaHasta = $hoy->copy()->startOfMonth()->day(15)->toDateString();
+            return;
+        }
+
+        $this->planillaDesde = $hoy->copy()->startOfMonth()->day(16)->toDateString();
+        $this->planillaHasta = $hoy->copy()->endOfMonth()->toDateString();
+    }
+
+    private function quincenaPlanillaValida(?string $desde, ?string $hasta): bool
+    {
+        if (! $desde || ! $hasta) {
+            $this->mostrarToast('Selecciona la fecha inicial y final de la quincena.', 'error');
+            return false;
+        }
+
+        try {
+            $inicio = Carbon::parse($desde)->startOfDay();
+            $fin = Carbon::parse($hasta)->startOfDay();
+        } catch (\Throwable) {
+            $this->mostrarToast('Las fechas de planilla no son válidas.', 'error');
+            return false;
+        }
+
+        if ($inicio->gt($fin)) {
+            $this->mostrarToast('La fecha inicial no puede ser mayor que la fecha final en planilla.', 'error');
+            return false;
+        }
+
+        if (! $inicio->isSameMonth($fin) || (int) $inicio->year !== (int) $fin->year) {
+            $this->mostrarToast('La planilla debe filtrarse dentro del mismo mes.', 'error');
+            return false;
+        }
+
+        $ultimoDiaMes = (int) $inicio->copy()->endOfMonth()->day;
+        $primeraQuincena = (int) $inicio->day === 1 && (int) $fin->day === 15;
+        $segundaQuincena = (int) $inicio->day === 16 && (int) $fin->day === $ultimoDiaMes;
+
+        if (! $primeraQuincena && ! $segundaQuincena) {
+            $this->mostrarToast(
+                'Solo puedes seleccionar una quincena exacta: del 1 al 15 o del 16 al último día del mes.',
+                'error'
+            );
+
+            return false;
+        }
+
+        return true;
+    }
+
     private function mostrarToast(string $mensaje, string $tipo = 'success'): void
     {
         match ($tipo) {
@@ -785,7 +955,7 @@ private function nombreProveedorReporte(Proveedor $proveedor): string
             };
             @endphp
 
-            <article wire:key="reporte-{{ $reporte['id'] }}"
+            <article wire:key="reporte-{{ $reporte['id'] }}-{{ $reporte['id'] === 'planilla-pago' ? $planillaModo : 'normal' }}"
                 class="group flex min-h-58 flex-col rounded-2xl border border-[#D7E4F3] bg-white p-3 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#B7D6F2] hover:shadow-md">
                 <div class="mb-3 flex items-start gap-2.5">
                     <div
@@ -807,6 +977,20 @@ private function nombreProveedorReporte(Proveedor $proveedor): string
                 @if(!empty($reporte['campos']))
                 <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                     @foreach($reporte['campos'] as $campo)
+                    @php
+                    $mostrarCampo = true;
+
+                    if (! empty($campo['mostrar_si'])) {
+                        $modeloCondicion = $campo['mostrar_si']['model'] ?? '';
+                        $valorCondicion = $campo['mostrar_si']['value'] ?? null;
+                        $mostrarCampo = is_string($modeloCondicion)
+                            && property_exists($this, $modeloCondicion)
+                            && $this->{$modeloCondicion} === $valorCondicion;
+                    }
+                    @endphp
+
+                    @continue(! $mostrarCampo)
+
                     <div class="{{ $campo['span'] ?? '' }}">
                         <label class="mb-1 block text-[11px] font-black uppercase tracking-wide text-[#1A2B42]">
                             {{ $campo['label'] }}
@@ -847,7 +1031,7 @@ private function nombreProveedorReporte(Proveedor $proveedor): string
                         }
                         @endphp
 
-                        <x-select wire:model="{{ $campo['model'] }}" :options="$opcionesSelect" option-value="id"
+                        <x-select wire:model.live="{{ $campo['model'] }}" :options="$opcionesSelect" option-value="id"
                             option-label="name"
                             class="h-9 min-h-9 rounded-xl bg-[#F7F9FC] text-xs font-bold text-[#1A2B42]" />
                         @else

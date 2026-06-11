@@ -13,6 +13,8 @@ use App\Http\Controllers\Ventas\CotizacionVoucherController;
 use App\Http\Controllers\Ventas\VentaVoucherController;
 use App\Http\Controllers\Reportes\ComprasProveedorReporteController;
 use App\Http\Controllers\Compras\CompraComprobanteController;
+use App\Http\Controllers\Reportes\PlanillaPagoReporteController;
+
 
 Route::get('/', function () {
     return auth()->check()
@@ -150,6 +152,15 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
 
     Route::get('/compras/comprobante/{compra}', [CompraComprobanteController::class, 'show'])
     ->name('compras.comprobante');
+
+    Route::prefix('reportes/planilla-pago')
+    ->name('reportes.planilla-pago.')
+    ->controller(PlanillaPagoReporteController::class)
+    ->group(function () {
+        Route::get('/pdf', 'pdf')->name('pdf');
+        Route::get('/excel', 'excel')->name('excel');
+        Route::get('/word', 'word')->name('word');
+    });
 });
 
 Route ::middleware (['auth', 'cargo: 1, 2'])->group(function () {
