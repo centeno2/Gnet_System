@@ -160,7 +160,7 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
         Route::get('/excel', 'excel')->name('excel');
         Route::get('/word', 'word')->name('word');
     });
-        ->name('compras.comprobante');
+        
 });
 
 Route::middleware(['auth', 'cargo: 1, 2'])->group(function () {
