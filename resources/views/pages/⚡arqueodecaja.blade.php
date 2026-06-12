@@ -67,19 +67,41 @@ new class extends Component
         ['id' => 'Otros', 'name' => 'Otros'],
     ];
 
-    public array $denominacionesCordobas = [1000, 500, 200, 100, 50, 20, 10, 5, 1];
-    public array $denominacionesDolares = [100, 50, 20, 10, 5, 1];
+    public array $denominacionesCordobas = [
+        '1000' => 1000,
+        '500' => 500,
+        '200' => 200,
+        '100' => 100,
+        '50' => 50,
+        '20' => 20,
+        '10' => 10,
+        '5' => 5,
+        '1' => 1,
+        '0_50' => 0.50,
+        '0_25' => 0.25,
+    ];
 
     public array $conteoCordobas = [
-        1000 => 0,
-        500 => 0,
-        200 => 0,
-        100 => 0,
-        50 => 0,
-        20 => 0,
-        10 => 0,
-        5 => 0,
-        1 => 0,
+        '1000' => 0,
+        '500' => 0,
+        '200' => 0,
+        '100' => 0,
+        '50' => 0,
+        '20' => 0,
+        '10' => 0,
+        '5' => 0,
+        '1' => 0,
+        '0_50' => 0,
+        '0_25' => 0,
+    ];
+
+    public array $denominacionesDolares = [
+    100,    
+    50,
+    20,
+    10, 
+    5, 
+    1
     ];
 
     public array $conteoDolares = [
@@ -159,8 +181,8 @@ new class extends Component
 
     private function reiniciarConteos(): void
     {
-        foreach ($this->denominacionesCordobas as $denominacion) {
-            $this->conteoCordobas[$denominacion] = 0;
+        foreach ($this->denominacionesCordobas as $clave => $valor) {
+            $this->conteoCordobas[$clave] = 0;
         }
 
         foreach ($this->denominacionesDolares as $denominacion) {
@@ -168,11 +190,22 @@ new class extends Component
         }
     }
 
+    public function formatearDenominacionCordoba(string|int|float $valor): string
+    {
+        $numero = (float) $valor;
+
+        if ($numero >= 1 && floor($numero) == $numero) {
+            return number_format($numero, 0, '.', ',');
+        }
+
+        return number_format($numero, 2, '.', ',');
+    }
+
     public function updatedConteoCordobas($valor, $denominacion): void
     {
-        $denominacion = (int) $denominacion;
+        $denominacion = (string) $denominacion;
 
-        if (! in_array($denominacion, $this->denominacionesCordobas, true)) {
+        if (! array_key_exists($denominacion, $this->denominacionesCordobas)) {
             return;
         }
 
@@ -852,9 +885,14 @@ new class extends Component
         }
     }
 
-    public function subtotalCordoba(int $denominacion): float
+    public function subtotalCordoba(string|int $denominacion): float
     {
-        return ((int) ($this->conteoCordobas[$denominacion] ?? 0)) * $denominacion;
+        $clave = (string) $denominacion;
+
+        $cantidad = (int) ($this->conteoCordobas[$clave] ?? 0);
+        $valor = (float) ($this->denominacionesCordobas[$clave] ?? 0);
+
+        return round($cantidad * $valor, 2);
     }
 
     public function subtotalDolar(int $denominacion): float
@@ -866,11 +904,11 @@ new class extends Component
     {
         $total = 0;
 
-        foreach ($this->denominacionesCordobas as $denominacion) {
+        foreach (array_keys($this->denominacionesCordobas) as $denominacion) {
             $total += $this->subtotalCordoba($denominacion);
         }
 
-        return $total;
+        return round($total, 2);
     }
 
     public function totalDolares(): float
@@ -1038,539 +1076,744 @@ new class extends Component
 
 ?>
 
-<div class="flex min-h-screen w-full flex-col gap-6 bg-[#F0F3F7] p-4 md:p-6">
+<div class="flex min-h-screen w-full flex-col gap-4 bg-[#F0F3F7] p-3 md:p-4">
     @php
         $cardClass = 'rounded-2xl border border-[#D7E4F3] bg-white shadow-sm';
         $softCardClass = 'rounded-xl border border-[#D7E4F3] bg-[#F8FAFC]';
-        $inputReadonlyClass = 'w-full rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-[#1A2B42] gnet-number-input';
-        $inputEditableClass = 'w-full rounded-xl border-[#D7E4F3] bg-white text-[#1A2B42] gnet-number-input';
-        $inputCounterClass = 'w-full rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-[#1A2B42] gnet-counter-native';
-
-        $modalCloseStableClass = 'backdrop-blur-sm [&_.btn-circle]:!bg-[#F0F3F7] [&_.btn-circle]:!text-[#1A2B42] [&_.btn-circle]:!border-[#D7E4F3] [&_.btn-circle:hover]:!bg-[#F0F3F7] [&_.btn-circle:hover]:!text-[#1A2B42] [&_.btn-circle:hover]:!border-[#D7E4F3] [&_.btn-circle:focus]:!bg-[#F0F3F7] [&_.btn-circle:focus]:!text-[#1A2B42] [&_.btn-circle:focus]:!border-[#D7E4F3] [&_.btn-circle:active]:!bg-[#F0F3F7] [&_.btn-circle:active]:!text-[#1A2B42] [&_.btn-circle:active]:!border-[#D7E4F3]';
+        $inputReadonlyClass = 'input-sm h-8 min-h-0 w-full rounded-lg border-[#D7E4F3] bg-[#F0F3F7] text-xs text-[#1A2B42] gnet-number-light';
+        $inputEditableClass = 'input-sm h-8 min-h-0 w-full rounded-lg border-[#D7E4F3] bg-white text-xs text-[#1A2B42] gnet-number-light';
+        $inputCounterClass = 'h-7 min-h-0 w-full rounded-lg border border-[#D7E4F3] bg-white px-2 text-center text-xs text-[#1A2B42] outline-none focus:border-[#0B6FE4] focus:ring-0 gnet-number-light';
         $modalAperturaClass = 'backdrop-blur-sm [&_.btn-circle]:!hidden';
         $modalEgresoClass = 'backdrop-blur-sm [&_.btn-circle]:!hidden';
+        $modalTasaClass = 'backdrop-blur-sm [&_.btn-circle]:!hidden';
+
+        $diferenciaCordobas = $this->detalleDiferenciaCordobas();
+        $diferenciaDolares = $this->detalleDiferenciaDolares();
+
+        $diferenciaCordobasClass = match ($diferenciaCordobas['tipo']) {
+            'faltante' => 'border-red-200 bg-red-50 text-red-700',
+            'sobrante' => 'border-green-200 bg-green-50 text-green-700',
+            default => 'border-[#D7E4F3] bg-[#F8FAFC] text-[#1A2B42]',
+        };
+
+        $diferenciaDolaresClass = match ($diferenciaDolares['tipo']) {
+            'faltante' => 'border-red-200 bg-red-50 text-red-700',
+            'sobrante' => 'border-green-200 bg-green-50 text-green-700',
+            default => 'border-[#D7E4F3] bg-[#F8FAFC] text-[#1A2B42]',
+        };
     @endphp
 
     @once
         <style>
-            input.gnet-number-input[type="number"],
-            input.gnet-counter-native[type="number"] {
+            input.gnet-number-light[type="number"] {
                 color-scheme: light;
             }
         </style>
     @endonce
 
-    <div class="mx-auto flex w-full max-w-7xl flex-col gap-6">
-        <div class="{{ $cardClass }} flex flex-col gap-5 p-5 lg:flex-row lg:items-center lg:justify-between">
-            <div class="flex items-center gap-4">
-                <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#EAF2FB] text-[#0B6FE4] shadow-sm">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-19.5 0v3A2.25 2.25 0 0 0 4.5 18h15a2.25 2.25 0 0 0 2.25-2.25v-3m-19.5 0h19.5M6 15h.008v.008H6V15Zm3 0h.008v.008H9V15Z" />
-                    </svg>
-                </div>
+    <div class="mx-auto flex w-full max-w-7xl flex-col gap-4">
+        <div class="{{ $cardClass }} overflow-hidden">
+            <div class="border-b border-[#D7E4F3] bg-white p-4">
+                <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#EAF2FB] text-[#0B6FE4] shadow-sm">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-19.5 0v3A2.25 2.25 0 0 0 4.5 18h15a2.25 2.25 0 0 0 2.25-2.25v-3m-19.5 0h19.5M6 15h.008v.008H6V15Zm3 0h.008v.008H9V15Z" />
+                            </svg>
+                        </div>
 
-                <div>
-                    <h1 class="text-2xl font-bold text-[#1A2B42] md:text-3xl">Arqueo de caja</h1>
-                    <p class="text-sm text-[#5F6B7A]">Registro de efectivo y movimientos de la caja</p>
-                </div>
-            </div>
+                        <div>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <h1 class="text-xl font-bold text-[#1A2B42] md:text-2xl">
+                                    Arqueo de caja
+                                </h1>
 
-            <div class="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:max-w-xl">
-                <div class="rounded-xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
-                    <label class="mb-2 block text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
-                        Caja
-                    </label>
+                                @if ($cajaAbierta)
+                                    <span class="rounded-full border border-green-200 bg-green-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-green-700">
+                                        Caja abierta
+                                    </span>
+                                @else
+                                    <span class="rounded-full border border-[#D7E4F3] bg-[#F8FAFC] px-3 py-1 text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
+                                        Sin apertura
+                                    </span>
+                                @endif
+                            </div>
 
-                    <x-input
-                        wire:model="caja"
-                        readonly
-                        prefix="#"
-                        class="{{ $inputReadonlyClass }}"
-                    />
-                </div>
+                            <p class="mt-0.5 text-xs text-[#5F6B7A]">
+                                Conteo físico, movimientos registrados y diferencia final de caja.
+                            </p>
+                        </div>
+                    </div>
 
-                <div class="rounded-xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
-                    <label class="mb-2 block text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
-                        Tasa de cambio
-                    </label>
+                    <div class="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:max-w-xl">
+                        <div class="rounded-xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
+                            <span class="mb-2 block text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
+                                Caja actual
+                            </span>
 
-                    <div class="flex items-center gap-2">
-                        <div class="min-w-0 flex-1">
                             <x-input
-                                wire:model="tasaOficial"
+                                wire:model="caja"
                                 readonly
-                                prefix="TC"
+                                prefix="#"
                                 class="{{ $inputReadonlyClass }}"
                             />
                         </div>
 
-                        <x-button
-                            icon="o-pencil-square"
-                            wire:click="abrirModalTasa"
-                            title="Modificar tasa de cambio"
-                            class="h-12 min-h-0 rounded-xl border border-[#0B6FE4] bg-[#0B6FE4] text-white shadow-sm hover:bg-[#2E8BC0] hover:text-white"                        />
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
-            <div class="{{ $cardClass }} p-5">
-                <div class="mb-5 flex items-center gap-3">
-                    <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EAF2FB] text-[#0B6FE4]">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-8.25A2.25 2.25 0 0 0 17.25 3.75h-10.5A2.25 2.25 0 0 0 4.5 6v12A2.25 2.25 0 0 0 6.75 20.25h7.5" />
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 18.75h3.75m0 0V15m0 3.75L15 13.5" />
-                        </svg>
-                    </div>
-
-                    <h2 class="text-lg font-bold text-[#1A2B42]">Detalles de caja</h2>
-                </div>
-
-                <div class="space-y-3">
-                    @foreach ($this->detallesCaja() as $detalle)
-                        @php
-                            $tipoDetalle = $detalle['tipo'] ?? 'normal';
-                            $montoDetalle = (float) ($detalle['monto'] ?? 0);
-
-                            $valorClass = 'text-sm font-bold text-[#1A2B42]';
-                            $filaClass = 'flex items-center justify-between gap-3 rounded-xl bg-[#F8FAFC] px-4 py-3';
-
-                            if ($tipoDetalle === 'faltante' && $montoDetalle > 0) {
-                                $valorClass = 'text-sm font-extrabold text-red-600';
-                                $filaClass = 'flex items-center justify-between gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3';
-                            }
-
-                            if ($tipoDetalle === 'sobrante' && $montoDetalle > 0) {
-                                $valorClass = 'text-sm font-extrabold text-green-600';
-                                $filaClass = 'flex items-center justify-between gap-3 rounded-xl border border-green-100 bg-green-50 px-4 py-3';
-                            }
-                        @endphp
-
-                        <div class="{{ $filaClass }}">
-                            <span class="text-sm font-medium text-[#5F6B7A]">
-                                {{ $detalle['label'] }}
+                        <div class="rounded-xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
+                            <span class="mb-2 block text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
+                                Tasa de cambio
                             </span>
 
-                            <span class="{{ $valorClass }} text-right">
-                                {{ $detalle['valor'] }}
-                            </span>
-                        </div>
-                    @endforeach
-                </div>
-            </div>
-
-            <div class="{{ $cardClass }} p-5">
-                <div class="mb-5 flex items-center gap-3">
-                    <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EAF2FB] text-[#0B6FE4]">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-9h4.5a2.25 2.25 0 0 1 0 4.5H10.5a2.25 2.25 0 0 0 0 4.5H15" />
-                        </svg>
-                    </div>
-
-                    <h2 class="text-lg font-bold text-[#1A2B42]">Efectivo (C$)</h2>
-                </div>
-
-                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    @foreach ($denominacionesCordobas as $denominacion)
-                        <div class="{{ $softCardClass }} p-3">
-                            <span class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                                C${{ $denominacion }}
-                            </span>
-
-                            <x-input
-                                type="number"
-                                min="0"
-                                step="1"
-                                placeholder="0"
-                                prefix="C$"
-                                wire:model.live="conteoCordobas.{{ $denominacion }}"
-                                class="{{ $inputCounterClass }}"
-                            />
-
-                            <span class="mt-2 block text-sm font-medium text-[#5F6B7A]">
-                                Subtotal: C$ {{ $this->formatear($this->subtotalCordoba($denominacion)) }}
-                            </span>
-                        </div>
-                    @endforeach
-                </div>
-
-                <div class="mt-4 flex items-center justify-between rounded-xl bg-[#EAF2FB] px-4 py-3">
-                    <span class="font-semibold text-[#1A2B42]">Efectivo contado C$</span>
-                    <span class="text-lg font-bold text-[#0B6FE4]">
-                        C$ {{ $this->formatear($this->totalCordobas()) }}
-                    </span>
-                </div>
-            </div>
-
-            <div class="{{ $cardClass }} p-5">
-                <div class="mb-5 flex items-center gap-3">
-                    <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EAF2FB] text-[#0B6FE4]">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-9h4.5a2.25 2.25 0 0 1 0 4.5H10.5a2.25 2.25 0 0 0 0 4.5H15" />
-                        </svg>
-                    </div>
-
-                    <h2 class="text-lg font-bold text-[#1A2B42]">Efectivo ($)</h2>
-                </div>
-
-                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    @foreach ($denominacionesDolares as $denominacion)
-                        <div class="{{ $softCardClass }} p-3">
-                            <span class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                                ${{ $denominacion }}
-                            </span>
-
-                            <x-input
-                                type="number"
-                                min="0"
-                                step="1"
-                                placeholder="0"
-                                prefix="$"
-                                wire:model.live="conteoDolares.{{ $denominacion }}"
-                                class="{{ $inputCounterClass }}"
-                            />
-
-                            <span class="mt-2 block text-sm font-medium text-[#5F6B7A]">
-                                Subtotal: $ {{ $this->formatear($this->subtotalDolar($denominacion)) }}
-                            </span>
-                        </div>
-                    @endforeach
-                </div>
-
-                <div class="mt-4 flex items-center justify-between rounded-xl bg-[#EAF2FB] px-4 py-3">
-                    <span class="font-semibold text-[#1A2B42]">Efectivo contado $</span>
-                    <span class="text-lg font-bold text-[#0B6FE4]">
-                        $ {{ $this->formatear($this->totalDolares()) }}
-                    </span>
-                </div>
-            </div>
-        </div>
-
-        <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-            <x-button
-                label="Registrar egreso"
-                wire:click="abrirModalEgreso"
-                class="border-0 bg-[#1A2B42] text-white hover:opacity-95"
-            />
-
-            <x-button
-                label="Abrir caja"
-                wire:click="abrirModalCaja"
-                class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F8FAFC]"
-            />
-
-            <x-button
-                label="Cerrar caja"
-                wire:click="cerrarCaja"
-                class="border-0 bg-[#0B6FE4] text-white hover:opacity-95"
-            />
-        </div>
-    </div>
-
-    <x-modal
-        wire:model="abrirCajaModal"
-        class="{{ $modalAperturaClass }}"
-        box-class="max-w-md rounded-2xl border border-[#D7E4F3] bg-white p-0 shadow-2xl"
-    >
-        <div class="p-6">
-            <div class="mb-5 flex items-center justify-center gap-3">
-                <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#EAF2FB] text-[#0B6FE4]">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8.25v7.5m-3.75-3.75h7.5" />
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                    </svg>
-                </div>
-
-                <div class="text-center">
-                    <h2 class="text-xl font-bold text-[#0B6FE4]">Apertura de Caja</h2>
-                    <p class="text-sm text-[#5F6B7A]">Ingresa el monto inicial y la tasa de cambio del día</p>
-                </div>
-            </div>
-
-            <x-form wire:submit="guardarApertura" no-separator>
-                <div class="space-y-4">
-                    <div>
-                        <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                            Número de caja
-                        </label>
-
-                        <x-input
-                            wire:model="caja"
-                            readonly
-                            prefix="#"
-                            class="{{ $inputReadonlyClass }}"
-                        />
-                    </div>
-
-                    <div>
-                        <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                            Monto de apertura
-                        </label>
-
-                        <x-input
-                            type="number"
-                            step="0.01"
-                            min="0.01"
-                            wire:model="montoAperturaFormulario"
-                            placeholder="0.00"
-                            prefix="C$"
-                            class="{{ $inputEditableClass }}"
-                        />
-                    </div>
-
-                    <div class="rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-4">
-                        <div class="grid grid-cols-1 gap-4">
-                            <div>
-                                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                                    Tasa actual
-                                </label>
-
+                            <div class="flex items-center gap-2">
                                 <x-input
                                     wire:model="tasaOficial"
                                     readonly
                                     prefix="TC"
                                     class="{{ $inputReadonlyClass }}"
                                 />
-                            </div>
 
-                            <div>
-                                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                                    Nueva tasa de cambio opcional
-                                </label>
-
-                                <x-input
-                                    type="number"
-                                    step="0.01"
-                                    min="0.01"
-                                    wire:model="tasaCambioApertura"
-                                    placeholder="Dejar vacío para no modificar"
-                                    prefix="TC"
-                                    class="{{ $inputEditableClass }}"
+                                <x-button
+                                    icon="o-pencil-square"
+                                    wire:click="abrirModalTasa"
+                                    title="Modificar tasa de cambio"
+                                    class="h-10 min-h-0 rounded-xl border border-[#0B6FE4] bg-[#0B6FE4] text-white shadow-sm hover:bg-[#2E8BC0] hover:text-white"
                                 />
                             </div>
                         </div>
                     </div>
                 </div>
-
-                <x-slot:actions>
-                    <x-button
-                        label="Cancelar"
-                        type="button"
-                        wire:click="cerrarModalCaja"
-                        class="bg-[#6B7280] text-white"
-                    />
-
-                    <x-button
-                        label="Abrir caja"
-                        type="submit"
-                        spinner="guardarApertura"
-                        class="bg-[#16A34A] text-white"
-                    />
-                </x-slot:actions>
-            </x-form>
-        </div>
-    </x-modal>
-
-    <x-modal
-        wire:model="modificarTasaModal"
-        class="{{ $modalCloseStableClass }}"
-        box-class="max-w-md rounded-2xl border border-[#D7E4F3] bg-white p-0 shadow-2xl"
-    >
-        <div class="p-6">
-            <div class="mb-5 flex items-center justify-center gap-3">
-                <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#EAF2FB] text-[#0B6FE4]">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-9h4.5a2.25 2.25 0 0 1 0 4.5H10.5a2.25 2.25 0 0 0 0 4.5H15" />
-                    </svg>
-                </div>
-
-                <div class="text-center">
-                    <h2 class="text-xl font-bold text-[#0B6FE4]">Modificar tasa de cambio</h2>
-                    <p class="text-sm text-[#5F6B7A]">Actualiza la tasa oficial utilizada por la caja</p>
-                </div>
             </div>
 
-            <x-form wire:submit="guardarTasaCambio" no-separator>
-                <div>
-                    <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                        Nueva tasa de cambio
-                    </label>
+            <div class="grid grid-cols-1 gap-4 bg-[#F8FAFC] p-4 md:grid-cols-2 xl:grid-cols-4">
+                <div class="rounded-2xl border border-[#D7E4F3] bg-white p-3">
+                    <span class="block text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
+                        Esperado C$
+                    </span>
 
-                    <x-input
-                        type="number"
-                        step="0.01"
-                        min="0.01"
-                        wire:model="nuevaTasaOficial"
-                        placeholder="0.00"
-                        prefix="TC"
-                        class="{{ $inputEditableClass }}"
-                    />
-
-                    @error('nuevaTasaOficial')
-                        <span class="mt-2 block text-sm font-semibold text-red-600">
-                            {{ $message }}
-                        </span>
-                    @enderror
+                    <span class="mt-1.5 block text-xl font-extrabold text-[#1A2B42]">
+                        C$ {{ $this->formatear($this->totalEsperadoCordobas()) }}
+                    </span>
                 </div>
 
-                <x-slot:actions>
-                    <x-button
-                        label="Cancelar"
-                        type="button"
-                        wire:click="cerrarModalTasa"
-                        class="bg-[#6B7280] text-white"
-                    />
+                <div class="rounded-2xl border border-[#D7E4F3] bg-white p-3">
+                    <span class="block text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
+                        Contado C$
+                    </span>
 
-                    <x-button
-                        label="Guardar tasa"
-                        type="submit"
-                        spinner="guardarTasaCambio"
-                        class="bg-[#0B6FE4] text-white"
-                    />
-                </x-slot:actions>
-            </x-form>
-        </div>
-    </x-modal>
-
-    <x-modal
-        wire:model="registrarEgresoModal"
-        class="{{ $modalEgresoClass }}"
-        box-class="max-w-2xl rounded-2xl border border-[#D7E4F3] bg-white p-0 shadow-2xl"
-    >
-        <div class="overflow-hidden rounded-2xl bg-white">
-            <div class="flex items-center gap-3 border-b border-[#D7E4F3] bg-white px-5 py-4">
-                <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#EAF2FB] text-[#0B6FE4]">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-19.5 0v3A2.25 2.25 0 0 0 4.5 18h15a2.25 2.25 0 0 0 2.25-2.25v-3m-19.5 0h19.5" />
-                    </svg>
+                    <span class="mt-1.5 block text-lg font-extrabold text-[#0B6FE4]">
+                        C$ {{ $this->formatear($this->totalCordobas()) }}
+                    </span>
                 </div>
 
-                <div class="min-w-0">
-                    <h2 class="text-lg font-bold text-[#1A2B42]">Egresos de Caja</h2>
-                    <p class="text-sm text-[#5F6B7A]">Registra salidas de una moneda específica o ambas.</p>
+                <div class="rounded-2xl border {{ $diferenciaCordobasClass }} p-3">
+                    <span class="block text-xs font-bold uppercase tracking-wide">
+                        {{ $diferenciaCordobas['tipo'] === 'faltante' ? 'Faltante C$' : ($diferenciaCordobas['tipo'] === 'sobrante' ? 'Sobrante C$' : 'Diferencia C$') }}
+                    </span>
+
+                    <span class="mt-1.5 block text-xl font-extrabold">
+                        {{ $diferenciaCordobas['valor'] }}
+                    </span>
+                </div>
+
+                <div class="rounded-2xl border {{ $diferenciaDolaresClass }} p-3">
+                    <span class="block text-xs font-bold uppercase tracking-wide">
+                        {{ $diferenciaDolares['tipo'] === 'faltante' ? 'Faltante $' : ($diferenciaDolares['tipo'] === 'sobrante' ? 'Sobrante $' : 'Diferencia $') }}
+                    </span>
+
+                    <span class="mt-1.5 block text-xl font-extrabold">
+                        {{ $diferenciaDolares['valor'] }}
+                    </span>
                 </div>
             </div>
+        </div>
 
-            <x-form wire:submit="guardarEgreso" no-separator>
-                <div class="space-y-4 bg-[#F8FAFC] px-5 py-4">
-                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <div class="rounded-xl border border-[#D7E4F3] bg-white px-4 py-3">
-                            <span class="block text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
-                                Disponible C$
+        <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
+            <div class="xl:col-span-4">
+                <div class="{{ $cardClass }} overflow-hidden">
+                    <div class="border-b border-[#D7E4F3] bg-white px-4 py-3">
+                        <h2 class="text-base font-bold text-[#1A2B42]">
+                            Montos de la caja
+                        </h2>
+
+                        <p class="mt-0.5 text-xs text-[#5F6B7A]">
+                            Montos usados para calcular el efectivo esperado.
+                        </p>
+                    </div>
+
+                    <div class="space-y-2 p-4">
+                        <div class="{{ $softCardClass }} p-3">
+                            <span class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
+                                Apertura
                             </span>
 
-                            <span class="mt-1 block text-base font-extrabold text-[#1A2B42]">
-                                C$ {{ $this->formatear($this->disponibleEgresoCordobas()) }}
-                            </span>
+                            <div class="mt-2 flex items-center justify-between gap-3">
+                                <span class="text-sm font-medium text-[#5F6B7A]">Fondo inicial</span>
+                                <span class="text-xs font-extrabold text-[#1A2B42]">
+                                    C$ {{ $this->formatear($this->montoApertura) }}
+                                </span>
+                            </div>
                         </div>
 
-                        <div class="rounded-xl border border-[#D7E4F3] bg-white px-4 py-3">
-                            <span class="block text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
-                                Disponible $
+                        <div class="{{ $softCardClass }} p-3">
+                            <span class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
+                                Ingresos
                             </span>
 
-                            <span class="mt-1 block text-base font-extrabold text-[#1A2B42]">
-                                $ {{ $this->formatear($this->disponibleEgresoDolares()) }}
+                            <div class="mt-2 space-y-1.5">
+                                <div class="flex items-center justify-between gap-3">
+                                    <span class="text-sm font-medium text-[#5F6B7A]">Ventas C$</span>
+                                    <span class="text-xs font-extrabold text-[#1A2B42]">
+                                        C$ {{ $this->formatear($this->totalVentaCordobas) }}
+                                    </span>
+                                </div>
+
+                                <div class="flex items-center justify-between gap-3">
+                                    <span class="text-sm font-medium text-[#5F6B7A]">Ventas $</span>
+                                    <span class="text-xs font-extrabold text-[#1A2B42]">
+                                        $ {{ $this->formatear($this->totalVentaDolares) }}
+                                    </span>
+                                </div>
+
+                                <div class="flex items-center justify-between gap-3">
+                                    <span class="text-sm font-medium text-[#5F6B7A]">Abonos C$</span>
+                                    <span class="text-xs font-extrabold text-[#1A2B42]">
+                                        C$ {{ $this->formatear($this->totalAbonoCordobas) }}
+                                    </span>
+                                </div>
+
+                                <div class="flex items-center justify-between gap-3">
+                                    <span class="text-sm font-medium text-[#5F6B7A]">Abonos $</span>
+                                    <span class="text-xs font-extrabold text-[#1A2B42]">
+                                        $ {{ $this->formatear($this->totalAbonoDolares) }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="{{ $softCardClass }} p-3">
+                            <span class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
+                                Egresos
                             </span>
+
+                            <div class="mt-2 space-y-1.5">
+                                <div class="flex items-center justify-between gap-3">
+                                    <span class="text-sm font-medium text-[#5F6B7A]">Egresos C$</span>
+                                    <span class="text-xs font-extrabold text-[#1A2B42]">
+                                        C$ {{ $this->formatear($this->totalEgresoCordobas) }}
+                                    </span>
+                                </div>
+
+                                <div class="flex items-center justify-between gap-3">
+                                    <span class="text-sm font-medium text-[#5F6B7A]">Egresos $</span>
+                                    <span class="text-xs font-extrabold text-[#1A2B42]">
+                                        $ {{ $this->formatear($this->totalEgresoDolares) }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="rounded-2xl border border-[#D7E4F3] bg-[#EAF2FB] p-3">
+                            <span class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
+                                Totales esperados
+                            </span>
+
+                            <div class="mt-2 space-y-1.5">
+                                <div class="flex items-center justify-between gap-3">
+                                    <span class="text-sm font-bold text-[#1A2B42]">Córdobas</span>
+                                    <span class="text-base font-extrabold text-[#0B6FE4]">
+                                        C$ {{ $this->formatear($this->totalEsperadoCordobas()) }}
+                                    </span>
+                                </div>
+
+                                <div class="flex items-center justify-between gap-3">
+                                    <span class="text-sm font-bold text-[#1A2B42]">Dólares</span>
+                                    <span class="text-base font-extrabold text-[#0B6FE4]">
+                                        $ {{ $this->formatear($this->totalEsperadoDolares()) }}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div class="border-t border-[#D7E4F3] bg-white p-4">
+                        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:grid-cols-1">
+                            <x-button
+                                label="Registrar egreso"
+                                wire:click="abrirModalEgreso"
+                                class="min-h-0 rounded-xl border-0 bg-[#0B6FE4] px-3 py-2 text-white shadow-sm hover:opacity-95"
+                            />
+
+                            <x-button
+                                label="Abrir caja"
+                                wire:click="abrirModalCaja"
+                                class="min-h-0 rounded-xl border border-[#D7E4F3] bg-white px-3 py-2 text-[#1A2B42] shadow-sm hover:bg-[#F8FAFC]"
+                            />
+
+                            <x-button
+                                label="Cerrar caja"
+                                wire:click="cerrarCaja"
+                                class="min-h-0 rounded-xl border-0 bg-[#0B6FE4] px-3 py-2 text-white shadow-sm hover:opacity-95"
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="xl:col-span-8">
+                <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <div class="{{ $cardClass }} overflow-hidden">
+                        <div class="flex items-center justify-between gap-3 border-b border-[#D7E4F3] bg-white px-4 py-3">
+                            <div>
+                                <h2 class="text-base font-bold text-[#1A2B42]">
+                                    Conteo en córdobas
+                                </h2>
+
+                                <p class="mt-0.5 text-xs text-[#5F6B7A]">
+                                    Ingrese cantidad por denominación.
+                                </p>
+                            </div>
+
+                            <div class="rounded-xl bg-[#EAF2FB] px-3 py-1.5 text-right">
+                                <span class="block text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
+                                    Total C$
+                                </span>
+
+                                <span class="block text-base font-extrabold text-[#0B6FE4]">
+                                    {{ $this->formatear($this->totalCordobas()) }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="p-4">
+                            <div class="overflow-hidden rounded-2xl border border-[#D7E4F3]">
+                                <div class="grid grid-cols-12 bg-[#2E8BC0] px-3 py-2 text-xs font-bold uppercase tracking-wide text-white">
+                                    <div class="col-span-3">Denom.</div>
+                                    <div class="col-span-5 text-center">Cantidad</div>
+                                    <div class="col-span-4 text-right">Subtotal</div>
+                                </div>
+
+                                <div class="divide-y divide-[#D7E4F3] bg-white">
+                                    @foreach ($denominacionesCordobas as $denominacion => $valorDenominacion)
+                                        <div class="grid grid-cols-12 items-center gap-2 px-3 py-4">
+                                            <div class="col-span-3">
+                                                <span class="rounded-lg bg-[#F8FAFC] px-2.5 py-1.5 text-xs font-extrabold text-[#1A2B42]">
+                                                    C${{ $this->formatearDenominacionCordoba($valorDenominacion) }}
+                                                </span>
+                                            </div>
+
+                                            <div class="col-span-5">
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
+                                                    placeholder="0"
+                                                    wire:model.live="conteoCordobas.{{ $denominacion }}"
+                                                    class="{{ $inputCounterClass }}"
+                                                >
+                                            </div>
+
+                                            <div class="col-span-4 text-right">
+                                                <span class="text-xs font-extrabold text-[#1A2B42]">
+                                                    C$ {{ $this->formatear($this->subtotalCordoba($denominacion)) }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </div>
+
+                            <div class="mt-3 flex items-center justify-between gap-3 rounded-2xl bg-[#EAF2FB] px-3 py-3">
+                                <span class="text-sm font-bold text-[#1A2B42]">
+                                    Efectivo contado C$
+                                </span>
+
+                                <span class="text-lg font-extrabold text-[#0B6FE4]">
+                                    C$ {{ $this->formatear($this->totalCordobas()) }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="{{ $cardClass }} overflow-hidden">
+                        <div class="flex items-center justify-between gap-3 border-b border-[#D7E4F3] bg-white px-4 py-3">
+                            <div>
+                                <h2 class="text-base font-bold text-[#1A2B42]">
+                                    Conteo en dólares
+                                </h2>
+
+                                <p class="mt-0.5 text-xs text-[#5F6B7A]">
+                                    Ingrese cantidad por denominación.
+                                </p>
+                            </div>
+
+                            <div class="rounded-xl bg-[#EAF2FB] px-3 py-1.5 text-right">
+                                <span class="block text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
+                                    Total $
+                                </span>
+
+                                <span class="block text-base font-extrabold text-[#0B6FE4]">
+                                    {{ $this->formatear($this->totalDolares()) }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="p-4">
+                            <div class="overflow-hidden rounded-2xl border border-[#D7E4F3]">
+                                <div class="grid grid-cols-12 bg-[#2E8BC0] px-3 py-2 text-xs font-bold uppercase tracking-wide text-white">
+                                    <div class="col-span-3">Denom.</div>
+                                    <div class="col-span-5 text-center">Cantidad</div>
+                                    <div class="col-span-4 text-right">Subtotal</div>
+                                </div>
+
+                                <div class="divide-y divide-[#D7E4F3] bg-white">
+                                    @foreach ($denominacionesDolares as $denominacion)
+                                        <div class="grid grid-cols-12 items-center gap-2 px-3 py-2">
+                                            <div class="col-span-3">
+                                                <span class="rounded-lg bg-[#F8FAFC] px-2.5 py-1.5 text-xs font-extrabold text-[#1A2B42]">
+                                                    ${{ $denominacion }}
+                                                </span>
+                                            </div>
+
+                                            <div class="col-span-5">
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
+                                                    placeholder="0"
+                                                    wire:model.live="conteoDolares.{{ $denominacion }}"
+                                                    class="{{ $inputCounterClass }}"
+                                                >
+                                            </div>
+
+                                            <div class="col-span-4 text-right">
+                                                <span class="text-xs font-extrabold text-[#1A2B42]">
+                                                    $ {{ $this->formatear($this->subtotalDolar($denominacion)) }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </div>
+
+                            <div class="mt-3 flex items-center justify-between gap-3 rounded-2xl bg-[#EAF2FB] px-3 py-3">
+                                <span class="text-sm font-bold text-[#1A2B42]">
+                                    Efectivo contado $
+                                </span>
+
+                                <span class="text-lg font-extrabold text-[#0B6FE4]">
+                                    $ {{ $this->formatear($this->totalDolares()) }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>                
+            </div>
+        </div>
+
+        <x-modal
+            wire:model="abrirCajaModal"
+            class="{{ $modalAperturaClass }}"
+            box-class="max-w-md rounded-2xl border border-[#D7E4F3] bg-white p-0 shadow-2xl"
+        >
+            <div class="p-5">
+                <div class="mb-4 flex items-center justify-center gap-3">
+                    <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#EAF2FB] text-[#0B6FE4]">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 8.25v7.5m-3.75-3.75h7.5" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                        </svg>
+                    </div>
+
+                    <div class="text-center">
+                        <h2 class="text-lg font-bold text-[#0B6FE4]">Apertura de caja</h2>
+                        <p class="text-sm text-[#5F6B7A]">Ingresa el monto inicial antes de iniciar ventas</p>
+                    </div>
+                </div>
+
+                <x-form wire:submit="guardarApertura" no-separator>
+                    <div class="space-y-3">
                         <div>
-                            <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
-                                Moneda del egreso
+                            <label class="mb-1.5 block text-xs font-semibold text-[#1A2B42]">
+                                Número de caja
                             </label>
 
-                            <x-select
-                                wire:model.live="monedaEgreso"
-                                :options="$monedasEgreso"
+                            <x-input
+                                wire:model="caja"
+                                readonly
+                                prefix="#"
+                                class="{{ $inputReadonlyClass }}"
+                            />
+                        </div>
+
+                        <div>
+                            <label class="mb-1.5 block text-xs font-semibold text-[#1A2B42]">
+                                Monto de apertura
+                            </label>
+
+                            <x-input
+                                type="number"
+                                step="0.01"
+                                min="0.01"
+                                wire:model="montoAperturaFormulario"
+                                placeholder="0.00"
+                                prefix="C$"
                                 class="{{ $inputEditableClass }}"
                             />
                         </div>
 
-                        @if ($this->mostrarMontoEgresoCordobas())
-                            <div>
-                                <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
-                                    Monto en córdobas
-                                </label>
+                        <div class="rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
+                            <div class="space-y-3">
+                                <div>
+                                    <label class="mb-1.5 block text-xs font-semibold text-[#1A2B42]">
+                                        Tasa actual
+                                    </label>
 
-                                <x-input
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    wire:model="montoEgresoCordobas"
-                                    placeholder="0.00"
-                                    prefix="C$"
-                                    class="{{ $inputEditableClass }}"
-                                />
+                                    <x-input
+                                        wire:model="tasaOficial"
+                                        readonly
+                                        prefix="TC"
+                                        class="{{ $inputReadonlyClass }}"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label class="mb-1.5 block text-xs font-semibold text-[#1A2B42]">
+                                        Nueva tasa de cambio opcional
+                                    </label>
+
+                                    <x-input
+                                        type="number"
+                                        step="0.01"
+                                        min="0.01"
+                                        wire:model="tasaCambioApertura"
+                                        placeholder="Dejar vacío para no modificar"
+                                        prefix="TC"
+                                        class="{{ $inputEditableClass }}"
+                                    />
+                                </div>
                             </div>
-                        @endif
-
-                        @if ($this->mostrarMontoEgresoDolares())
-                            <div>
-                                <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
-                                    Monto en dólares
-                                </label>
-
-                                <x-input
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    wire:model="montoEgresoDolares"
-                                    placeholder="0.00"
-                                    prefix="$"
-                                    class="{{ $inputEditableClass }}"
-                                />
-                            </div>
-                        @endif
+                        </div>
                     </div>
 
-                    <div>
-                        <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
-                            Motivo del egreso
-                        </label>
-
-                        <x-select
-                            wire:model="motivoEgreso"
-                            :options="$motivosEgreso"
-                            placeholder="Seleccione un motivo"
-                            class="{{ $inputEditableClass }}"
+                    <x-slot:actions>
+                        <x-button
+                            label="Cancelar"
+                            type="button"
+                            wire:click="cerrarModalCaja"
+                            class="bg-[#6B7280] text-white"
                         />
+
+                        <x-button
+                            label="Abrir caja"
+                            type="submit"
+                            spinner="guardarApertura"
+                            class="bg-[#16A34A] text-white"
+                        />
+                    </x-slot:actions>
+                </x-form>
+            </div>
+        </x-modal>
+
+        <x-modal
+            wire:model="modificarTasaModal"
+            class="{{ $modalTasaClass }}"
+            box-class="max-w-md rounded-2xl border border-[#D7E4F3] bg-white p-0 shadow-2xl"
+        >
+            <div class="p-5">
+                <div class="mb-4 flex items-center justify-center gap-3">
+                    <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#EAF2FB] text-[#0B6FE4]">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-9h4.5a2.25 2.25 0 0 1 0 4.5H10.5a2.25 2.25 0 0 0 0 4.5H15" />
+                        </svg>
                     </div>
 
-                    <div>
-                        <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
-                            Descripción del egreso
-                        </label>
-
-                        <x-textarea
-                            wire:model="descripcionEgreso"
-                            rows="3"
-                            placeholder="Detalle obligatorio del egreso..."
-                            class="rounded-xl border-[#D7E4F3] bg-white text-[#1A2B42] placeholder:text-[#7B8794]"
-                        />
+                    <div class="text-center">
+                        <h2 class="text-lg font-bold text-[#0B6FE4]">Modificar tasa de cambio</h2>
+                        <p class="text-sm text-[#5F6B7A]">Actualiza la tasa oficial utilizada por la caja</p>
                     </div>
                 </div>
 
-                <x-slot:actions>
-                    <div class="flex w-full flex-col-reverse justify-end gap-3 border-t border-[#D7E4F3] bg-white px-5 py-4 sm:flex-row">
+                <x-form wire:submit="guardarTasaCambio" no-separator>
+                    <div>
+                        <label class="mb-1.5 block text-xs font-semibold text-[#1A2B42]">
+                            Nueva tasa de cambio
+                        </label>
+
+                        <x-input
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            wire:model="nuevaTasaOficial"
+                            placeholder="0.00"
+                            prefix="TC"
+                            class="{{ $inputEditableClass }}"
+                        />
+
+                        @error('nuevaTasaOficial')
+                            <span class="mt-2 block text-sm font-semibold text-red-600">
+                                {{ $message }}
+                            </span>
+                        @enderror
+                    </div>
+
+                    <x-slot:actions>
                         <x-button
-                            label="Volver"
+                            label="Cancelar"
                             type="button"
-                            wire:click="cerrarModalEgreso"
-                            class="min-h-0 rounded-xl bg-[#6B7280] px-5 py-2.5 text-white shadow-sm hover:bg-[#5B6472]"
+                            wire:click="cerrarModalTasa"
+                            class="bg-[#6B7280] text-white"
                         />
 
                         <x-button
-                            label="Guardar egreso"
+                            label="Guardar tasa"
                             type="submit"
-                            spinner="guardarEgreso"
-                            class="min-h-0 rounded-xl bg-[#0B6FE4] px-5 py-2.5 text-white shadow-sm hover:bg-[#2E8BC0]"
+                            spinner="guardarTasaCambio"
+                            class="bg-[#0B6FE4] text-white"
                         />
+                    </x-slot:actions>
+                </x-form>
+            </div>
+        </x-modal>
+
+        <x-modal
+            wire:model="registrarEgresoModal"
+            class="{{ $modalEgresoClass }}"
+            box-class="max-w-2xl rounded-2xl border border-[#D7E4F3] bg-white p-0 shadow-2xl"
+        >
+            <div class="overflow-hidden rounded-2xl bg-white">
+                <div class="flex items-center gap-3 border-b border-[#D7E4F3] bg-white px-4 py-3">
+                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#EAF2FB] text-[#0B6FE4]">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-19.5 0v3A2.25 2.25 0 0 0 4.5 18h15a2.25 2.25 0 0 0 2.25-2.25v-3m-19.5 0h19.5" />
+                        </svg>
                     </div>
-                </x-slot:actions>
-            </x-form>
-        </div>
-    </x-modal>
+
+                    <div class="min-w-0">
+                        <h2 class="text-base font-bold text-[#1A2B42]">Egresos de caja</h2>
+                        <p class="text-sm text-[#5F6B7A]">Registra salidas de una moneda específica o ambas.</p>
+                    </div>
+                </div>
+
+                <x-form wire:submit="guardarEgreso" no-separator>
+                    <div class="space-y-3 bg-[#F8FAFC] px-4 py-3">
+                        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div class="rounded-xl border border-[#D7E4F3] bg-white px-3 py-2">
+                                <span class="block text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
+                                    Disponible C$
+                                </span>
+
+                                <span class="mt-0.5 block text-sm font-extrabold text-[#1A2B42]">
+                                    C$ {{ $this->formatear($this->disponibleEgresoCordobas()) }}
+                                </span>
+                            </div>
+
+                            <div class="rounded-xl border border-[#D7E4F3] bg-white px-3 py-2">
+                                <span class="block text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
+                                    Disponible $
+                                </span>
+
+                                <span class="mt-0.5 block text-sm font-extrabold text-[#1A2B42]">
+                                    $ {{ $this->formatear($this->disponibleEgresoDolares()) }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                            <div>
+                                <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                                    Moneda del egreso
+                                </label>
+
+                                <x-select
+                                    wire:model.live="monedaEgreso"
+                                    :options="$monedasEgreso"
+                                    class="{{ $inputEditableClass }}"
+                                />
+                            </div>
+
+                            @if ($this->mostrarMontoEgresoCordobas())
+                                <div>
+                                    <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                                        Monto en córdobas
+                                    </label>
+
+                                    <x-input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        wire:model="montoEgresoCordobas"
+                                        placeholder="0.00"
+                                        prefix="C$"
+                                        class="{{ $inputEditableClass }}"
+                                    />
+                                </div>
+                            @endif
+
+                            @if ($this->mostrarMontoEgresoDolares())
+                                <div>
+                                    <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                                        Monto en dólares
+                                    </label>
+
+                                    <x-input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        wire:model="montoEgresoDolares"
+                                        placeholder="0.00"
+                                        prefix="$"
+                                        class="{{ $inputEditableClass }}"
+                                    />
+                                </div>
+                            @endif
+                        </div>
+
+                        <div>
+                            <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                                Motivo del egreso
+                            </label>
+
+                            <x-select
+                                wire:model="motivoEgreso"
+                                :options="$motivosEgreso"
+                                placeholder="Seleccione un motivo"
+                                class="{{ $inputEditableClass }}"
+                            />
+                        </div>
+
+                        <div>
+                            <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
+                                Descripción del egreso
+                            </label>
+
+                            <x-textarea
+                                wire:model="descripcionEgreso"
+                                rows="3"
+                                placeholder="Detalle obligatorio del egreso..."
+                                class="rounded-xl border-[#D7E4F3] bg-white text-xs text-[#1A2B42] placeholder:text-[#7B8794]"
+                            />
+                        </div>
+                    </div>
+
+                    <x-slot:actions>
+                        <div class="flex w-full flex-col-reverse justify-end gap-3 border-t border-[#D7E4F3] bg-white px-4 py-3 sm:flex-row">
+                            <x-button
+                                label="Volver"
+                                type="button"
+                                wire:click="cerrarModalEgreso"
+                                class="min-h-0 rounded-xl bg-[#6B7280] px-4 py-2 text-white shadow-sm hover:bg-[#5B6472]"
+                            />
+
+                            <x-button
+                                label="Guardar egreso"
+                                type="submit"
+                                spinner="guardarEgreso"
+                                class="min-h-0 rounded-xl bg-[#0B6FE4] px-4 py-2 text-white shadow-sm hover:bg-[#2E8BC0]"
+                            />
+                        </div>
+                    </x-slot:actions>
+                </x-form>
+            </div>
+        </x-modal>
+    </div>
 </div>
