@@ -39,6 +39,54 @@ new class extends Component
     public string $credClienteId = '';
     public array $credInstitucionesOpciones = [];
 
+    public string $creditoFacturaFiltro = '';
+    public string $creditoFacturaVentaId = '';
+    public string $creditoFacturaVista = 'detalle';
+    public array $creditoFacturaCoincidencias = [];
+    public array $creditoFacturaVistaOpciones = [
+        ['id' => 'detalle', 'name' => 'Detalle de factura'],
+        ['id' => 'abonos', 'name' => 'Historial de abonos'],
+        ['id' => 'movimientos', 'name' => 'Movimientos de crédito'],
+    ];
+
+    public string $facturaContadoFiltro = '';
+    public string $facturaContadoVentaId = '';
+    public array $facturaContadoCoincidencias = [];
+
+    public string $compraGeneralFiltro = '';
+    public string $compraGeneralId = '';
+    public array $compraGeneralCoincidencias = [];
+
+    public string $servicioTecnicoFiltro = '';
+    public string $servicioTecnicoId = '';
+    public string $servicioTecnicoEstado = '';
+    public string $servicioTecnicoDesde = '';
+    public string $servicioTecnicoHasta = '';
+    public array $servicioTecnicoCoincidencias = [];
+    public array $servicioTecnicoEstadoOpciones = [
+        ['id' => '', 'name' => 'Todos los estados'],
+        ['id' => 'RECIBIDO', 'name' => 'Recibido'],
+        ['id' => 'EN_REVISION', 'name' => 'En revisión'],
+        ['id' => 'PENDIENTE_REPUESTO', 'name' => 'Pendiente repuesto'],
+        ['id' => 'REPARADO', 'name' => 'Reparado'],
+        ['id' => 'ENTREGADO', 'name' => 'Entregado'],
+        ['id' => 'CANCELADO', 'name' => 'Cancelado / facturado'],
+    ];
+
+    public string $instalacionCamaraFiltro = '';
+    public string $instalacionCamaraContratoId = '';
+    public string $instalacionCamaraEstado = '';
+    public string $instalacionCamaraDesde = '';
+    public string $instalacionCamaraHasta = '';
+    public array $instalacionCamaraCoincidencias = [];
+    public array $instalacionCamaraEstadoOpciones = [
+        ['id' => '', 'name' => 'Todos los estados'],
+        ['id' => 'PENDIENTE', 'name' => 'Pendiente'],
+        ['id' => 'EN_PROCESO', 'name' => 'En proceso'],
+        ['id' => 'FINALIZADO', 'name' => 'Finalizado'],
+        ['id' => 'CANCELADO', 'name' => 'Cancelado / facturado'],
+    ];
+
     public string $planillaModo = 'ultima';
     public string $planillaVista = 'general';
     public string $planillaDesde = '';
@@ -79,6 +127,33 @@ new class extends Component
 
         $this->credDesde = $inicioMes;
         $this->credHasta = $hoy;
+
+        $this->creditoFacturaFiltro = '';
+        $this->creditoFacturaVentaId = '';
+        $this->creditoFacturaVista = 'detalle';
+        $this->creditoFacturaCoincidencias = [];
+
+        $this->facturaContadoFiltro = '';
+        $this->facturaContadoVentaId = '';
+        $this->facturaContadoCoincidencias = [];
+
+        $this->compraGeneralFiltro = '';
+        $this->compraGeneralId = '';
+        $this->compraGeneralCoincidencias = [];
+
+        $this->servicioTecnicoFiltro = '';
+        $this->servicioTecnicoId = '';
+        $this->servicioTecnicoEstado = '';
+        $this->servicioTecnicoDesde = $inicioMes;
+        $this->servicioTecnicoHasta = $hoy;
+        $this->servicioTecnicoCoincidencias = [];
+
+        $this->instalacionCamaraFiltro = '';
+        $this->instalacionCamaraContratoId = '';
+        $this->instalacionCamaraEstado = '';
+        $this->instalacionCamaraDesde = $inicioMes;
+        $this->instalacionCamaraHasta = $hoy;
+        $this->instalacionCamaraCoincidencias = [];
 
         $this->planillaModo = 'ultima';
         $this->planillaVista = 'general';
@@ -214,11 +289,16 @@ new class extends Component
             'ventas' => $this->generarVentas($formato),
             'devoluciones' => $this->generarDevoluciones($formato),
             'proveedores' => $this->generarProveedores($formato),
+            'compra-general' => $this->generarCompraGeneral($formato),
             'arqueo' => $this->generarArqueo($formato),
             'inventario' => $this->generarInventario($formato),
             'stock-proximo' => $this->generarStockProximoAgotarse($formato),
             'salidas' => $this->generarSalidas($formato),
             'creditos' => $this->generarCreditos($formato),
+            'credito-factura' => $this->generarCreditoFactura($formato),
+            'factura-contado' => $this->generarFacturaContado($formato),
+            'servicio-tecnico-factura' => $this->generarServicioTecnicoFactura($formato),
+            'instalacion-camara-factura' => $this->generarInstalacionCamaraFactura($formato),
             'planilla-pago' => $this->generarPlanillaPago($formato),
             default => $this->mostrarToast('Reporte no disponible.', 'error'),
         };
@@ -233,6 +313,21 @@ new class extends Component
         $this->arqUsuarioId = '0';
         $this->salTipoSalida = '';
         $this->credClienteId = '';
+        $this->creditoFacturaFiltro = '';
+        $this->creditoFacturaVentaId = '';
+        $this->creditoFacturaVista = 'detalle';
+        $this->creditoFacturaCoincidencias = [];
+        $this->compraGeneralFiltro = '';
+        $this->compraGeneralId = '';
+        $this->compraGeneralCoincidencias = [];
+        $this->servicioTecnicoFiltro = '';
+        $this->servicioTecnicoId = '';
+        $this->servicioTecnicoEstado = '';
+        $this->servicioTecnicoCoincidencias = [];
+        $this->instalacionCamaraFiltro = '';
+        $this->instalacionCamaraContratoId = '';
+        $this->instalacionCamaraEstado = '';
+        $this->instalacionCamaraCoincidencias = [];
         $this->planillaModo = 'ultima';
         $this->planillaVista = 'general';
         $this->establecerQuincenaActualPlanilla();
@@ -317,6 +412,25 @@ new class extends Component
                 ],
             ],
             [
+                'id' => 'compra-general',
+                'titulo' => 'Compra por número',
+                'descripcion' => 'Compra específica con cabecera y detalle.',
+                'icono' => 'o-document-magnifying-glass',
+                'color' => 'azul',
+                'boton' => 'Generar',
+                'campos' => [
+                    [
+                        'tipo' => 'reporte-autocomplete',
+                        'label' => 'Número de compra',
+                        'model' => 'compraGeneralFiltro',
+                        'placeholder' => 'Ej: COMP-000001',
+                        'coincidencias' => 'compraGeneralCoincidencias',
+                        'accion' => 'seleccionarCompraGeneralReporte',
+                        'span' => 'sm:col-span-2',
+                    ],
+                ],
+            ],
+            [
                 'id' => 'arqueo',
                 'titulo' => 'Arqueos de caja',
                 'descripcion' => 'Caja por periodo y cajero.',
@@ -389,6 +503,121 @@ new class extends Component
                         'label' => 'Institución',
                         'model' => 'credClienteId',
                         'opciones' => 'credInstitucionesOpciones',
+                        'span' => 'sm:col-span-2',
+                    ],
+                ],
+            ],
+            [
+                'id' => 'credito-factura',
+                'titulo' => 'Crédito por factura',
+                'descripcion' => 'Factura de venta crédito con detalle, abonos o movimientos.',
+                'icono' => 'o-document-magnifying-glass',
+                'color' => 'azul',
+                'boton' => 'Generar',
+                'campos' => [
+                    [
+                        'tipo' => 'credito-factura-autocomplete',
+                        'label' => 'Factura crédito',
+                        'model' => 'creditoFacturaFiltro',
+                        'placeholder' => 'Número de factura',
+                        'span' => 'sm:col-span-2',
+                    ],
+                    [
+                        'tipo' => 'select',
+                        'label' => 'Vista',
+                        'model' => 'creditoFacturaVista',
+                        'opciones' => 'creditoFacturaVistaOpciones',
+                        'span' => 'sm:col-span-2',
+                    ],
+                ],
+            ],
+            [
+                'id' => 'factura-contado',
+                'titulo' => 'Factura contado',
+                'descripcion' => 'Factura normal al contado por número de factura.',
+                'icono' => 'o-receipt-percent',
+                'color' => 'azul',
+                'boton' => 'Generar',
+                'campos' => [
+                    [
+                        'tipo' => 'reporte-autocomplete',
+                        'label' => 'Factura contado',
+                        'model' => 'facturaContadoFiltro',
+                        'placeholder' => 'Número de factura',
+                        'coincidencias' => 'facturaContadoCoincidencias',
+                        'accion' => 'seleccionarFacturaContadoReporte',
+                        'span' => 'sm:col-span-2',
+                    ],
+                ],
+            ],
+            [
+                'id' => 'servicio-tecnico-factura',
+                'titulo' => 'Servicio técnico',
+                'descripcion' => 'Orden específica o listado por estado y periodo.',
+                'icono' => 'o-computer-desktop',
+                'color' => 'azul',
+                'boton' => 'Generar',
+                'campos' => [
+                    [
+                        'tipo' => 'date',
+                        'label' => 'Inicial',
+                        'model' => 'servicioTecnicoDesde',
+                    ],
+                    [
+                        'tipo' => 'date',
+                        'label' => 'Final',
+                        'model' => 'servicioTecnicoHasta',
+                    ],
+                    [
+                        'tipo' => 'select',
+                        'label' => 'Estado servicio',
+                        'model' => 'servicioTecnicoEstado',
+                        'opciones' => 'servicioTecnicoEstadoOpciones',
+                        'span' => 'sm:col-span-2',
+                    ],
+                    [
+                        'tipo' => 'reporte-autocomplete',
+                        'label' => 'Orden / factura',
+                        'model' => 'servicioTecnicoFiltro',
+                        'placeholder' => 'Opcional: número de orden o factura',
+                        'coincidencias' => 'servicioTecnicoCoincidencias',
+                        'accion' => 'seleccionarServicioTecnicoReporte',
+                        'span' => 'sm:col-span-2',
+                    ],
+                ],
+            ],
+            [
+                'id' => 'instalacion-camara-factura',
+                'titulo' => 'Instalación cámaras',
+                'descripcion' => 'Contrato específico o listado por estado y periodo.',
+                'icono' => 'o-video-camera',
+                'color' => 'azul',
+                'boton' => 'Generar',
+                'campos' => [
+                    [
+                        'tipo' => 'date',
+                        'label' => 'Inicial',
+                        'model' => 'instalacionCamaraDesde',
+                    ],
+                    [
+                        'tipo' => 'date',
+                        'label' => 'Final',
+                        'model' => 'instalacionCamaraHasta',
+                    ],
+                    [
+                        'tipo' => 'select',
+                        'label' => 'Estado contrato',
+                        'model' => 'instalacionCamaraEstado',
+                        'opciones' => 'instalacionCamaraEstadoOpciones',
+                        'span' => 'sm:col-span-2',
+                    ],
+                    [
+                        'tipo' => 'reporte-autocomplete',
+                        'label' => 'Contrato / factura',
+                        'model' => 'instalacionCamaraFiltro',
+                        'placeholder' => 'Opcional: número de contrato o factura',
+                        'coincidencias' => 'instalacionCamaraCoincidencias',
+                        'accion' => 'seleccionarInstalacionCamaraReporte',
                         'span' => 'sm:col-span-2',
                     ],
                 ],
@@ -594,6 +823,250 @@ new class extends Component
         };
     }
 
+    private function generarFacturaContado(string $formato)
+    {
+        $facturaTexto = trim($this->facturaContadoFiltro);
+        $ventaId = trim($this->facturaContadoVentaId);
+
+        if ($facturaTexto === '') {
+            $this->mostrarToast('Ingrese o seleccione una factura contado.', 'error');
+            return null;
+        }
+
+        if ($ventaId === '' || ! ctype_digit($ventaId)) {
+            $factura = DB::table('venta as v')
+                ->leftJoin('servicio_tecnico as st', 'st.Id_Venta', '=', 'v.Id_Venta')
+                ->leftJoin('contrato_instalacion_camara as cic', 'cic.Id_Venta', '=', 'v.Id_Venta')
+                ->where('v.Tipo_Venta', 'CONTADO')
+                ->whereNull('st.Id_Servicio_Tecnico')
+                ->whereNull('cic.Id_Contrato_Instalacion_Camara')
+                ->where('v.Numero_Factura', $facturaTexto)
+                ->select('v.Id_Venta', 'v.Numero_Factura')
+                ->first();
+
+            if (! $factura) {
+                $this->mostrarToast('Seleccione una factura contado válida desde las coincidencias.', 'error');
+                return null;
+            }
+
+            $ventaId = (string) $factura->Id_Venta;
+            $this->facturaContadoVentaId = $ventaId;
+        }
+
+        $parametros = $this->parametrosLimpios([
+            'ventaId' => $ventaId,
+            'factura' => $facturaTexto,
+        ]);
+
+        return match ($formato) {
+            'pdf' => $this->abrirVisor(
+                'Factura contado',
+                route('reportes.factura-contado.pdf', $parametros) . '#toolbar=1&navpanes=0&view=FitH'
+            ),
+            'excel' => redirect()->to(route('reportes.factura-contado.excel', $parametros)),
+            'word' => redirect()->to(route('reportes.factura-contado.word', $parametros)),
+            default => $this->mostrarToast('Formato no disponible.', 'error'),
+        };
+    }
+
+    private function generarServicioTecnicoFactura(string $formato)
+    {
+        $numeroOrden = trim($this->servicioTecnicoFiltro);
+        $servicioId = trim($this->servicioTecnicoId);
+        $estado = trim($this->servicioTecnicoEstado);
+
+        if ($estado !== '' && ! in_array($estado, ['RECIBIDO', 'EN_REVISION', 'PENDIENTE_REPUESTO', 'REPARADO', 'ENTREGADO', 'CANCELADO'], true)) {
+            $this->mostrarToast('Seleccione un estado de servicio válido.', 'error');
+            return null;
+        }
+
+        if ($numeroOrden !== '' && ($servicioId === '' || ! ctype_digit($servicioId))) {
+            $servicio = DB::table('servicio_tecnico as st')
+                ->leftJoin('venta as v', 'v.Id_Venta', '=', 'st.Id_Venta')
+                ->where(function ($query) use ($numeroOrden) {
+                    $query
+                        ->where('st.Numero_Orden', $numeroOrden)
+                        ->orWhere('v.Numero_Factura', $numeroOrden);
+                })
+                ->select('st.Id_Servicio_Tecnico', 'st.Numero_Orden')
+                ->first();
+
+            if (! $servicio) {
+                $this->mostrarToast('Seleccione una orden válida desde las coincidencias o deje el campo vacío para filtrar por estado y periodo.', 'error');
+                return null;
+            }
+
+            $servicioId = (string) $servicio->Id_Servicio_Tecnico;
+            $numeroOrden = (string) $servicio->Numero_Orden;
+            $this->servicioTecnicoId = $servicioId;
+            $this->servicioTecnicoFiltro = $numeroOrden;
+        }
+
+        if ($servicioId !== '' && ! ctype_digit($servicioId)) {
+            $this->mostrarToast('La orden seleccionada no es válida.', 'error');
+            return null;
+        }
+
+        $parametros = [
+            'servicioTecnicoId' => $servicioId,
+            'numeroOrden' => $numeroOrden,
+        ];
+
+        if ($servicioId === '' && $numeroOrden === '') {
+            if (! $this->rangoValido($this->servicioTecnicoDesde, $this->servicioTecnicoHasta, 'servicio técnico')) {
+                return null;
+            }
+
+            if ($this->servicioTecnicoDesde === '' || $this->servicioTecnicoHasta === '') {
+                $this->mostrarToast('Seleccione el rango de fechas para filtrar servicios técnicos.', 'error');
+                return null;
+            }
+
+            $parametros['desde'] = $this->servicioTecnicoDesde;
+            $parametros['hasta'] = $this->servicioTecnicoHasta;
+            $parametros['estado'] = $estado;
+        }
+
+        $parametros = $this->parametrosLimpios($parametros);
+
+        return match ($formato) {
+            'pdf' => $this->abrirVisor(
+                $servicioId !== '' || $numeroOrden !== '' ? 'Facturación servicio técnico' : 'Servicios técnicos por estado',
+                route('reportes.servicio-tecnico-factura.pdf', $parametros) . '#toolbar=1&navpanes=0&view=FitH'
+            ),
+            'excel' => redirect()->to(route('reportes.servicio-tecnico-factura.excel', $parametros)),
+            'word' => redirect()->to(route('reportes.servicio-tecnico-factura.word', $parametros)),
+            default => $this->mostrarToast('Formato no disponible.', 'error'),
+        };
+    }
+
+    private function generarInstalacionCamaraFactura(string $formato)
+    {
+        $numeroContrato = trim($this->instalacionCamaraFiltro);
+        $contratoId = trim($this->instalacionCamaraContratoId);
+        $estado = trim($this->instalacionCamaraEstado);
+
+        if ($estado !== '' && ! in_array($estado, ['PENDIENTE', 'EN_PROCESO', 'FINALIZADO', 'CANCELADO'], true)) {
+            $this->mostrarToast('Seleccione un estado de contrato válido.', 'error');
+            return null;
+        }
+
+        if ($numeroContrato !== '' && ($contratoId === '' || ! ctype_digit($contratoId))) {
+            $contrato = DB::table('contrato_instalacion_camara as cic')
+                ->leftJoin('venta as v', 'v.Id_Venta', '=', 'cic.Id_Venta')
+                ->where(function ($query) use ($numeroContrato) {
+                    $query
+                        ->where('cic.Numero_Contrato', $numeroContrato)
+                        ->orWhere('v.Numero_Factura', $numeroContrato);
+                })
+                ->select('cic.Id_Contrato_Instalacion_Camara', 'cic.Numero_Contrato')
+                ->first();
+
+            if (! $contrato) {
+                $this->mostrarToast('Seleccione un contrato válido desde las coincidencias o deje el campo vacío para filtrar por estado y periodo.', 'error');
+                return null;
+            }
+
+            $contratoId = (string) $contrato->Id_Contrato_Instalacion_Camara;
+            $numeroContrato = (string) $contrato->Numero_Contrato;
+            $this->instalacionCamaraContratoId = $contratoId;
+            $this->instalacionCamaraFiltro = $numeroContrato;
+        }
+
+        if ($contratoId !== '' && ! ctype_digit($contratoId)) {
+            $this->mostrarToast('El contrato seleccionado no es válido.', 'error');
+            return null;
+        }
+
+        $parametros = [
+            'contratoId' => $contratoId,
+            'numeroContrato' => $numeroContrato,
+        ];
+
+        if ($contratoId === '' && $numeroContrato === '') {
+            if (! $this->rangoValido($this->instalacionCamaraDesde, $this->instalacionCamaraHasta, 'instalación de cámaras')) {
+                return null;
+            }
+
+            if ($this->instalacionCamaraDesde === '' || $this->instalacionCamaraHasta === '') {
+                $this->mostrarToast('Seleccione el rango de fechas para filtrar instalaciones de cámaras.', 'error');
+                return null;
+            }
+
+            $parametros['desde'] = $this->instalacionCamaraDesde;
+            $parametros['hasta'] = $this->instalacionCamaraHasta;
+            $parametros['estado'] = $estado;
+        }
+
+        $parametros = $this->parametrosLimpios($parametros);
+
+        return match ($formato) {
+            'pdf' => $this->abrirVisor(
+                $contratoId !== '' || $numeroContrato !== '' ? 'Facturación instalación de cámaras' : 'Instalaciones de cámaras por estado',
+                route('reportes.instalacion-camara-factura.pdf', $parametros) . '#toolbar=1&navpanes=0&view=FitH'
+            ),
+            'excel' => redirect()->to(route('reportes.instalacion-camara-factura.excel', $parametros)),
+            'word' => redirect()->to(route('reportes.instalacion-camara-factura.word', $parametros)),
+            default => $this->mostrarToast('Formato no disponible.', 'error'),
+        };
+    }
+
+    private function generarCreditoFactura(string $formato)
+    {
+        $facturaTexto = trim($this->creditoFacturaFiltro);
+        $ventaId = trim($this->creditoFacturaVentaId);
+        $vista = trim($this->creditoFacturaVista);
+
+        if ($facturaTexto === '') {
+            $this->mostrarToast('Ingresa o selecciona una factura de crédito.', 'error');
+            return null;
+        }
+
+        if (! in_array($vista, ['detalle', 'abonos', 'movimientos'], true)) {
+            $this->mostrarToast('Selecciona una vista válida para el reporte de crédito.', 'error');
+            return null;
+        }
+
+        if ($ventaId === '' || ! ctype_digit($ventaId)) {
+            $venta = DB::table('venta as v')
+                ->join('credito as cr', 'cr.Id_Venta', '=', 'v.Id_Venta')
+                ->where('v.Tipo_Venta', 'CREDITO')
+                ->where('v.Numero_Factura', $facturaTexto)
+                ->select('v.Id_Venta')
+                ->first();
+
+            if (! $venta) {
+                $this->mostrarToast('Selecciona una factura válida desde las coincidencias. Solo se aceptan facturas de crédito.', 'error');
+                return null;
+            }
+
+            $ventaId = (string) $venta->Id_Venta;
+            $this->creditoFacturaVentaId = $ventaId;
+        }
+
+        $parametros = $this->parametrosLimpios([
+            'ventaId' => $ventaId,
+            'factura' => $facturaTexto,
+            'vista' => $vista,
+        ]);
+
+        $titulo = match ($vista) {
+            'abonos' => 'Crédito por factura - abonos',
+            'movimientos' => 'Crédito por factura - movimientos',
+            default => 'Crédito por factura',
+        };
+
+        return match ($formato) {
+            'pdf' => $this->abrirVisor(
+                $titulo,
+                route('reportes.credito-factura.pdf', $parametros) . '#toolbar=1&navpanes=0&view=FitH'
+            ),
+            'excel' => redirect()->to(route('reportes.credito-factura.excel', $parametros)),
+            'word' => redirect()->to(route('reportes.credito-factura.word', $parametros)),
+            default => $this->mostrarToast('Formato no disponible.', 'error'),
+        };
+    }
+
     private function generarPlanillaPago(string $formato)
     {
         $modo = trim($this->planillaModo);
@@ -637,6 +1110,382 @@ new class extends Component
             'word' => redirect()->to(route('reportes.planilla-pago.word', $parametros)),
             default => $this->mostrarToast('Formato no disponible.', 'error'),
         };
+    }
+
+    public function updatedCompraGeneralFiltro(): void
+    {
+        $this->compraGeneralId = '';
+        $this->compraGeneralCoincidencias = [];
+
+        $termino = trim($this->compraGeneralFiltro);
+
+        if (mb_strlen($termino) < 2) {
+            return;
+        }
+
+        $like = '%' . $termino . '%';
+
+        $this->compraGeneralCoincidencias = DB::table('compra as c')
+            ->join('proveedor as prov', 'prov.Id_Proveedor', '=', 'c.Id_Proveedor')
+            ->leftJoin('persona as pp', 'pp.Id_Persona', '=', 'prov.Id_Persona')
+            ->where('c.Numero_Compra', 'like', $like)
+            ->orderByDesc('c.Fecha_Compra')
+            ->limit(8)
+            ->selectRaw("
+                c.Id_Compra as id,
+                c.Numero_Compra as numero_compra,
+                c.Fecha_Compra as fecha,
+                c.Tipo_Compra as tipo_compra,
+                c.Medio_Pago as medio_pago,
+                c.Total as total,
+                COALESCE(
+                    NULLIF(TRIM(prov.Empresa), ''),
+                    NULLIF(TRIM(CONCAT_WS(' ', pp.Primer_Nombre, pp.Segundo_Nombre, pp.Primer_Apellido, pp.Segundo_Apellido)), ''),
+                    CONCAT('Proveedor #', prov.Id_Proveedor)
+                ) as proveedor
+            ")
+            ->get()
+            ->map(fn ($compra) => [
+                'id' => (string) $compra->id,
+                'principal' => 'Compra ' . $compra->numero_compra . ' · ' . $compra->proveedor,
+                'secundario' => Carbon::parse($compra->fecha)->format('d/m/Y H:i') . ' · ' . $compra->tipo_compra . ' · ' . $compra->medio_pago . ' · C$ ' . number_format((float) $compra->total, 2),
+            ])
+            ->values()
+            ->toArray();
+    }
+
+    public function seleccionarCompraGeneralReporte(string $id): void
+    {
+        if (! ctype_digit($id)) {
+            $this->mostrarToast('La compra seleccionada no es válida.', 'error');
+            return;
+        }
+
+        $compra = DB::table('compra')
+            ->where('Id_Compra', (int) $id)
+            ->select('Id_Compra', 'Numero_Compra')
+            ->first();
+
+        if (! $compra) {
+            $this->mostrarToast('La compra seleccionada no existe.', 'error');
+            return;
+        }
+
+        $this->compraGeneralId = (string) $compra->Id_Compra;
+        $this->compraGeneralFiltro = (string) $compra->Numero_Compra;
+        $this->compraGeneralCoincidencias = [];
+    }
+
+    public function updatedFacturaContadoFiltro(): void
+    {
+        $this->facturaContadoVentaId = '';
+        $this->facturaContadoCoincidencias = [];
+
+        $termino = trim($this->facturaContadoFiltro);
+
+        if (mb_strlen($termino) < 2) {
+            return;
+        }
+
+        $like = '%' . $termino . '%';
+
+        $this->facturaContadoCoincidencias = DB::table('venta as v')
+            ->leftJoin('servicio_tecnico as st', 'st.Id_Venta', '=', 'v.Id_Venta')
+            ->leftJoin('contrato_instalacion_camara as cic', 'cic.Id_Venta', '=', 'v.Id_Venta')
+            ->leftJoin('cliente as c', 'c.Id_Cliente', '=', 'v.Id_Cliente')
+            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'c.Id_Persona')
+            ->where('v.Tipo_Venta', 'CONTADO')
+            ->whereNull('st.Id_Servicio_Tecnico')
+            ->whereNull('cic.Id_Contrato_Instalacion_Camara')
+            ->where('v.Numero_Factura', 'like', $like)
+            ->orderByDesc('v.Fecha_venta')
+            ->limit(8)
+            ->selectRaw("
+                v.Id_Venta as id,
+                v.Numero_Factura as factura,
+                v.Fecha_venta as fecha,
+                v.Total as total,
+                CASE
+                    WHEN v.Estado = 1 THEN 'ACTIVA'
+                    WHEN v.Estado = 0 THEN 'REGISTRADA'
+                    ELSE CONCAT('ESTADO ', v.Estado)
+                END as estado,
+                COALESCE(
+                    NULLIF(TRIM(c.Institucion), ''),
+                    NULLIF(TRIM(CONCAT_WS(' ', p.Primer_Nombre, p.Segundo_Nombre, p.Primer_Apellido, p.Segundo_Apellido)), ''),
+                    'Cliente no asignado'
+                ) as cliente
+            ")
+            ->get()
+            ->map(fn ($factura) => [
+                'id' => (string) $factura->id,
+                'principal' => 'Factura ' . $factura->factura . ' · ' . $factura->cliente,
+                'secundario' => Carbon::parse($factura->fecha)->format('d/m/Y H:i') . ' · ' . $factura->estado . ' · Total C$ ' . number_format((float) $factura->total, 2),
+            ])
+            ->values()
+            ->toArray();
+    }
+
+    public function seleccionarFacturaContadoReporte(string $id): void
+    {
+        if (! ctype_digit($id)) {
+            $this->mostrarToast('La factura seleccionada no es válida.', 'error');
+            return;
+        }
+
+        $factura = DB::table('venta as v')
+            ->leftJoin('servicio_tecnico as st', 'st.Id_Venta', '=', 'v.Id_Venta')
+            ->leftJoin('contrato_instalacion_camara as cic', 'cic.Id_Venta', '=', 'v.Id_Venta')
+            ->where('v.Tipo_Venta', 'CONTADO')
+            ->whereNull('st.Id_Servicio_Tecnico')
+            ->whereNull('cic.Id_Contrato_Instalacion_Camara')
+            ->where('v.Id_Venta', (int) $id)
+            ->select('v.Id_Venta', 'v.Numero_Factura')
+            ->first();
+
+        if (! $factura) {
+            $this->mostrarToast('La factura seleccionada no existe o no pertenece a una venta contado normal.', 'error');
+            return;
+        }
+
+        $this->facturaContadoVentaId = (string) $factura->Id_Venta;
+        $this->facturaContadoFiltro = (string) $factura->Numero_Factura;
+        $this->facturaContadoCoincidencias = [];
+    }
+
+    public function updatedServicioTecnicoFiltro(): void
+    {
+        $this->servicioTecnicoId = '';
+        $this->buscarServicioTecnicoCoincidencias();
+    }
+
+    public function updatedServicioTecnicoEstado(): void
+    {
+        $this->buscarServicioTecnicoCoincidencias();
+    }
+
+    private function buscarServicioTecnicoCoincidencias(): void
+    {
+        $this->servicioTecnicoCoincidencias = [];
+
+        $termino = trim($this->servicioTecnicoFiltro);
+
+        if (mb_strlen($termino) < 2) {
+            return;
+        }
+
+        $like = '%' . $termino . '%';
+
+        $query = DB::table('servicio_tecnico as st')
+            ->leftJoin('venta as v', 'v.Id_Venta', '=', 'st.Id_Venta')
+            ->leftJoin('cliente as c', 'c.Id_Cliente', '=', 'st.Id_Cliente')
+            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'c.Id_Persona')
+            ->where(function ($query) use ($like) {
+                $query
+                    ->where('st.Numero_Orden', 'like', $like)
+                    ->orWhere('v.Numero_Factura', 'like', $like);
+            });
+
+        $this->servicioTecnicoCoincidencias = $query
+            ->orderByDesc('st.Fecha_Ingreso')
+            ->limit(8)
+            ->selectRaw("
+                st.Id_Servicio_Tecnico as id,
+                st.Numero_Orden as numero,
+                st.Fecha_Ingreso as fecha,
+                st.Estado_Servicio as estado,
+                st.Tipo_Equipo as equipo,
+                st.Total_Servicio as total_servicio,
+                st.Total_Repuestos as total_repuestos,
+                v.Numero_Factura as factura,
+                COALESCE(
+                    NULLIF(TRIM(c.Institucion), ''),
+                    NULLIF(TRIM(CONCAT_WS(' ', p.Primer_Nombre, p.Segundo_Nombre, p.Primer_Apellido, p.Segundo_Apellido)), ''),
+                    'Cliente no asignado'
+                ) as cliente
+            ")
+            ->get()
+            ->map(fn ($orden) => [
+                'id' => (string) $orden->id,
+                'principal' => 'Orden ' . $orden->numero . ' · ' . $orden->cliente,
+                'secundario' => Carbon::parse($orden->fecha)->format('d/m/Y H:i') . ' · ' . $orden->estado . ' · Factura ' . ($orden->factura ?: 'sin factura') . ' · C$ ' . number_format((float) $orden->total_servicio + (float) $orden->total_repuestos, 2),
+            ])
+            ->values()
+            ->toArray();
+    }
+
+    public function seleccionarServicioTecnicoReporte(string $id): void
+    {
+        if (! ctype_digit($id)) {
+            $this->mostrarToast('La orden seleccionada no es válida.', 'error');
+            return;
+        }
+
+        $orden = DB::table('servicio_tecnico as st')
+            ->where('st.Id_Servicio_Tecnico', (int) $id)
+            ->select('st.Id_Servicio_Tecnico', 'st.Numero_Orden')
+            ->first();
+
+        if (! $orden) {
+            $this->mostrarToast('La orden seleccionada no existe.', 'error');
+            return;
+        }
+
+        $this->servicioTecnicoId = (string) $orden->Id_Servicio_Tecnico;
+        $this->servicioTecnicoFiltro = (string) $orden->Numero_Orden;
+        $this->servicioTecnicoCoincidencias = [];
+    }
+
+    public function updatedInstalacionCamaraFiltro(): void
+    {
+        $this->instalacionCamaraContratoId = '';
+        $this->buscarInstalacionCamaraCoincidencias();
+    }
+
+    public function updatedInstalacionCamaraEstado(): void
+    {
+        $this->buscarInstalacionCamaraCoincidencias();
+    }
+
+    private function buscarInstalacionCamaraCoincidencias(): void
+    {
+        $this->instalacionCamaraCoincidencias = [];
+
+        $termino = trim($this->instalacionCamaraFiltro);
+
+        if (mb_strlen($termino) < 2) {
+            return;
+        }
+
+        $like = '%' . $termino . '%';
+
+        $query = DB::table('contrato_instalacion_camara as cic')
+            ->leftJoin('venta as v', 'v.Id_Venta', '=', 'cic.Id_Venta')
+            ->leftJoin('cliente as c', 'c.Id_Cliente', '=', 'cic.Id_Cliente')
+            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'c.Id_Persona')
+            ->where(function ($query) use ($like) {
+                $query
+                    ->where('cic.Numero_Contrato', 'like', $like)
+                    ->orWhere('v.Numero_Factura', 'like', $like);
+            });
+
+        $this->instalacionCamaraCoincidencias = $query
+            ->orderByDesc('cic.Fecha_Contrato')
+            ->limit(8)
+            ->selectRaw("
+                cic.Id_Contrato_Instalacion_Camara as id,
+                cic.Numero_Contrato as numero,
+                cic.Fecha_Contrato as fecha,
+                cic.Estado_Contrato as estado,
+                cic.Total_Contrato as total,
+                cic.Cantidad_Camaras as camaras,
+                v.Numero_Factura as factura,
+                COALESCE(
+                    NULLIF(TRIM(c.Institucion), ''),
+                    NULLIF(TRIM(CONCAT_WS(' ', p.Primer_Nombre, p.Segundo_Nombre, p.Primer_Apellido, p.Segundo_Apellido)), ''),
+                    'Cliente no asignado'
+                ) as cliente
+            ")
+            ->get()
+            ->map(fn ($contrato) => [
+                'id' => (string) $contrato->id,
+                'principal' => 'Contrato ' . $contrato->numero . ' · ' . $contrato->cliente,
+                'secundario' => Carbon::parse($contrato->fecha)->format('d/m/Y H:i') . ' · ' . $contrato->estado . ' · Factura ' . ($contrato->factura ?: 'sin factura') . ' · ' . number_format((int) $contrato->camaras) . ' cámaras · C$ ' . number_format((float) $contrato->total, 2),
+            ])
+            ->values()
+            ->toArray();
+    }
+
+    public function seleccionarInstalacionCamaraReporte(string $id): void
+    {
+        if (! ctype_digit($id)) {
+            $this->mostrarToast('El contrato seleccionado no es válido.', 'error');
+            return;
+        }
+
+        $contrato = DB::table('contrato_instalacion_camara as cic')
+            ->where('cic.Id_Contrato_Instalacion_Camara', (int) $id)
+            ->select('cic.Id_Contrato_Instalacion_Camara', 'cic.Numero_Contrato')
+            ->first();
+
+        if (! $contrato) {
+            $this->mostrarToast('El contrato seleccionado no existe.', 'error');
+            return;
+        }
+
+        $this->instalacionCamaraContratoId = (string) $contrato->Id_Contrato_Instalacion_Camara;
+        $this->instalacionCamaraFiltro = (string) $contrato->Numero_Contrato;
+        $this->instalacionCamaraCoincidencias = [];
+    }
+
+    public function updatedCreditoFacturaFiltro(): void
+    {
+        $this->creditoFacturaVentaId = '';
+        $this->creditoFacturaCoincidencias = [];
+
+        $termino = trim($this->creditoFacturaFiltro);
+
+        if (mb_strlen($termino) < 2) {
+            return;
+        }
+
+        $like = '%' . $termino . '%';
+
+        $this->creditoFacturaCoincidencias = DB::table('venta as v')
+            ->join('credito as cr', 'cr.Id_Venta', '=', 'v.Id_Venta')
+            ->leftJoin('cliente as c', 'c.Id_Cliente', '=', 'v.Id_Cliente')
+            ->leftJoin('persona as p', 'p.Id_Persona', '=', 'c.Id_Persona')
+            ->where('v.Tipo_Venta', 'CREDITO')
+            ->where('v.Numero_Factura', 'like', $like)
+            ->orderByDesc('v.Fecha_venta')
+            ->limit(8)
+            ->selectRaw("
+                v.Id_Venta as id,
+                v.Numero_Factura as factura,
+                DATE_FORMAT(v.Fecha_venta, '%d/%m/%Y') as fecha,
+                COALESCE(
+                    NULLIF(TRIM(c.Institucion), ''),
+                    NULLIF(TRIM(CONCAT_WS(' ', p.Primer_Nombre, p.Segundo_Nombre, p.Primer_Apellido, p.Segundo_Apellido)), ''),
+                    'Cliente no asignado'
+                ) as cliente,
+                cr.Estado as estado,
+                cr.Saldo_Actual as saldo
+            ")
+            ->get()
+            ->map(fn ($factura) => [
+                'id' => (string) $factura->id,
+                'factura' => (string) $factura->factura,
+                'fecha' => (string) $factura->fecha,
+                'cliente' => (string) $factura->cliente,
+                'estado' => (string) $factura->estado,
+                'saldo' => 'C$ ' . number_format((float) $factura->saldo, 2),
+            ])
+            ->values()
+            ->toArray();
+    }
+
+    public function seleccionarFacturaCreditoReporte(string $id): void
+    {
+        if (! ctype_digit($id)) {
+            $this->mostrarToast('La factura seleccionada no es válida.', 'error');
+            return;
+        }
+
+        $factura = DB::table('venta as v')
+            ->join('credito as cr', 'cr.Id_Venta', '=', 'v.Id_Venta')
+            ->where('v.Tipo_Venta', 'CREDITO')
+            ->where('v.Id_Venta', (int) $id)
+            ->select('v.Id_Venta', 'v.Numero_Factura')
+            ->first();
+
+        if (! $factura) {
+            $this->mostrarToast('La factura seleccionada no existe o no pertenece a una venta de crédito.', 'error');
+            return;
+        }
+
+        $this->creditoFacturaVentaId = (string) $factura->Id_Venta;
+        $this->creditoFacturaFiltro = (string) $factura->Numero_Factura;
+        $this->creditoFacturaCoincidencias = [];
     }
 
     public function updatedProvFiltro(): void
@@ -723,6 +1572,59 @@ private function nombreProveedorReporte(Proveedor $proveedor): string
         ? $nombre
         : 'Proveedor #' . $proveedor->Id_Proveedor;
 }
+
+    private function generarCompraGeneral(string $formato)
+    {
+        $numeroCompra = trim($this->compraGeneralFiltro);
+        $compraId = trim($this->compraGeneralId);
+
+        if ($numeroCompra === '') {
+            $this->mostrarToast('Ingrese o seleccione un número de compra.', 'error');
+            return null;
+        }
+
+        if (mb_strlen($numeroCompra) > 50) {
+            $this->mostrarToast('El número de compra no debe superar los 50 caracteres.', 'error');
+            return null;
+        }
+
+        if ($compraId !== '' && ! ctype_digit($compraId)) {
+            $this->mostrarToast('La compra seleccionada no es válida.', 'error');
+            return null;
+        }
+
+        if ($compraId === '') {
+            $compra = DB::table('compra')
+                ->where('Numero_Compra', $numeroCompra)
+                ->select('Id_Compra', 'Numero_Compra')
+                ->first();
+
+            if (! $compra) {
+                $this->mostrarToast('Selecciona una compra válida desde las coincidencias.', 'error');
+                return null;
+            }
+
+            $compraId = (string) $compra->Id_Compra;
+            $numeroCompra = (string) $compra->Numero_Compra;
+            $this->compraGeneralId = $compraId;
+            $this->compraGeneralFiltro = $numeroCompra;
+        }
+
+        $parametros = $this->parametrosLimpios([
+            'compraId' => $compraId,
+            'numeroCompra' => $numeroCompra,
+        ]);
+
+        return match ($formato) {
+            'pdf' => $this->abrirVisor(
+                'Compra #' . $numeroCompra,
+                route('reportes.compra-general.pdf', $parametros) . '#toolbar=1&navpanes=0&view=FitH'
+            ),
+            'excel' => redirect()->to(route('reportes.compra-general.excel', $parametros)),
+            'word' => redirect()->to(route('reportes.compra-general.word', $parametros)),
+            default => $this->mostrarToast('Formato no disponible.', 'error'),
+        };
+    }
 
   private function generarProveedores(string $formato)
 {
@@ -955,7 +1857,7 @@ private function nombreProveedorReporte(Proveedor $proveedor): string
             };
             @endphp
 
-            <article wire:key="reporte-{{ $reporte['id'] }}-{{ $reporte['id'] === 'planilla-pago' ? $planillaModo : 'normal' }}"
+            <article wire:key="reporte-{{ $reporte['id'] }}-{{ match ($reporte['id']) { 'planilla-pago' => $planillaModo, 'credito-factura' => $creditoFacturaVista, 'servicio-tecnico-factura' => $servicioTecnicoEstado, 'instalacion-camara-factura' => $instalacionCamaraEstado, default => 'normal' } }}"
                 class="group flex min-h-58 flex-col rounded-2xl border border-[#D7E4F3] bg-white p-3 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#B7D6F2] hover:shadow-md">
                 <div class="mb-3 flex items-start gap-2.5">
                     <div
@@ -996,7 +1898,67 @@ private function nombreProveedorReporte(Proveedor $proveedor): string
                             {{ $campo['label'] }}
                         </label>
 
-                        @if (($campo['tipo'] ?? '') === 'proveedor-autocomplete')
+                        @if (($campo['tipo'] ?? '') === 'reporte-autocomplete')
+                        @php
+                        $coincidenciasCampo = $campo['coincidencias'] ?? '';
+                        $coincidenciasReporte = [];
+                        $accionSeleccion = $campo['accion'] ?? '';
+
+                        if (is_string($coincidenciasCampo) && property_exists($this, $coincidenciasCampo)) {
+                            $coincidenciasReporte = $this->{$coincidenciasCampo};
+                        }
+                        @endphp
+
+                        <div class="relative">
+                            <input type="text" wire:model.live.debounce.300ms="{{ $campo['model'] }}"
+                                placeholder="{{ $campo['placeholder'] ?? '' }}" autocomplete="off"
+                                class="h-9 min-h-9 w-full rounded-xl border border-[#D7E4F3] bg-[#F7F9FC] px-3 text-xs font-bold text-[#1A2B42] outline-none transition scheme-light placeholder:text-[#7B8794] focus:border-[#2E8BC0] focus:bg-white focus:ring-2 focus:ring-[#2E8BC0]/15" />
+
+                            @if (! empty($coincidenciasReporte) && $accionSeleccion !== '')
+                            <div
+                                class="absolute z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-[#D7E4F3] bg-white shadow-lg">
+                                @foreach ($coincidenciasReporte as $opcion)
+                                <button type="button" wire:key="{{ $campo['model'] }}-opcion-{{ $opcion['id'] }}"
+                                    wire:click="{{ $accionSeleccion }}('{{ $opcion['id'] }}')"
+                                    class="block w-full border-b border-[#EEF3F8] px-3 py-2 text-left text-xs transition hover:bg-[#EAF4FD]">
+                                    <span class="block truncate font-black text-[#1A2B42]">
+                                        {{ $opcion['principal'] }}
+                                    </span>
+
+                                    <span class="block truncate font-semibold text-[#5F6B7A]">
+                                        {{ $opcion['secundario'] }}
+                                    </span>
+                                </button>
+                                @endforeach
+                            </div>
+                            @endif
+                        </div>
+                        @elseif (($campo['tipo'] ?? '') === 'credito-factura-autocomplete')
+                        <div class="relative">
+                            <input type="text" wire:model.live.debounce.300ms="{{ $campo['model'] }}"
+                                placeholder="{{ $campo['placeholder'] ?? '' }}" autocomplete="off"
+                                class="h-9 min-h-9 w-full rounded-xl border border-[#D7E4F3] bg-[#F7F9FC] px-3 text-xs font-bold text-[#1A2B42] outline-none transition scheme-light placeholder:text-[#7B8794] focus:border-[#2E8BC0] focus:bg-white focus:ring-2 focus:ring-[#2E8BC0]/15" />
+
+                            @if (! empty($creditoFacturaCoincidencias))
+                            <div
+                                class="absolute z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-[#D7E4F3] bg-white shadow-lg">
+                                @foreach ($creditoFacturaCoincidencias as $factura)
+                                <button type="button" wire:key="credito-factura-reporte-{{ $factura['id'] }}"
+                                    wire:click="seleccionarFacturaCreditoReporte('{{ $factura['id'] }}')"
+                                    class="block w-full border-b border-[#EEF3F8] px-3 py-2 text-left text-xs transition hover:bg-[#EAF4FD]">
+                                    <span class="block truncate font-black text-[#1A2B42]">
+                                        Factura {{ $factura['factura'] }} · {{ $factura['cliente'] }}
+                                    </span>
+
+                                    <span class="block truncate font-semibold text-[#5F6B7A]">
+                                        {{ $factura['fecha'] }} · {{ $factura['estado'] }} · Saldo {{ $factura['saldo'] }}
+                                    </span>
+                                </button>
+                                @endforeach
+                            </div>
+                            @endif
+                        </div>
+                        @elseif (($campo['tipo'] ?? '') === 'proveedor-autocomplete')
                         <div class="relative">
                             <input type="text" wire:model.live.debounce.350ms="{{ $campo['model'] }}"
                                 placeholder="{{ $campo['placeholder'] ?? '' }}" autocomplete="off"

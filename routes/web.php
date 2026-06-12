@@ -15,7 +15,11 @@ use App\Http\Controllers\Reportes\ComprasProveedorReporteController;
 use App\Http\Controllers\Reportes\PlanillaExportController;
 use App\Http\Controllers\Compras\CompraComprobanteController;
 use App\Http\Controllers\Reportes\PlanillaPagoReporteController;
-
+use App\Http\Controllers\Reportes\CreditoFacturaReporteController;
+use App\Http\Controllers\Reportes\FacturaContadoReporteController;
+use App\Http\Controllers\Reportes\InstalacionCamaraFacturaReporteController;
+use App\Http\Controllers\Reportes\ServicioTecnicoFacturaReporteController;
+use App\Http\Controllers\Reportes\CompraGeneralReporteController;
 
 Route::get('/', function () {
     return auth()->check()
@@ -161,6 +165,51 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
         Route::get('/word', 'word')->name('word');
     });
         
+    Route::prefix('reportes/credito-factura')
+    ->name('reportes.credito-factura.')
+    ->controller(CreditoFacturaReporteController::class)
+    ->group(function () {
+        Route::get('/pdf', 'pdf')->name('pdf');
+        Route::get('/excel', 'excel')->name('excel');
+        Route::get('/word', 'word')->name('word');
+    });
+
+    Route::prefix('reportes/factura-contado')
+    ->name('reportes.factura-contado.')
+    ->controller(FacturaContadoReporteController::class)
+    ->group(function () {
+        Route::get('/pdf', 'pdf')->name('pdf');
+        Route::get('/excel', 'excel')->name('excel');
+        Route::get('/word', 'word')->name('word');
+    });
+
+Route::prefix('reportes/servicio-tecnico-factura')
+    ->name('reportes.servicio-tecnico-factura.')
+    ->controller(ServicioTecnicoFacturaReporteController::class)
+    ->group(function () {
+        Route::get('/pdf', 'pdf')->name('pdf');
+        Route::get('/excel', 'excel')->name('excel');
+        Route::get('/word', 'word')->name('word');
+    });
+
+Route::prefix('reportes/instalacion-camara-factura')
+    ->name('reportes.instalacion-camara-factura.')
+    ->controller(InstalacionCamaraFacturaReporteController::class)
+    ->group(function () {
+        Route::get('/pdf', 'pdf')->name('pdf');
+        Route::get('/excel', 'excel')->name('excel');
+        Route::get('/word', 'word')->name('word');
+    });
+
+    Route::prefix('reportes/compra-general')
+    ->name('reportes.compra-general.')
+    ->controller(CompraGeneralReporteController::class)
+    ->group(function () {
+        Route::get('/pdf', 'pdf')->name('pdf');
+        Route::get('/excel', 'excel')->name('excel');
+        Route::get('/word', 'word')->name('word');
+    });
+
 });
 
 Route::middleware(['auth', 'cargo: 1, 2'])->group(function () {
