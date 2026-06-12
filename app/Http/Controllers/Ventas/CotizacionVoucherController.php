@@ -3,21 +3,28 @@
 namespace App\Http\Controllers\Ventas;
 
 use App\Http\Controllers\Controller;
+use App\Models\CotizacionVenta;
 use App\Services\Ventas\CotizacionVentaPdfService;
-use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpFoundation\Response;
 
 class CotizacionVoucherController extends Controller
 {
     public function show(string $key, CotizacionVentaPdfService $service): Response
     {
-        $payload = Cache::get('cotizacion_venta_' . $key);
+        $cotizacion = CotizacionVenta::query()
+            ->with('detalles')
+            ->where('Token_Publico', $key)
+            ->firstOrFail();
 
-        abort_if(! is_array($payload), 404);
+        if ($cotizacion->Estado === CotizacionVenta::ESTADO_VIGENTE && $cotizacion->Fecha_Vencimiento?->lt(now())) {
+            $cotizacion->forceFill(['Estado' => CotizacionVenta::ESTADO_VENCIDA])->save();
+        }
 
-        $filename = preg_replace('/[^A-Za-z0-9_-]/', '-', (string) ($payload['numero'] ?? 'proforma')) ?: 'proforma';
+        abort_if($cotizacion->Estado === CotizacionVenta::ESTADO_ANULADA, 404);
 
-        return response($service->generar($payload), 200, [
+        $filename = preg_replace('/[^A-Za-z0-9_-]/', '-', (string) $cotizacion->Numero_Cotizacion) ?: 'cotizacion';
+
+        return response($service->generarDesdeCotizacion($cotizacion), 200, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="' . $filename . '.pdf"',
             'Cache-Control' => 'private, max-age=300',

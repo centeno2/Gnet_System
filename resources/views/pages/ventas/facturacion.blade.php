@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Cliente;
+use App\Models\CotizacionVenta;
 use App\Models\Producto;
 use App\Models\ProductoSerie;
 use App\Models\TarifaCopia;
@@ -8,9 +9,8 @@ use App\Models\TasaCambio;
 use App\Models\Usuario;
 use App\Models\Venta;
 use App\Services\Ventas\ThermalPrintService;
-use Illuminate\Support\Facades\Cache;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
@@ -121,9 +121,19 @@ new class extends Component
     public ?int $voucherVentaId = null;
     public string $voucherPreviewUrl = '';
 
+    public bool $modalReciboEntregaCredito = false;
+    public string $reciboEntregaCreditoPreviewUrl = '';
+    public ?int $ultimaEntregaCreditoId = null;
+    public string $ultimaEntregaCreditoNumero = '';
+
     public string $cotizacionPreviewUrl = '';
     public string $cotizacionNumero = '';
     public array $cotizacionPreview = [];
+    public string $cotizacionValidezDias = '15';
+    public string $buscarCotizacion = '';
+    public ?int $cotizacionCargadaId = null;
+    public string $cotizacionCargadaNumero = '';
+    public string $cotizacionCargadaMensaje = '';
 
     // MODIFICADO: propiedades para entregar pendientes de crédito institucional.
     public string $entregaMunicipio = '';
@@ -132,6 +142,10 @@ new class extends Component
     public array $entregaInstitucionesOpciones = [];
     public array $entregasPendientes = [];
     public array $recibidosPendientes = [];
+    public array $cantidadesEntregaPendientes = [];
+    public array $observacionesEntregaPendientes = [];
+    public string $recibidoEntregaGeneral = '';
+    public string $observacionEntregaGeneral = '';
 
     public function mount(): void
     {
@@ -253,6 +267,8 @@ new class extends Component
         $this->entregaClienteId = '';
         $this->entregasPendientes = [];
         $this->recibidosPendientes = [];
+        $this->cantidadesEntregaPendientes = [];
+        $this->observacionesEntregaPendientes = [];
         $this->cargarInstitucionesEntregaCredito();
     }
 
@@ -260,6 +276,8 @@ new class extends Component
     {
         $this->entregasPendientes = [];
         $this->recibidosPendientes = [];
+        $this->cantidadesEntregaPendientes = [];
+        $this->observacionesEntregaPendientes = [];
     }
 
     protected function buscarClientes(): void
@@ -912,6 +930,7 @@ new class extends Component
         $this->cotizacionPreviewUrl = '';
         $this->cotizacionNumero = '';
         $this->cotizacionPreview = [];
+        $this->limpiarCotizacionCargada();
 
         if (! $this->tasaCambioValida()) {
             $this->mostrarToast('Debe registrar una tasa de cambio válida antes de generar la cotización.', 'error');
@@ -928,27 +947,80 @@ new class extends Component
             return null;
         }
 
-        $key = (string) Str::uuid();
-        $numeroCotizacion = 'PRO-' . now()->format('Ymd-His');
+        $validezDias = (int) $this->limpiarMonto($this->cotizacionValidezDias);
 
-        Cache::put('cotizacion_venta_' . $key, [
-            'numero' => $numeroCotizacion,
-            'cliente' => $this->clienteNombre,
-            'municipio' => $this->tipoVenta === self::TIPO_CREDITO ? $this->departamentoMunicipio : '',
-            'tipo_venta' => $this->tipoVenta,
-            'tipo_cambio' => $this->tasaCambio(),
-            'subtotal' => $this->subtotalVenta(),
-            'descuento' => $this->descuentoVenta(),
-            'total' => $this->totalVenta(),
-            'observacion' => $this->observacionVentaNormalizada(),
-            'items' => array_values($this->detalleVenta),
-        ], now()->addMinutes(20));
+        if ($validezDias < 1 || $validezDias > 90) {
+            $this->mostrarToast('La validez de la cotización debe estar entre 1 y 90 días.', 'error');
+            return null;
+        }
 
-        $this->cotizacionNumero = $numeroCotizacion;
-        $this->cotizacionPreviewUrl = route('ventas.cotizacion', ['key' => $key]);
-        $this->modalCotizacionRapida = true;
+        try {
+            $resultado = DB::transaction(function () use ($validezDias) {
+                $fechaCotizacion = now();
+                $fechaVencimiento = now()->addDays($validezDias)->endOfDay();
+                $numeroCotizacion = $this->generarNumeroCotizacion();
+                $token = (string) Str::uuid();
 
-        $this->mostrarToast('Cotización PDF generada correctamente.', 'info');
+                $cotizacion = CotizacionVenta::query()->create([
+                    'Numero_Cotizacion' => $numeroCotizacion,
+                    'Token_Publico' => $token,
+                    'Fecha_Cotizacion' => $fechaCotizacion,
+                    'Fecha_Vencimiento' => $fechaVencimiento,
+                    'Plazo_Validez_Dias' => $validezDias,
+                    'Id_Tiempo_Cotizacion' => $this->obtenerOCrearDimTiempoId($fechaCotizacion),
+                    'Id_Tiempo_Vencimiento' => $this->obtenerOCrearDimTiempoId($fechaVencimiento),
+                    'Id_Cliente' => $this->clienteId,
+                    'Id_Usuario' => $this->obtenerUsuarioId(),
+                    'Tipo_Venta' => $this->tipoVenta,
+                    'Cliente_Nombre' => Str::limit($this->clienteNombre, 180, ''),
+                    'Municipio' => $this->tipoVenta === self::TIPO_CREDITO ? Str::limit($this->departamentoMunicipio, 120, '') : null,
+                    'Tipo_Cambio' => $this->tasaCambio(),
+                    'Subtotal' => $this->subtotalVenta(),
+                    'Descuento' => $this->descuentoVenta(),
+                    'Total' => $this->totalVenta(),
+                    'Observacion' => $this->observacionVentaNormalizada(),
+                    'Estado' => CotizacionVenta::ESTADO_VIGENTE,
+                    'Id_Venta_Convertida' => null,
+                    'Fecha_Registro' => now(),
+                ]);
+
+                foreach ($this->detalleVenta as $item) {
+                    $cotizacion->detalles()->create([
+                        'Tipo_Detalle' => $item['tipo'],
+                        'Id_Producto' => $item['id_producto'],
+                        'Id_Producto_serie' => $item['id_producto_serie'],
+                        'Id_Servicio' => $item['id_servicio'],
+                        'Id_Tarifa_Copia' => $item['id_tarifa_copia'],
+                        'Codigo' => $item['codigo'],
+                        'Descripcion' => Str::limit((string) $item['descripcion'], 255, ''),
+                        'Nombre_Formato' => $item['tipo'] === self::TIPO_COPIA ? Str::limit((string) $item['descripcion'], 150, '') : null,
+                        'Formato_Copia' => $item['tipo'] === self::TIPO_COPIA ? $this->formatoCopiaValor($item['formato']) : null,
+                        'Lados_Copia' => $item['tipo'] === self::TIPO_COPIA ? $this->ladosCopiaValor($item['lados']) : null,
+                        'Area' => $item['area'] ?? null,
+                        'Cantidad' => $item['cantidad'],
+                        'Precio_Unitario_Cotizado' => $item['precio_unitario'],
+                        'Descuento' => $item['descuento_valor'],
+                        'Subtotal_Bruto' => $item['subtotal_bruto_valor'],
+                        'Subtotal' => $item['subtotal_valor'],
+                        'Fecha_Registro' => now(),
+                    ]);
+                }
+
+                return [
+                    'id' => (int) $cotizacion->Id_Cotizacion,
+                    'numero' => $numeroCotizacion,
+                    'token' => $token,
+                ];
+            });
+
+            $this->cotizacionNumero = $resultado['numero'];
+            $this->cotizacionPreviewUrl = route('ventas.cotizacion', ['key' => $resultado['token']]);
+            $this->modalCotizacionRapida = true;
+
+            $this->mostrarToast('Cotización guardada y PDF generado correctamente.', 'info');
+        } catch (\Throwable $e) {
+            $this->mostrarToast('No se pudo guardar la cotización: ' . $e->getMessage(), 'error');
+        }
 
         return null;
     }
@@ -959,6 +1031,88 @@ new class extends Component
         $this->cotizacionPreviewUrl = '';
         $this->cotizacionNumero = '';
         $this->cotizacionPreview = [];
+    }
+
+
+    public function cargarCotizacionGuardada(): void
+    {
+        $busqueda = trim($this->buscarCotizacion);
+
+        if (strlen($busqueda) < 3) {
+            $this->mostrarToast('Ingrese el número o token de la cotización.', 'error');
+            return;
+        }
+
+        $cotizacion = CotizacionVenta::query()
+            ->with('detalles')
+            ->where(function ($query) use ($busqueda) {
+                $query->where('Numero_Cotizacion', $busqueda)
+                    ->orWhere('Token_Publico', $busqueda);
+            })
+            ->first();
+
+        if (! $cotizacion) {
+            $this->mostrarToast('No se encontró la cotización indicada.', 'error');
+            return;
+        }
+
+        if ($cotizacion->Estado === CotizacionVenta::ESTADO_VIGENTE && $cotizacion->Fecha_Vencimiento?->lt(now())) {
+            $cotizacion->forceFill(['Estado' => CotizacionVenta::ESTADO_VENCIDA])->save();
+        }
+
+        if ($cotizacion->Estado !== CotizacionVenta::ESTADO_VIGENTE) {
+            $this->mostrarToast('La cotización no está vigente. Estado actual: ' . $cotizacion->Estado, 'error');
+            return;
+        }
+
+        if ($cotizacion->detalles->isEmpty()) {
+            $this->mostrarToast('La cotización no tiene detalle para cargar.', 'error');
+            return;
+        }
+
+        $this->tipoVenta = (string) $cotizacion->Tipo_Venta;
+        $this->tipoCambio = number_format((float) $cotizacion->Tipo_Cambio, 2, '.', '');
+        $this->clienteId = $cotizacion->Id_Cliente ? (int) $cotizacion->Id_Cliente : null;
+        $this->clienteNombre = (string) $cotizacion->Cliente_Nombre;
+        $this->buscarCliente = (string) $cotizacion->Cliente_Nombre;
+        $this->departamentoMunicipio = (string) ($cotizacion->Municipio ?? '');
+        $this->observacionVenta = (string) ($cotizacion->Observacion ?? '');
+        $this->cotizacionCargadaId = (int) $cotizacion->Id_Cotizacion;
+        $this->cotizacionCargadaNumero = (string) $cotizacion->Numero_Cotizacion;
+        $this->cotizacionCargadaMensaje = 'Precios congelados hasta ' . $cotizacion->Fecha_Vencimiento?->format('d/m/Y');
+
+        $this->detalleVenta = $cotizacion->detalles
+            ->map(fn ($detalle) => [
+                'uid' => uniqid('det_cot_', true),
+                'tipo' => (string) $detalle->Tipo_Detalle,
+                'codigo' => (string) ($detalle->Codigo ?: (($detalle->Tipo_Detalle === self::TIPO_PRODUCTO ? 'P-' : 'C-') . ($detalle->Id_Producto ?: $detalle->Id_Tarifa_Copia))),
+                'descripcion' => (string) $detalle->Descripcion,
+                'id_producto' => $detalle->Id_Producto ? (int) $detalle->Id_Producto : null,
+                'id_producto_serie' => $detalle->Id_Producto_serie ? (int) $detalle->Id_Producto_serie : null,
+                'id_servicio' => $detalle->Id_Servicio ? (int) $detalle->Id_Servicio : null,
+                'id_tarifa_copia' => $detalle->Id_Tarifa_Copia ? (int) $detalle->Id_Tarifa_Copia : null,
+                'formato' => $this->formatoCopiaTexto($detalle->Formato_Copia),
+                'lados' => $this->ladosCopiaTexto($detalle->Lados_Copia),
+                'area' => $detalle->Area,
+                'cantidad' => (float) $detalle->Cantidad,
+                'precio_unitario' => (float) $detalle->Precio_Unitario_Cotizado,
+                'subtotal_bruto_valor' => (float) $detalle->Subtotal_Bruto,
+                'descuento_valor' => (float) $detalle->Descuento,
+                'subtotal_valor' => (float) $detalle->Subtotal,
+            ])
+            ->values()
+            ->toArray();
+
+        $this->limpiarItemSeleccionado();
+        $this->mostrarToast('Cotización cargada con precios congelados.', 'info');
+    }
+
+    public function limpiarCotizacionCargada(): void
+    {
+        $this->buscarCotizacion = '';
+        $this->cotizacionCargadaId = null;
+        $this->cotizacionCargadaNumero = '';
+        $this->cotizacionCargadaMensaje = '';
     }
 
     public function guardarVenta()
@@ -1028,6 +1182,21 @@ new class extends Component
             ) {
                 $idUsuario = $this->obtenerUsuarioId();
                 $numeroFactura = $this->generarNumeroFactura();
+
+                $cotizacionCargada = null;
+
+                if ($this->cotizacionCargadaId) {
+                    $cotizacionCargada = CotizacionVenta::query()
+                        ->where('Id_Cotizacion', $this->cotizacionCargadaId)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (! $cotizacionCargada || $cotizacionCargada->Estado !== CotizacionVenta::ESTADO_VIGENTE || $cotizacionCargada->Fecha_Vencimiento?->lt(now())) {
+                        throw ValidationException::withMessages([
+                            'cotizacion' => 'La cotización cargada ya no está vigente.',
+                        ]);
+                    }
+                }
 
                 $venta = new Venta();
                 $venta->forceFill([
@@ -1103,8 +1272,10 @@ new class extends Component
                         'Observacion' => $this->tipoVenta === self::TIPO_CREDITO
                             ? ($item['area'] ?? null)
                             : $this->observacionVentaNormalizada(),
-                        // MODIFICADO: queda vacío hasta que se entregue desde el modal de pendientes.
+                        // Queda vacío hasta que se entregue desde el modal de pendientes.
                         'Recibido_Por' => null,
+                        'Cantidad_Entregada' => 0,
+                        'Estado_Entrega' => $this->tipoVenta === self::TIPO_CREDITO ? 'PENDIENTE' : 'ENTREGADO',
                     ]);
                 }
 
@@ -1178,6 +1349,13 @@ new class extends Component
                     }
                 }
 
+                if ($cotizacionCargada) {
+                    $cotizacionCargada->forceFill([
+                        'Estado' => CotizacionVenta::ESTADO_CONVERTIDA,
+                        'Id_Venta_Convertida' => $venta->Id_Venta,
+                    ])->save();
+                }
+
                 return [
                     'id_venta' => (int) $venta->Id_Venta,
                     'numero_factura' => $numeroFactura,
@@ -1233,6 +1411,28 @@ new class extends Component
         $this->modalVoucherVenta = false;
         $this->voucherVentaId = null;
         $this->voucherPreviewUrl = '';
+    }
+
+    protected function prepararReciboEntregaCredito(int $entregaCreditoId): void
+    {
+        $this->reciboEntregaCreditoPreviewUrl = route('ventas.credito.entrega.recibo', ['entrega' => $entregaCreditoId]);
+        $this->modalReciboEntregaCredito = true;
+    }
+
+    public function generarReciboEntregaCreditoConfirmado(): void
+    {
+        if (! $this->ultimaEntregaCreditoId) {
+            $this->mostrarToast('Primero confirme una entrega para generar el recibo.', 'warning');
+            return;
+        }
+
+        $this->prepararReciboEntregaCredito((int) $this->ultimaEntregaCreditoId);
+    }
+
+    public function cerrarModalReciboEntregaCredito(): void
+    {
+        $this->modalReciboEntregaCredito = false;
+        $this->reciboEntregaCreditoPreviewUrl = '';
     }
 
     public function imprimirVoucherVenta(): void
@@ -1298,6 +1498,7 @@ new class extends Component
         $this->cotizacionPreviewUrl = '';
         $this->cotizacionNumero = '';
         $this->cotizacionPreview = [];
+        $this->limpiarCotizacionCargada();
     }
 
     public function cancelarVenta(): void
@@ -1648,6 +1849,95 @@ new class extends Component
         return $numero;
     }
 
+    protected function generarNumeroCotizacion(): string
+    {
+        do {
+            $numero = 'PRO-' . now()->format('Ymd-His') . '-' . random_int(100, 999);
+        } while (CotizacionVenta::query()->where('Numero_Cotizacion', $numero)->exists());
+
+        return $numero;
+    }
+
+    protected function obtenerOCrearDimTiempoId(CarbonInterface $fecha): int
+    {
+        $fecha = $fecha->copy()->startOfDay();
+        $idTiempo = (int) $fecha->format('Ymd');
+
+        $existe = DB::table('dim_tiempo')
+            ->where('Id_Tiempo', $idTiempo)
+            ->exists();
+
+        if (! $existe) {
+            DB::table('dim_tiempo')->insert([
+                'Id_Tiempo' => $idTiempo,
+                'Fecha' => $fecha->toDateString(),
+                'Anio' => (int) $fecha->format('Y'),
+                'Mes' => (int) $fecha->format('m'),
+                'Dia' => (int) $fecha->format('d'),
+                'Trimestre' => (int) ceil(((int) $fecha->format('m')) / 3),
+                'Semana' => (int) $fecha->isoWeek(),
+                'Dia_Semana' => (int) $fecha->isoWeekday(),
+                'Nombre_Mes' => $this->nombreMes((int) $fecha->format('m')),
+                'Nombre_Dia' => $this->nombreDia((int) $fecha->isoWeekday()),
+                'Es_Fin_Semana' => in_array((int) $fecha->isoWeekday(), [6, 7], true) ? 1 : 0,
+            ]);
+        }
+
+        return $idTiempo;
+    }
+
+    protected function nombreMes(int $mes): string
+    {
+        return [
+            1 => 'Enero',
+            2 => 'Febrero',
+            3 => 'Marzo',
+            4 => 'Abril',
+            5 => 'Mayo',
+            6 => 'Junio',
+            7 => 'Julio',
+            8 => 'Agosto',
+            9 => 'Septiembre',
+            10 => 'Octubre',
+            11 => 'Noviembre',
+            12 => 'Diciembre',
+        ][$mes] ?? 'Mes';
+    }
+
+    protected function nombreDia(int $diaSemana): string
+    {
+        return [
+            1 => 'Lunes',
+            2 => 'Martes',
+            3 => 'Miércoles',
+            4 => 'Jueves',
+            5 => 'Viernes',
+            6 => 'Sábado',
+            7 => 'Domingo',
+        ][$diaSemana] ?? 'Día';
+    }
+
+    protected function formatoCopiaTexto(?int $formato): ?string
+    {
+        return match ((int) $formato) {
+            1 => 'CARTA',
+            2 => 'OFICIO',
+            3 => 'A4',
+            4 => 'LEGAL',
+            default => null,
+        };
+    }
+
+    protected function ladosCopiaTexto(?int $lados): ?string
+    {
+        return match ((int) $lados) {
+            1 => 'UNA_CARA',
+            2 => 'DOBLE_CARA',
+            default => null,
+        };
+    }
+
+
     // MODIFICADO: abre el modal de pendientes desde facturación.
     public function abrirModalEntregasCredito(): void
     {
@@ -1656,6 +1946,8 @@ new class extends Component
         $this->entregaClienteId = '';
         $this->entregasPendientes = [];
         $this->recibidosPendientes = [];
+        $this->cantidadesEntregaPendientes = [];
+        $this->observacionesEntregaPendientes = [];
         $this->cargarMunicipiosEntregaCredito();
         $this->cargarInstitucionesEntregaCredito();
     }
@@ -1667,6 +1959,8 @@ new class extends Component
         $this->entregaClienteId = '';
         $this->entregasPendientes = [];
         $this->recibidosPendientes = [];
+        $this->cantidadesEntregaPendientes = [];
+        $this->observacionesEntregaPendientes = [];
     }
 
     private function cargarMunicipiosEntregaCredito(): void
@@ -1745,17 +2039,13 @@ new class extends Component
             ->where('v.Estado', 1)
             ->where('c.Estado', 1)
             ->where('c.Tipo_Cliente', Cliente::TIPO_INSTITUCION)
-            ->where(function ($query) {
-                $query->whereNull('dv.Recibido_Por')
-                    ->orWhereRaw("TRIM(COALESCE(dv.Recibido_Por, '')) = ''");
-            })
+            ->whereRaw('COALESCE(dv.Cantidad_Entregada, 0) < dv.Cantidad')
             ->when($municipio !== '', function ($query) use ($municipio) {
                 $query->whereRaw('TRIM(c.Municipio) = ?', [$municipio]);
             })
             ->when($clienteId !== '', function ($query) use ($clienteId) {
                 $query->where('c.Id_Cliente', (int) $clienteId);
             })
-            // MODIFICADO: primero lo más reciente para que las ventas nuevas no queden escondidas por datos demo.
             ->orderByDesc('v.Fecha_venta')
             ->orderByDesc('v.Id_Venta')
             ->orderBy('c.Institucion')
@@ -1763,6 +2053,7 @@ new class extends Component
             ->limit(120)
             ->select([
                 'dv.Id_Detalle_Venta',
+                'v.Id_Venta',
                 'v.Numero_Factura',
                 'v.Fecha_venta',
                 'c.Institucion',
@@ -1771,6 +2062,8 @@ new class extends Component
                 'dv.Nombre_Formato',
                 'dv.Formato_Copia',
                 'dv.Cantidad',
+                'dv.Cantidad_Entregada',
+                'dv.Estado_Entrega',
                 'dv.Precio_Unitario',
                 'dv.Subtotal',
                 'dv.Descuento',
@@ -1783,10 +2076,15 @@ new class extends Component
             ->get()
             ->map(function ($fila) {
                 $id = (int) $fila->Id_Detalle_Venta;
-                $this->recibidosPendientes[$id] = $this->recibidosPendientes[$id] ?? '';
+                $cantidad = (float) $fila->Cantidad;
+                $entregada = (float) ($fila->Cantidad_Entregada ?? 0);
+                $pendiente = max($cantidad - $entregada, 0);
+
+                $this->cantidadesEntregaPendientes[$id] = $this->cantidadesEntregaPendientes[$id] ?? $this->cantidadParaInput($pendiente);
 
                 return [
                     'id' => $id,
+                    'venta_id' => (int) $fila->Id_Venta,
                     'fecha' => $fila->Fecha_venta ? \Illuminate\Support\Carbon::parse($fila->Fecha_venta)->format('d/m/Y') : '',
                     'factura' => (string) $fila->Numero_Factura,
                     'institucion' => (string) ($fila->Institucion ?: 'Institución'),
@@ -1795,7 +2093,10 @@ new class extends Component
                     'item' => $this->nombreItemPendiente($fila),
                     'area' => (string) ($fila->Observacion ?: '—'),
                     'formato' => $this->formatoPendienteNombre($fila),
-                    'cantidad' => (float) $fila->Cantidad,
+                    'cantidad' => $cantidad,
+                    'entregada' => $entregada,
+                    'pendiente' => $pendiente,
+                    'estado_entrega' => (string) ($fila->Estado_Entrega ?: 'PENDIENTE'),
                     'precio' => (float) $fila->Precio_Unitario,
                     'monto' => (float) $fila->Subtotal,
                 ];
@@ -1839,47 +2140,167 @@ new class extends Component
     }
 
 
-    public function guardarRecibidoPendiente(int $detalleVentaId): void
+    public function confirmarEntregaCredito(): void
     {
-        $recibidoPor = trim((string) ($this->recibidosPendientes[$detalleVentaId] ?? ''));
+        $recibidoPor = trim($this->recibidoEntregaGeneral);
+        $observacion = trim($this->observacionEntregaGeneral);
 
         if (mb_strlen($recibidoPor) < 3) {
-            $this->mostrarToast('Ingrese el nombre de quien recibe.', 'error');
+            $this->mostrarToast('Ingrese el nombre de quien recibe la entrega.', 'error');
             return;
         }
 
-        $existePendiente = DB::table('detalle_venta as dv')
-            ->join('venta as v', 'v.Id_Venta', '=', 'dv.Id_Venta')
-            ->join('credito as cr', 'cr.Id_Venta', '=', 'v.Id_Venta')
-            ->join('cliente as c', 'c.Id_Cliente', '=', 'v.Id_Cliente')
-            ->where('dv.Id_Detalle_Venta', $detalleVentaId)
-            ->where('v.Tipo_Venta', self::TIPO_CREDITO)
-            ->where('v.Estado', 1)
-            ->where('c.Tipo_Cliente', Cliente::TIPO_INSTITUCION)
-            ->where(function ($query) {
-                $query->whereNull('dv.Recibido_Por')
-                    ->orWhereRaw("TRIM(COALESCE(dv.Recibido_Por, '')) = ''");
-            })
-            ->exists();
+        $lineas = collect($this->cantidadesEntregaPendientes)
+            ->map(fn ($cantidad, $detalleId) => [
+                'detalle_id' => (int) $detalleId,
+                'cantidad' => $this->limpiarDecimal((string) $cantidad),
+            ])
+            ->filter(fn ($linea) => $linea['detalle_id'] > 0 && $linea['cantidad'] > 0)
+            ->values();
 
-        if (! $existePendiente) {
-            $this->mostrarToast('Este pendiente ya fue entregado o no existe.', 'warning');
+        if ($lineas->isEmpty()) {
+            $this->mostrarToast('Ingrese al menos una cantidad entregada.', 'error');
+            return;
+        }
+
+        try {
+            $resultado = DB::transaction(function () use ($lineas, $recibidoPor, $observacion) {
+                $ids = $lineas->pluck('detalle_id')->all();
+                $cantidadesPorDetalle = $lineas->pluck('cantidad', 'detalle_id');
+
+                $detalles = DB::table('detalle_venta as dv')
+                    ->join('venta as v', 'v.Id_Venta', '=', 'dv.Id_Venta')
+                    ->join('credito as cr', 'cr.Id_Venta', '=', 'v.Id_Venta')
+                    ->join('cliente as c', 'c.Id_Cliente', '=', 'v.Id_Cliente')
+                    ->whereIn('dv.Id_Detalle_Venta', $ids)
+                    ->where('v.Tipo_Venta', self::TIPO_CREDITO)
+                    ->where('v.Estado', 1)
+                    ->where('c.Tipo_Cliente', Cliente::TIPO_INSTITUCION)
+                    ->whereRaw('COALESCE(dv.Cantidad_Entregada, 0) < dv.Cantidad')
+                    ->select([
+                        'dv.Id_Detalle_Venta',
+                        'v.Id_Venta',
+                        'v.Numero_Factura',
+                        'cr.Id_Credito',
+                        'dv.Cantidad',
+                        'dv.Cantidad_Entregada',
+                    ])
+                    ->lockForUpdate()
+                    ->get()
+                    ->keyBy('Id_Detalle_Venta');
+
+                if ($detalles->count() !== count($ids)) {
+                    throw ValidationException::withMessages([
+                        'entrega' => 'Uno de los pendientes ya fue entregado o no existe.',
+                    ]);
+                }
+
+                $ventasSeleccionadas = $detalles->pluck('Id_Venta')->unique()->values();
+
+                if ($ventasSeleccionadas->count() > 1) {
+                    throw ValidationException::withMessages([
+                        'entrega' => 'Seleccione pendientes de una sola factura para generar un único recibo.',
+                    ]);
+                }
+
+                $primerDetalle = $detalles->first();
+                $usuarioId = $this->obtenerUsuarioId();
+
+                foreach ($lineas as $linea) {
+                    $detalle = $detalles->get($linea['detalle_id']);
+                    $cantidadTotal = (float) $detalle->Cantidad;
+                    $cantidadYaEntregada = (float) ($detalle->Cantidad_Entregada ?? 0);
+                    $cantidadPendiente = round(max($cantidadTotal - $cantidadYaEntregada, 0), 2);
+
+                    if ($linea['cantidad'] > $cantidadPendiente) {
+                        throw ValidationException::withMessages([
+                            'entrega' => 'La cantidad entregada no puede superar la cantidad pendiente.',
+                        ]);
+                    }
+                }
+
+                $entregaCreditoId = (int) DB::table('entrega_credito')->insertGetId([
+                    'Id_Venta' => (int) $primerDetalle->Id_Venta,
+                    'Id_Credito' => (int) $primerDetalle->Id_Credito,
+                    'Id_Usuario' => $usuarioId,
+                    'Numero_Recibo' => $this->generarNumeroReciboEntregaCredito(),
+                    'Fecha_Entrega' => now(),
+                    'Recibido_Por' => Str::limit($recibidoPor, 150, ''),
+                    'Observacion' => $observacion !== '' ? Str::limit($observacion, 255, '') : null,
+                    'Estado' => 'REGISTRADO',
+                ]);
+
+                foreach ($lineas as $linea) {
+                    $detalle = $detalles->get($linea['detalle_id']);
+                    $cantidadTotal = (float) $detalle->Cantidad;
+                    $cantidadYaEntregada = (float) ($detalle->Cantidad_Entregada ?? 0);
+                    $pendienteAnterior = round(max($cantidadTotal - $cantidadYaEntregada, 0), 2);
+                    $cantidadEntregadaAhora = round((float) $linea['cantidad'], 2);
+                    $nuevaCantidadEntregada = round($cantidadYaEntregada + $cantidadEntregadaAhora, 2);
+                    $pendienteRestante = round(max($cantidadTotal - $nuevaCantidadEntregada, 0), 2);
+                    $estadoEntrega = $pendienteRestante <= 0 ? 'ENTREGADO' : 'PARCIAL';
+
+                    DB::table('entrega_credito_detalle')->insert([
+                        'Id_Entrega_Credito' => $entregaCreditoId,
+                        'Id_Detalle_Venta' => (int) $detalle->Id_Detalle_Venta,
+                        'Cantidad_Total' => $cantidadTotal,
+                        'Cantidad_Pendiente_Anterior' => $pendienteAnterior,
+                        'Cantidad_Entregada_Ahora' => $cantidadEntregadaAhora,
+                        'Cantidad_Pendiente_Restante' => $pendienteRestante,
+                    ]);
+
+                    DB::table('detalle_venta')
+                        ->where('Id_Detalle_Venta', (int) $detalle->Id_Detalle_Venta)
+                        ->update([
+                            'Cantidad_Entregada' => $nuevaCantidadEntregada,
+                            'Estado_Entrega' => $estadoEntrega,
+                            'Recibido_Por' => $estadoEntrega === 'ENTREGADO' ? 'ENTREGADO CON RECIBO' : null,
+                        ]);
+                }
+
+                return [
+                    'entrega_credito_id' => $entregaCreditoId,
+                    'numero_factura' => (string) $primerDetalle->Numero_Factura,
+                ];
+            });
+
+            foreach ($lineas as $linea) {
+                unset($this->cantidadesEntregaPendientes[$linea['detalle_id']]);
+            }
+
+            $this->recibidoEntregaGeneral = '';
+            $this->observacionEntregaGeneral = '';
+            $this->ultimaEntregaCreditoId = (int) $resultado['entrega_credito_id'];
+            $this->ultimaEntregaCreditoNumero = (string) $resultado['numero_factura'];
+
+            $this->mostrarToast('Entrega confirmada. Ya puede generar el recibo.');
             $this->buscarPendientesEntregaCredito();
-            return;
+            $this->cargarMunicipiosEntregaCredito();
+            $this->cargarInstitucionesEntregaCredito();
+        } catch (ValidationException $e) {
+            $mensaje = collect($e->errors())->flatten()->first() ?: 'No se pudo confirmar la entrega.';
+            $this->mostrarToast($mensaje, 'error');
+        } catch (\Throwable $e) {
+            $this->mostrarToast('No se pudo confirmar la entrega: ' . $e->getMessage(), 'error');
         }
-
-        DB::table('detalle_venta')
-            ->where('Id_Detalle_Venta', $detalleVentaId)
-            ->update([
-                'Recibido_Por' => Str::limit($recibidoPor, 150, ''),
-            ]);
-
-        unset($this->recibidosPendientes[$detalleVentaId]);
-        $this->mostrarToast('Pendiente marcado como entregado correctamente.');
-        $this->buscarPendientesEntregaCredito();
-        $this->cargarMunicipiosEntregaCredito();
-        $this->cargarInstitucionesEntregaCredito();
     }
+
+    protected function generarNumeroReciboEntregaCredito(): string
+    {
+        do {
+            $numero = 'REC-CRED-' . now()->format('Ymd-His') . '-' . random_int(100, 999);
+        } while (DB::table('entrega_credito')->where('Numero_Recibo', $numero)->exists());
+
+        return $numero;
+    }
+
+    private function cantidadParaInput(float $cantidad): string
+    {
+        return floor($cantidad) == $cantidad
+            ? (string) (int) $cantidad
+            : number_format($cantidad, 2, '.', '');
+    }
+
 
     protected function mostrarToast(string $mensaje, string $tipo = 'success'): void
     {
@@ -1899,30 +2320,37 @@ new class extends Component
         <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div class="min-w-0">
                 <h1 class="text-2xl font-bold leading-tight text-[#1A2B42] md:text-3xl">Facturación</h1>
-                <p class="mt-1 text-sm text-[#5F6B7A]">
-                    {{ $tipoVenta === 'CONTADO' ? 'Venta al contado con tasa única y referencias de pago.' : 'Venta al
-                    crédito sin cobro inicial.' }}
-                </p>
             </div>
 
-            <div class="flex flex-wrap gap-2">
-                <x-button icon="o-document-text" label="Cotización" wire:click="generarCotizacion"
+            <div class="flex flex-wrap items-end gap-2">
+                <div class="w-44">
+                    <label
+                        class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-[#5F6B7A]">Validez</label>
+                    <x-input wire:model.live.debounce.250ms="cotizacionValidezDias" type="number" min="1" max="90"
+                        placeholder="15 días"
+                        class="h-10 min-h-10 rounded-xl border-0 bg-white text-sm font-semibold text-[#1A2B42]" />
+                </div>
+
+                <x-button icon="o-document-text" label="Guardar cotización" wire:click="generarCotizacion"
                     spinner="generarCotizacion"
+                    class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] shadow-sm hover:bg-[#F8FAFC]" />
+
+                <div class="w-56">
+                    <label class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-[#5F6B7A]">Cargar
+                        cotización</label>
+                    <x-input wire:model.live.debounce.250ms="buscarCotizacion" type="text" autocomplete="off"
+                        placeholder="PRO-202606..."
+                        class="h-10 min-h-10 rounded-xl border-0 bg-white text-sm text-[#1A2B42]" />
+                </div>
+
+                <x-button icon="o-arrow-down-tray" label="Cargar" wire:click="cargarCotizacionGuardada"
+                    spinner="cargarCotizacionGuardada"
                     class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] shadow-sm hover:bg-[#F8FAFC]" />
 
                 <x-button icon="o-truck" label="Entregar pendientes" wire:click="abrirModalEntregasCredito"
                     spinner="abrirModalEntregasCredito"
                     class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] shadow-sm hover:bg-[#F8FAFC]" />
 
-                <button type="button" wire:click="cambiarTipoVenta('CONTADO')"
-                    class="{{ $tipoVenta === 'CONTADO' ? 'bg-[#0B6FE4] text-white shadow-sm' : 'bg-white text-[#1A2B42]' }} inline-flex h-10 items-center justify-center rounded-xl border border-[#D7E4F3] px-5 text-sm font-semibold transition">
-                    Contado
-                </button>
-
-                <button type="button" wire:click="cambiarTipoVenta('CREDITO')"
-                    class="{{ $tipoVenta === 'CREDITO' ? 'bg-[#0B6FE4] text-white shadow-sm' : 'bg-white text-[#1A2B42]' }} inline-flex h-10 items-center justify-center rounded-xl border border-[#D7E4F3] px-5 text-sm font-semibold transition">
-                    Crédito
-                </button>
             </div>
         </div>
 
@@ -1940,6 +2368,20 @@ new class extends Component
                             {{ $tipoVenta === 'CREDITO' ? 'Crédito institucional' : 'Venta contado' }}
                         </span>
                     </div>
+
+                    @if ($cotizacionCargadaId)
+                    <div
+                        class="mb-3 flex flex-col gap-2 rounded-2xl border border-[#B7D6F2] bg-[#EAF4FD] px-4 py-3 text-sm text-[#1A2B42] md:flex-row md:items-center md:justify-between">
+                        <div>
+                            <strong class="text-[#0B6FE4]">Cotización cargada:</strong>
+                            {{ $cotizacionCargadaNumero }} · {{ $cotizacionCargadaMensaje }}
+                        </div>
+                        <button type="button" wire:click="limpiarCotizacionCargada"
+                            class="w-fit rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-[#0E48A1] shadow-sm hover:bg-[#F8FAFC]">
+                            Quitar cotización
+                        </button>
+                    </div>
+                    @endif
 
                     <div class="grid grid-cols-1 gap-3 lg:grid-cols-12">
                         <div
@@ -2297,13 +2739,27 @@ new class extends Component
                                 }}</strong>
                         </div>
 
-                        <div class="grid grid-cols-1 gap-2 pt-1">
-                            <x-button :label="$tipoVenta === 'CONTADO' ? 'Cobrar' : 'Guardar crédito'"
-                                wire:click="abrirModalCobro"
-                                class="h-10 min-h-10 rounded-xl border-0 bg-[#2E8BC0] px-3 text-sm font-semibold text-white shadow-sm hover:bg-[#0B6FE4]" />
+                        <div class="space-y-2 pt-1">
+                            <div class="grid grid-cols-2 gap-2">
+                                <button type="button" wire:click="cambiarTipoVenta('CONTADO')"
+                                    class="{{ $tipoVenta === 'CONTADO' ? 'bg-[#0B6FE4] text-white shadow-sm' : 'bg-white text-[#1A2B42]' }} inline-flex h-10 items-center justify-center rounded-xl border border-[#D7E4F3] px-4 text-sm font-semibold transition hover:bg-[#F8FAFC]">
+                                    Contado
+                                </button>
 
-                            <x-button label="Cancelar" wire:click="cancelarVenta"
-                                class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-3 text-sm font-semibold text-[#1A2B42] hover:bg-[#F5F9FC]" />
+                                <button type="button" wire:click="cambiarTipoVenta('CREDITO')"
+                                    class="{{ $tipoVenta === 'CREDITO' ? 'bg-[#0B6FE4] text-white shadow-sm' : 'bg-white text-[#1A2B42]' }} inline-flex h-10 items-center justify-center rounded-xl border border-[#D7E4F3] px-4 text-sm font-semibold transition hover:bg-[#F8FAFC]">
+                                    Crédito
+                                </button>
+                            </div>
+
+                            <div class="grid grid-cols-1 gap-2">
+                                <x-button :label="$tipoVenta === 'CONTADO' ? 'Cobrar' : 'Guardar crédito'"
+                                    wire:click="abrirModalCobro"
+                                    class="h-10 min-h-10 rounded-xl border-0 bg-[#2E8BC0] px-3 text-sm font-semibold text-white shadow-sm hover:bg-[#0B6FE4]" />
+
+                                <x-button label="Cancelar" wire:click="cancelarVenta"
+                                    class="h-10 min-h-10 rounded-xl border border-[#D7E4F3] bg-white px-3 text-sm font-semibold text-[#1A2B42] hover:bg-[#F5F9FC]" />
+                            </div>
                         </div>
                     </div>
                 </x-card>
@@ -2319,7 +2775,7 @@ new class extends Component
                 <div class="min-w-0">
                     <h3 class="text-2xl font-bold text-[#1A2B42]">Entregar pendientes de crédito</h3>
                     <p class="mt-1 text-sm text-[#5F6B7A]">
-                        Filtre por municipio o institución y registre el nombre de quien recibe cada pendiente.
+                        Filtre, escriba las cantidades que entregará y confirme una sola entrega por factura.
                     </p>
                 </div>
 
@@ -2348,6 +2804,30 @@ new class extends Component
                         <x-button icon="o-magnifying-glass" label="Cargar pendientes"
                             wire:click="buscarPendientesEntregaCredito" spinner="buscarPendientesEntregaCredito"
                             class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#2E8BC0] text-sm font-semibold text-white shadow-sm hover:bg-[#0B6FE4]" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-4 rounded-2xl border border-[#D7E4F3] bg-white p-3 shadow-sm">
+                <div class="grid grid-cols-1 gap-3 lg:grid-cols-12 lg:items-end">
+                    <div class="lg:col-span-4">
+                        <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Recibido por</label>
+                        <x-input wire:model.live.debounce.250ms="recibidoEntregaGeneral" type="text"
+                            placeholder="Nombre de quien recibe"
+                            class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                    </div>
+
+                    <div class="lg:col-span-5">
+                        <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">Observación general</label>
+                        <x-input wire:model.live.debounce.250ms="observacionEntregaGeneral" type="text" maxlength="255"
+                            placeholder="Opcional"
+                            class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                    </div>
+
+                    <div class="lg:col-span-3">
+                        <x-button icon="o-check-circle" label="Confirmar entrega" wire:click="confirmarEntregaCredito"
+                            spinner="confirmarEntregaCredito"
+                            class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#0E48A1] text-sm font-semibold text-white shadow-sm hover:bg-[#0B6FE4]" />
                     </div>
                 </div>
             </div>
@@ -2392,41 +2872,40 @@ new class extends Component
                             <div class="xl:col-span-2">
                                 <div class="grid grid-cols-2 gap-2 text-center sm:grid-cols-4 xl:grid-cols-2">
                                     <div class="rounded-xl bg-[#F0F3F7] px-2 py-2">
-                                        <p class="text-[10px] font-bold uppercase text-[#5F6B7A]">Tamaño</p>
-                                        <p class="text-sm font-black text-[#1A2B42]">{{ $pendiente['formato'] }}</p>
-                                    </div>
-                                    <div class="rounded-xl bg-[#F0F3F7] px-2 py-2">
-                                        <p class="text-[10px] font-bold uppercase text-[#5F6B7A]">Cant.</p>
+                                        <p class="text-[10px] font-bold uppercase text-[#5F6B7A]">Total</p>
                                         <p class="text-sm font-black text-[#1A2B42]">{{
                                             number_format($pendiente['cantidad'], 0, '.', ',') }}</p>
+                                    </div>
+                                    <div class="rounded-xl bg-[#F0F3F7] px-2 py-2">
+                                        <p class="text-[10px] font-bold uppercase text-[#5F6B7A]">Entreg.</p>
+                                        <p class="text-sm font-black text-[#1A2B42]">{{
+                                            number_format($pendiente['entregada'], 0, '.', ',') }}</p>
+                                    </div>
+                                    <div class="rounded-xl bg-[#EAF2FB] px-2 py-2">
+                                        <p class="text-[10px] font-bold uppercase text-[#0B6FE4]">Pend.</p>
+                                        <p class="text-sm font-black text-[#1A2B42]">{{
+                                            number_format($pendiente['pendiente'], 0, '.', ',') }}</p>
                                     </div>
                                     <div class="rounded-xl bg-[#F0F3F7] px-2 py-2">
                                         <p class="text-[10px] font-bold uppercase text-[#5F6B7A]">P/Unit</p>
                                         <p class="text-sm font-black text-[#1A2B42]">C$ {{
                                             number_format($pendiente['precio'], 0, '.', ',') }}</p>
                                     </div>
-                                    <div class="rounded-xl bg-[#EAF2FB] px-2 py-2">
-                                        <p class="text-[10px] font-bold uppercase text-[#0B6FE4]">Monto</p>
-                                        <p class="text-sm font-black text-[#1A2B42]">C$ {{
-                                            number_format($pendiente['monto'], 0, '.', ',') }}</p>
-                                    </div>
                                 </div>
                             </div>
 
                             <div class="xl:col-span-2">
                                 <label class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-[#5F6B7A]">
-                                    Recibí conforme
+                                    Entregar ahora
                                 </label>
-                                <div class="flex flex-col gap-2 sm:flex-row xl:flex-col 2xl:flex-row">
-                                    <x-input wire:model.live.debounce.250ms="recibidosPendientes.{{ $pendiente['id'] }}"
-                                        type="text" placeholder="Nombre de quien recibe"
-                                        class="h-10 min-h-10 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-
-                                    <x-button label="Guardar"
-                                        wire:click="guardarRecibidoPendiente({{ $pendiente['id'] }})"
-                                        spinner="guardarRecibidoPendiente({{ $pendiente['id'] }})"
-                                        class="h-10 min-h-10 shrink-0 rounded-xl border-0 bg-[#0E48A1] px-4 text-xs font-semibold text-white hover:bg-[#0B6FE4]" />
-                                </div>
+                                <x-input
+                                    wire:model.live.debounce.250ms="cantidadesEntregaPendientes.{{ $pendiente['id'] }}"
+                                    type="number" min="0.01" step="0.01"
+                                    placeholder="Pend. {{ number_format($pendiente['pendiente'], 0, '.', ',') }}"
+                                    class="h-10 min-h-10 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                                <p class="mt-2 text-[11px] font-semibold text-[#5F6B7A]">
+                                    Se incluirá en el recibo solo si ingresa una cantidad.
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -2443,6 +2922,13 @@ new class extends Component
         </div>
 
         <x-slot:actions>
+            @if ($ultimaEntregaCreditoId)
+            <x-button icon="o-document-text"
+                label="Generar recibo{{ $ultimaEntregaCreditoNumero !== '' ? ' · ' . $ultimaEntregaCreditoNumero : '' }}"
+                type="button" wire:click="generarReciboEntregaCreditoConfirmado"
+                class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]" />
+            @endif
+
             <x-button label="Cerrar" type="button" wire:click="cerrarModalEntregasCredito"
                 class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]" />
         </x-slot:actions>
@@ -2513,12 +2999,9 @@ new class extends Component
                 </p>
             </div>
 
-            @if ($cotizacionPreviewUrl !== '')
-            <a href="{{ $cotizacionPreviewUrl }}" target="_blank"
-                class="inline-flex h-10 shrink-0 items-center justify-center rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] shadow-sm hover:bg-[#F8FAFC]">
-                Abrir en pestaña
-            </a>
-            @endif
+            <span class="w-fit rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-bold text-[#0B6FE4]">
+                PDF en visor integrado
+            </span>
         </div>
 
         <div class="overflow-hidden rounded-2xl border border-[#D7E4F3] bg-[#F8FBFF]">
@@ -2559,6 +3042,37 @@ new class extends Component
 
             <x-button label="Imprimir voucher" type="button" wire:click="imprimirVoucherVenta"
                 class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]" />
+        </x-slot:actions>
+    </x-modal>
+
+    <x-modal wire:model="modalReciboEntregaCredito" class="backdrop-blur-sm"
+        box-class="w-full max-w-3xl rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
+
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div class="min-w-0">
+                <h3 class="text-2xl font-bold text-[#1A2B42]">Recibo de entrega confirmada</h3>
+            </div>
+
+            @if ($reciboEntregaCreditoPreviewUrl !== '')
+            <a href="{{ $reciboEntregaCreditoPreviewUrl }}" target="_blank"
+                class="inline-flex h-10 shrink-0 items-center justify-center rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] shadow-sm hover:bg-[#F8FAFC]">
+                Abrir
+            </a>
+            @endif
+        </div>
+
+        <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-[#F8FBFF]">
+            @if ($reciboEntregaCreditoPreviewUrl !== '')
+            <iframe src="{{ $reciboEntregaCreditoPreviewUrl }}#toolbar=0&navpanes=0&scrollbar=1&view=FitH"
+                loading="eager" class="h-[76vh] w-full bg-white"></iframe>
+            @else
+            <div class="px-4 py-12 text-center text-sm text-[#7B8794]">No hay recibo para mostrar.</div>
+            @endif
+        </div>
+
+        <x-slot:actions>
+            <x-button label="Cerrar" type="button" wire:click="cerrarModalReciboEntregaCredito"
+                class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]" />
         </x-slot:actions>
     </x-modal>
 
