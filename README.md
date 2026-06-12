@@ -69,7 +69,7 @@ El sistema busca reducir tareas manuales, mejorar el control de datos y mantener
 
 | Clientes | Compras | Crédito |
 |---|---|---|
-| <img src="https://images.unsplash.com/photo-1521791136064-7986c2920216?q=80&w=1200&auto=format&fit=crop" width="100%" /> | <img src="https://images.unsplash.com/photo-1554224155-6726b3ff858f?q=80&w=1200&auto=format&fit=crop" width="100%" /> | <img src="https://images.unsplash.com/photo-1554224154-26032fced8bd?q=80&w=1200&auto=format&fit=crop" width="100%" /> |
+| <img src="https://images.unsplash.com/photo-1521791136064-7986c2920216?q=80&w=1200&auto=format&fit=crop" width="100%" /> | <img src="https://images.unsplash.com/photo-1554224155-6726b3ff858f?q=80&w=1200&auto=format&fit=crop" width="100%" /> | <img src="https://images.unsplash.com/photo-1563013544-824ae1b704d3?q=80&w=1200&auto=format&fit=crop" width="100%" /> |
 
 ---
 
@@ -84,6 +84,22 @@ El sistema busca reducir tareas manuales, mejorar el control de datos y mantener
 | **MySQL** | Base de datos principal del sistema |
 | **Laragon** | Entorno local de desarrollo |
 | **Vite** | Compilación de assets frontend |
+| **TCPDF** | Generación y visualización de reportes PDF y vouchers |
+
+---
+
+## Requisito para reportes y vouchers
+
+Para poder generar y visualizar correctamente los **reportes PDF** y **vouchers** dentro del sistema, se debe instalar la librería **TCPDF** y regenerar el autoload optimizado de Composer.
+
+Ejecutar los siguientes comandos en la raíz del proyecto:
+
+```bash
+composer require tecnickcom/tcpdf
+composer dump-autoload -o
+```
+
+> Sin esta librería, los reportes y vouchers PDF pueden fallar o no mostrarse correctamente dentro del sistema.
 
 ---
 
@@ -113,3 +129,4 @@ Gnet System
 ├── Arqueo de caja
 ├── Mantenimiento
 └── Informes
+```
