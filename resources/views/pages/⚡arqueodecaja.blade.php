@@ -1197,11 +1197,12 @@ new class extends Component
 
                 <div class="rounded-2xl border border-[#D7E4F3] bg-white p-3">
                     <span class="block text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
-                        Contado C$
+                        Esperado $
                     </span>
 
-                    <span class="mt-1.5 block text-lg font-extrabold text-[#0B6FE4]">
-                        C$ {{ $this->formatear($this->totalCordobas()) }}
+                    
+                    <span class="mt-1.5 block text-xl font-extrabold text-[#1A2B42]">
+                        $ {{ $this->formatear($this->totalEsperadoDolares()) }}
                     </span>
                 </div>
 
@@ -1227,7 +1228,7 @@ new class extends Component
             </div>
         </div>
 
-        <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
+        <div class="grid grid-cols-1 items-start gap-4 xl:grid-cols-12">
             <div class="xl:col-span-4">
                 <div class="{{ $cardClass }} overflow-hidden">
                     <div class="border-b border-[#D7E4F3] bg-white px-4 py-3">
@@ -1360,7 +1361,7 @@ new class extends Component
             </div>
 
             <div class="xl:col-span-8">
-                <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
                     <div class="{{ $cardClass }} overflow-hidden">
                         <div class="flex items-center justify-between gap-3 border-b border-[#D7E4F3] bg-white px-4 py-3">
                             <div>
