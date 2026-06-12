@@ -46,13 +46,10 @@ new class extends Component
     public string $referenciaPago = '';
     public string $fechaPago = '';
     public string $observacion = '';
-    public string $filtroSaldoFavor = '';
 
     public array $metodosPagoOptions = [];
     public array $detalleCredito = [];
-    public array $clientesSaldoFavor = [];
     public array $headersDetalle = [];
-    public array $headersSaldoFavor = [];
 
     public function mount(): void
     {
@@ -75,14 +72,6 @@ new class extends Component
             ['key' => 'pendiente', 'label' => 'Pendiente', 'class' => 'min-w-[150px]'],
             ['key' => 'estado', 'label' => 'Estado', 'class' => 'min-w-[120px]'],
         ];
-
-        $this->headersSaldoFavor = [
-            ['key' => 'cliente', 'label' => 'Cliente'],
-            ['key' => 'documento', 'label' => 'Documento', 'class' => 'hidden md:table-cell'],
-            ['key' => 'saldo', 'label' => 'Saldo a favor', 'class' => 'w-36'],
-        ];
-
-        $this->cargarClientesSaldoFavor();
     }
 
     public function updatedValorBusqueda(): void
@@ -120,11 +109,6 @@ new class extends Component
     {
         $this->tasaCambio = $this->obtenerTasaCambioDelDia();
         $this->calcularSaldoFavorVista();
-    }
-
-    public function updatedFiltroSaldoFavor(): void
-    {
-        $this->cargarClientesSaldoFavor();
     }
 
     protected function buscarSugerenciasCredito(): void
@@ -548,7 +532,6 @@ new class extends Component
         }
 
         $this->limpiarBusqueda();
-        $this->cargarClientesSaldoFavor();
 
         $this->notificar(
             type: 'success',
@@ -877,53 +860,6 @@ new class extends Component
         return $filas;
     }
 
-    protected function cargarClientesSaldoFavor(): void
-    {
-        $filtro = trim($this->filtroSaldoFavor);
-
-        $query = ClienteCredito::query()
-            ->with(['cliente.persona'])
-            ->where('Saldo_Actual', '>', 0)
-            ->orderByDesc('Saldo_Actual');
-
-        if ($filtro !== '') {
-            $query->whereHas('cliente', function ($clienteQuery) use ($filtro) {
-                $clienteQuery->where(function ($query) use ($filtro) {
-                    $query->where('Institucion', 'like', "%{$filtro}%");
-
-                    foreach (['Cedula', 'RUC', 'Telefono_Institucion', 'Correo_Institucion', 'Municipio'] as $columna) {
-                        if ($this->clienteTieneColumna($columna)) {
-                            $query->orWhere($columna, 'like', "%{$filtro}%");
-                        }
-                    }
-
-                    $query->orWhereHas('persona', function ($personaQuery) use ($filtro) {
-                        $personaQuery->where('Primer_Nombre', 'like', "%{$filtro}%")
-                            ->orWhere('Segundo_Nombre', 'like', "%{$filtro}%")
-                            ->orWhere('Primer_Apellido', 'like', "%{$filtro}%")
-                            ->orWhere('Segundo_Apellido', 'like', "%{$filtro}%")
-                            ->orWhere('Telefono', 'like', "%{$filtro}%");
-                    });
-                });
-            });
-        }
-
-        $this->clientesSaldoFavor = $query
-            ->limit(15)
-            ->get()
-            ->map(function ($clienteCredito) {
-                $saldoFavor = max((float) $clienteCredito->Saldo_Actual, 0);
-
-                return [
-                    'cliente' => $this->nombreCliente($clienteCredito->cliente),
-                    'documento' => $this->documentoCliente($clienteCredito->cliente),
-                    'saldo' => 'C$ ' . $this->formatoMoneda($saldoFavor),
-                    'saldo_valor' => $saldoFavor,
-                ];
-            })
-            ->toArray();
-    }
-
     public function limpiarBusqueda(): void
     {
         $this->valorBusqueda = '';
@@ -1118,9 +1054,6 @@ new class extends Component
         : ($estadoCredito === \App\Models\Credito::ESTADO_VENCIDO
             ? 'bg-red-100 text-red-700'
             : 'bg-[#EAF4FD] text-[#0B6FE4]');
-
-    $totalSaldoFavor = collect($clientesSaldoFavor)
-        ->sum(fn ($item) => (float) ($item['saldo_valor'] ?? 0));
 @endphp
 
 <div class="flex h-[calc(100vh-3rem)] min-h-0 w-full flex-col gap-4 overflow-hidden bg-[#F0F3F7] px-4 py-4 md:px-6 md:py-5">
@@ -1334,43 +1267,6 @@ new class extends Component
                         />
                     </div>
                 </x-form>
-            </x-card>
-
-            <x-card title="Saldo a favor" shadow separator class="flex min-h-0 flex-1 flex-col {{ $cardClass }}">
-                <div class="grid grid-cols-2 gap-3">
-                    <div class="rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
-                        <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Clientes</p>
-                        <p class="mt-1 text-xl font-black text-[#1A2B42]">{{ count($clientesSaldoFavor) }}</p>
-                    </div>
-
-                    <div class="rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
-                        <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Saldo total</p>
-                        <p class="mt-1 text-xl font-black text-[#1A2B42]">
-                            C$ {{ number_format($totalSaldoFavor, 2, '.', ',') }}
-                        </p>
-                    </div>
-                </div>
-
-                <div class="mt-3">
-                    <x-input
-                        label="Filtrar"
-                        wire:model.live.debounce.250ms="filtroSaldoFavor"
-                        placeholder="Buscar cliente..."
-                        icon="o-magnifying-glass"
-                        class="{{ $fieldClass }}"
-                    />
-                </div>
-
-                <div class="mt-3 min-h-0 flex-1 overflow-hidden rounded-2xl border border-[#D7E4F3]">
-                    <div class="h-full overflow-auto overscroll-contain">
-                        <x-table
-                            :headers="$headersSaldoFavor"
-                            :rows="$clientesSaldoFavor"
-                            no-hover
-                            class="[&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_td]:border-[#D7E4F3] [&_tbody_td]:text-[#1A2B42] [&_tbody_tr:hover]:!bg-[#EAF4FD]"
-                        />
-                    </div>
-                </div>
             </x-card>
         </aside>
     </div>

@@ -29,7 +29,9 @@ new class extends Component
 
     public bool $modalConfirmarPlanilla = false;
     public bool $modalComprobante = false;
+    public bool $modalPdfComprobante = false;
     public bool $modalReporteAnual = false;
+    public bool $modalPdfReporteAnual = false;
     public bool $modalIncentivo = false;
     public bool $modalDeduccion = false;
     public bool $modalVacaciones = false;
@@ -39,14 +41,13 @@ new class extends Component
 
     public ?int $formTrabajadorId = null;
 
-    // Búsqueda liviana para modales: no guardar catálogos grandes en propiedades públicas de Livewire.
+
     public string $busquedaTrabajadorModal = '';
     public int $trabajadoresPorPagina = 5;
     public int $detallesPorPagina = 5;
     public int $reportePorPagina = 5;
 
-    // Filtro de negocio: el cargo gerente no participa en planillas operativas.
-    // Si en tu tabla cargo el gerente usa otro Id_Cargo, cambialo aquí.
+   
     public array $cargosExcluidosPlanilla = [2];
 
     public string $fechaIncentivo = '';
@@ -776,6 +777,35 @@ new class extends Component
     public function abrirReporteAnual(): void
     {
         $this->modalReporteAnual = true;
+    }
+
+    public function abrirPdfComprobante(): void
+    {
+        if (! $this->previewPlanillaId || ! $this->previewPlanilla()) {
+            $this->notificar('warning', 'Sin comprobante', 'No hay comprobante disponible para previsualizar.');
+            return;
+        }
+
+        $this->modalPdfComprobante = true;
+    }
+
+    public function abrirPdfReporteAnual(): void
+    {
+        $this->modalPdfReporteAnual = true;
+    }
+
+    public function urlPdfComprobante(): string
+    {
+        if (! $this->previewPlanillaId) {
+            return 'about:blank';
+        }
+
+        return $this->urlExportarComprobante('pdf') . '#toolbar=1&navpanes=0&view=FitH';
+    }
+
+    public function urlPdfReporteAnual(): string
+    {
+        return $this->urlExportarReporteAnual('pdf') . '#toolbar=1&navpanes=0&view=FitH';
     }
 
     public function urlExportarComprobante(string $formato): string
@@ -1717,7 +1747,7 @@ new class extends Component
     $resumen = $this->resumen();
     $planillaActual = $this->planillaActual();
     $detalles = $planillaActual ? $this->detallePlanillaRows() : collect();
-    $previewPlanilla = $modalComprobante ? $this->previewPlanilla() : null;
+    $previewPlanilla = ($modalComprobante || $modalPdfComprobante) ? $this->previewPlanilla() : null;
     $comprobanteDetalles = $modalComprobante ? $this->comprobanteDetalleRows() : collect();
     $reporteRows = $modalReporteAnual ? $this->reporteAnualRows() : null;
     $reporteResumen = $modalReporteAnual ? $this->reporteAnualResumen() : [
@@ -2114,13 +2144,44 @@ new class extends Component
         <x-slot:actions>
             <x-button label="Cerrar" wire:click="$set('modalComprobante', false)" />
             @if($previewPlanilla)
-            <x-button label="PDF" icon="o-document-text" link="{{ $this->urlExportarComprobante('pdf') }}" external
-                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" />
+            <x-button label="Ver PDF" icon="o-document-text" wire:click="abrirPdfComprobante"
+                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
             <x-button label="Excel" icon="o-table-cells" link="{{ $this->urlExportarComprobante('excel') }}" external
                 class="border border-[#D7E4F3] bg-white text-[#111827] hover:bg-[#F0F3F7]" />
             <x-button label="Word" icon="o-document" link="{{ $this->urlExportarComprobante('word') }}" external
                 class="border border-[#D7E4F3] bg-white text-[#111827] hover:bg-[#F0F3F7]" />
             @endif
+        </x-slot:actions>
+    </x-modal>
+
+    <x-modal wire:model="modalPdfComprobante" title="Vista previa del comprobante PDF" separator
+        box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl max-w-7xl">
+        @if($modalPdfComprobante && $previewPlanilla)
+        <div class="space-y-4 text-[#111827]">
+            <div
+                class="flex flex-col gap-3 rounded-2xl border border-[#D7E4F3] bg-[#F0F3F7] p-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                    <h3 class="text-lg font-bold text-[#1A2B42]">
+                        Comprobante de planilla #{{ $previewPlanilla->Id_Planilla }}
+                    </h3>
+                    <p class="text-sm text-[#5F6B7A]">
+                        {{ $previewPlanilla->Tipo_Planilla }} · {{ $previewPlanilla->Estado }}
+                    </p>
+                </div>
+
+                <x-button label="Descargar PDF" icon="o-arrow-down-tray" link="{{ $this->urlExportarComprobante('pdf') }}"
+                    external class="border border-[#D7E4F3] bg-white text-[#111827] hover:bg-[#F0F3F7]" />
+            </div>
+
+            <div class="overflow-hidden rounded-2xl border border-[#D7E4F3] bg-white">
+                <iframe src="{{ $this->urlPdfComprobante() }}" class="h-[75vh] w-full"
+                    title="Vista previa del comprobante PDF"></iframe>
+            </div>
+        </div>
+        @endif
+
+        <x-slot:actions>
+            <x-button label="Cerrar" wire:click="$set('modalPdfComprobante', false)" />
         </x-slot:actions>
     </x-modal>
 
@@ -2390,12 +2451,43 @@ new class extends Component
 
         <x-slot:actions>
             <x-button label="Cerrar" wire:click="$set('modalReporteAnual', false)" />
-            <x-button label="PDF" icon="o-document-text" link="{{ $this->urlExportarReporteAnual('pdf') }}" external
-                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" />
+            <x-button label="Ver PDF" icon="o-document-text" wire:click="abrirPdfReporteAnual"
+                class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]" spinner />
             <x-button label="Excel" icon="o-table-cells" link="{{ $this->urlExportarReporteAnual('excel') }}" external
                 class="border border-[#D7E4F3] bg-white text-[#111827] hover:bg-[#F0F3F7]" />
             <x-button label="Word" icon="o-document" link="{{ $this->urlExportarReporteAnual('word') }}" external
                 class="border border-[#D7E4F3] bg-white text-[#111827] hover:bg-[#F0F3F7]" />
+        </x-slot:actions>
+    </x-modal>
+
+    <x-modal wire:model="modalPdfReporteAnual" title="Vista previa del reporte anual PDF" separator
+        box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl max-w-7xl">
+        @if($modalPdfReporteAnual)
+        <div class="space-y-4 text-[#111827]">
+            <div
+                class="flex flex-col gap-3 rounded-2xl border border-[#D7E4F3] bg-[#F0F3F7] p-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                    <h3 class="text-lg font-bold text-[#1A2B42]">
+                        Reporte anual de planillas
+                    </h3>
+                    <p class="text-sm text-[#5F6B7A]">
+                        Año {{ Carbon::now()->year }}
+                    </p>
+                </div>
+
+                <x-button label="Descargar PDF" icon="o-arrow-down-tray" link="{{ $this->urlExportarReporteAnual('pdf') }}"
+                    external class="border border-[#D7E4F3] bg-white text-[#111827] hover:bg-[#F0F3F7]" />
+            </div>
+
+            <div class="overflow-hidden rounded-2xl border border-[#D7E4F3] bg-white">
+                <iframe src="{{ $this->urlPdfReporteAnual() }}" class="h-[75vh] w-full"
+                    title="Vista previa del reporte anual PDF"></iframe>
+            </div>
+        </div>
+        @endif
+
+        <x-slot:actions>
+            <x-button label="Cerrar" wire:click="$set('modalPdfReporteAnual', false)" />
         </x-slot:actions>
     </x-modal>
 </div>
