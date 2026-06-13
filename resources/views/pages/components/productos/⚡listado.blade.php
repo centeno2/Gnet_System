@@ -551,7 +551,7 @@ new class extends Component
 ?>
 
 <div class="flex h-[calc(100vh-3rem)] min-h-0 w-full flex-col overflow-hidden bg-[#F0F3F7] px-3 py-3 md:px-5">
-    <div class="mx-auto flex h-full min-h-0 w-full max-w-[1320px] flex-col gap-3">
+    <div class="mx-auto flex h-full min-h-0 w-full max-w-330 flex-col gap-3">
 
         <div class="flex shrink-0 flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div class="min-w-0">
@@ -570,7 +570,7 @@ new class extends Component
         </div>
 
         @if ($mostrarToast)
-        <div class="fixed right-5 top-5 z-[9999] w-full max-w-sm">
+        <div class="fixed right-5 top-5 z-9999 w-full max-w-sm">
             <div
                 class="{{ $toastTipo === 'success' ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#1A2B42]' : 'border-red-200 bg-red-50 text-red-700' }} rounded-2xl border px-4 py-4 shadow-lg">
                 <div class="flex items-start justify-between gap-3">
@@ -672,17 +672,17 @@ new class extends Component
                 @if ($vista === 'productos')
                 <div class="h-full w-full overflow-auto">
                     <table
-                        class="min-w-[900px] w-full table-fixed border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
+                        class="min-w-225 w-full table-fixed border-separate border-spacing-0 text-[13px] text-[#1A2B42]">
                         <colgroup>
-                            <col class="w-[78px]">
-                            <col class="w-[235px]">
-                            <col class="w-[110px]">
-                            <col class="w-[135px]">
-                            <col class="w-[135px]">
-                            <col class="w-[65px]">
-                            <col class="w-[70px]">
-                            <col class="w-[110px]">
-                            <col class="w-[74px]">
+                            <col class="w-19.5">
+                            <col class="w-58.75">
+                            <col class="w-27.5">
+                            <col class="w-33.75">
+                            <col class="w-33.75">
+                            <col class="w-16.25">
+                            <col class="w-17.5">
+                            <col class="w-27.5">
+                            <col class="w-18.5">
                         </colgroup>
 
                         <thead class="sticky top-0 z-10">
@@ -734,7 +734,7 @@ new class extends Component
 
                                 <td class="px-3 py-2.5 text-center align-middle">
                                     <button type="button" wire:click="verSeries({{ $fila['id_producto'] }})"
-                                        class="inline-flex min-w-[2rem] justify-center rounded-full bg-[#EAF4FD] px-2 py-0.5 text-xs font-semibold text-[#0E48A1] hover:bg-[#DDEFFD]"
+                                        class="inline-flex min-w-8 justify-center rounded-full bg-[#EAF4FD] px-2 py-0.5 text-xs font-semibold text-[#0E48A1] hover:bg-[#DDEFFD]"
                                         title="Ver series disponibles">
                                         {{ $fila['series'] }}
                                     </button>
@@ -742,7 +742,7 @@ new class extends Component
 
                                 <td class="px-3 py-2.5 text-center align-middle">
                                     <span
-                                        class="{{ $fila['stock_bajo'] ? 'bg-red-100 text-red-700' : 'bg-[#F0F3F7] text-[#1A2B42]' }} inline-flex min-w-[2.25rem] justify-center rounded-full px-2 py-0.5 text-xs font-semibold">
+                                        class="{{ $fila['stock_bajo'] ? 'bg-red-100 text-red-700' : 'bg-[#F0F3F7] text-[#1A2B42]' }} inline-flex min-w-9 justify-center rounded-full px-2 py-0.5 text-xs font-semibold">
                                         {{ $fila['stock'] }}
                                     </span>
                                 </td>

@@ -1218,10 +1218,10 @@ $pagoBloqueado = $idClienteCreditoSeleccionado === 0
 
             <x-card title="Créditos pendientes del cliente" shadow separator
                 class="flex min-h-0 flex-1 flex-col {{ $cardClass }}">
-                <div class="min-h-[230px] max-h-[360px] overflow-hidden rounded-2xl border border-[#D7E4F3]">
-                    <div class="h-full max-h-[360px] overflow-auto overscroll-contain">
+                <div class="min-h-57.5 max-h-90 overflow-hidden rounded-2xl border border-[#D7E4F3]">
+                    <div class="h-full max-h-90 overflow-auto overscroll-contain">
                         <x-table :headers="$headersDetalle" :rows="$detalleCredito" no-hover
-                            class="min-w-[980px] [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_td]:border-[#D7E4F3] [&_tbody_td]:text-[#1A2B42] [&_tbody_tr:hover]:!bg-[#EAF4FD]">
+                            class="min-w-245 [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_td]:border-[#D7E4F3] [&_tbody_td]:text-[#1A2B42] [&_tbody_tr:hover]:bg-[#EAF4FD]!">
                             @scope('cell_estado', $fila)
                             <span
                                 class="{{ $fila['estado'] === \App\Models\Credito::ESTADO_VENCIDO ? 'bg-red-100 text-red-700' : 'bg-[#EAF4FD] text-[#0B6FE4]' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">
