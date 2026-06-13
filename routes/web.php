@@ -12,7 +12,21 @@ use App\Http\Controllers\Reportes\ArqueosCajaReporteController;
 use App\Http\Controllers\Ventas\CotizacionVoucherController;
 use App\Http\Controllers\Ventas\VentaVoucherController;
 use App\Http\Controllers\Reportes\ComprasProveedorReporteController;
+use App\Http\Controllers\Reportes\PlanillaExportController;
 use App\Http\Controllers\Compras\CompraComprobanteController;
+use App\Http\Controllers\Reportes\PlanillaPagoReporteController;
+use App\Http\Controllers\Reportes\CreditoFacturaReporteController;
+use App\Http\Controllers\Reportes\FacturaContadoReporteController;
+use App\Http\Controllers\Reportes\InstalacionCamaraFacturaReporteController;
+use App\Http\Controllers\Reportes\ServicioTecnicoFacturaReporteController;
+use App\Http\Controllers\Reportes\CompraGeneralReporteController;
+use App\Http\Controllers\Ventas\CreditoEntregaReciboController;
+use App\Http\Controllers\Ventas\ContratoInstalacionCamaraController;
+use App\Http\Controllers\Ventas\ServicioTecnicoVoucherController;
+use App\Http\Controllers\Creditos\CreditoVoucherController;
+
+
+
 
 Route::get('/', function () {
     return auth()->check()
@@ -131,16 +145,14 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
         ->name('reportes.arqueos-caja.word');
 
     //vouchers
-
-
     Route::get('/ventas/cotizacion/{key}', [CotizacionVoucherController::class, 'show'])
         ->name('ventas.cotizacion');
 
     Route::get('/ventas/voucher/{venta}', [VentaVoucherController::class, 'show'])
         ->name('ventas.voucher');
-        
+
     Route::get('/reportes/compras-proveedor/pdf', [ComprasProveedorReporteController::class, 'pdf'])
-    ->name('reportes.compras-proveedor.pdf');
+        ->name('reportes.compras-proveedor.pdf');
 
     Route::get('/reportes/compras-proveedor/excel', [ComprasProveedorReporteController::class, 'excel'])
         ->name('reportes.compras-proveedor.excel');
@@ -150,9 +162,75 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
 
     Route::get('/compras/comprobante/{compra}', [CompraComprobanteController::class, 'show'])
     ->name('compras.comprobante');
+
+    Route::prefix('reportes/planilla-pago')
+    ->name('reportes.planilla-pago.')
+    ->controller(PlanillaPagoReporteController::class)
+    ->group(function () {
+        Route::get('/pdf', 'pdf')->name('pdf');
+        Route::get('/excel', 'excel')->name('excel');
+        Route::get('/word', 'word')->name('word');
+    });
+
+    Route::prefix('reportes/credito-factura')
+    ->name('reportes.credito-factura.')
+    ->controller(CreditoFacturaReporteController::class)
+    ->group(function () {
+        Route::get('/pdf', 'pdf')->name('pdf');
+        Route::get('/excel', 'excel')->name('excel');
+        Route::get('/word', 'word')->name('word');
+    });
+
+    Route::prefix('reportes/factura-contado')
+    ->name('reportes.factura-contado.')
+    ->controller(FacturaContadoReporteController::class)
+    ->group(function () {
+        Route::get('/pdf', 'pdf')->name('pdf');
+        Route::get('/excel', 'excel')->name('excel');
+        Route::get('/word', 'word')->name('word');
+    });
+
+Route::prefix('reportes/servicio-tecnico-factura')
+    ->name('reportes.servicio-tecnico-factura.')
+    ->controller(ServicioTecnicoFacturaReporteController::class)
+    ->group(function () {
+        Route::get('/pdf', 'pdf')->name('pdf');
+        Route::get('/excel', 'excel')->name('excel');
+        Route::get('/word', 'word')->name('word');
+    });
+
+Route::prefix('reportes/instalacion-camara-factura')
+    ->name('reportes.instalacion-camara-factura.')
+    ->controller(InstalacionCamaraFacturaReporteController::class)
+    ->group(function () {
+        Route::get('/pdf', 'pdf')->name('pdf');
+        Route::get('/excel', 'excel')->name('excel');
+        Route::get('/word', 'word')->name('word');
+    });
+
+    Route::prefix('reportes/compra-general')
+    ->name('reportes.compra-general.')
+    ->controller(CompraGeneralReporteController::class)
+    ->group(function () {
+        Route::get('/pdf', 'pdf')->name('pdf');
+        Route::get('/excel', 'excel')->name('excel');
+        Route::get('/word', 'word')->name('word');
+    });
+
+    Route::get('/ventas/credito/entregas/{entrega}/recibo', [CreditoEntregaReciboController::class, 'show'])
+        ->whereNumber('entrega')
+        ->name('ventas.credito.entrega.recibo');
+
+    Route::get('/ventas/instalacion-camaras/{contrato}/contrato', [ContratoInstalacionCamaraController::class, 'show'])
+        ->whereNumber('contrato')
+        ->name('ventas.instalacion-camaras.contrato');
+
+    Route::get('/creditos/voucher/{recibo}', [CreditoVoucherController::class, 'show'])
+        ->where('recibo', '[A-Za-z0-9\-]+')
+        ->name('creditos.voucher');
 });
 
-Route ::middleware (['auth', 'cargo: 1, 2'])->group(function () {
+Route::middleware(['auth', 'cargo: 1, 2'])->group(function () {
 
     Route::livewire('/trabajadores', 'pages::trabajadores')->name('trabajadores');
     Route::livewire('/planillapago', 'pages::planillapago')->name('planillapago');
@@ -165,9 +243,22 @@ Route ::middleware (['auth', 'cargo: 1, 2'])->group(function () {
     Route::livewire('/productos', 'pages::productos')->name('productos.index');
     Route::livewire('/productos/listado', 'pages::components.productos.listado')->name('productos.listado');
 
+    //exportación de comprobante, liquidación y reporte anual de planilla
+    Route::get('/planillapago/exportar/comprobante/{planilla}/{formato}', [PlanillaExportController::class, 'comprobante'])
+        ->whereNumber('planilla')
+        ->where('formato', 'pdf|excel|xlsx|word|docx')
+        ->name('planillapago.exportar.comprobante');
 
+    Route::get('/planillapago/exportar/anual/{year}/{formato}', [PlanillaExportController::class, 'anual'])
+        ->whereNumber('year')
+        ->where('formato', 'pdf|excel|xlsx|word|docx')
+        ->name('planillapago.exportar.anual');
 
+    Route::get('/ventas/servicio-tecnico/{servicio}/voucher', [ServicioTecnicoVoucherController::class, 'show'])
+        ->whereNumber('servicio')
+        ->name('ventas.servicio-tecnico.voucher');
 });
+
 Route::middleware(['auth', 'cargo: 1,2,3'])->group(function () {
 
     Route::livewire('/main', 'pages::main')->name('main');

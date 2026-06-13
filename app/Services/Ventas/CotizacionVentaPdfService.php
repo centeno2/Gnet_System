@@ -2,6 +2,7 @@
 
 namespace App\Services\Ventas;
 
+use App\Models\CotizacionVenta;
 use Illuminate\Support\Collection;
 use TCPDF;
 
@@ -13,6 +14,36 @@ class CotizacionVentaPdfService
     private const COLOR_BORDE = [215, 228, 243];
     private const COLOR_FONDO = [240, 243, 247];
     private const COLOR_FILA = [247, 249, 252];
+
+
+    public function generarDesdeCotizacion(CotizacionVenta $cotizacion): string
+    {
+        $cotizacion->loadMissing('detalles');
+
+        return $this->generar([
+            'numero' => $cotizacion->Numero_Cotizacion,
+            'cliente' => $cotizacion->Cliente_Nombre,
+            'municipio' => $cotizacion->Municipio,
+            'tipo_venta' => $cotizacion->Tipo_Venta,
+            'tipo_cambio' => (float) $cotizacion->Tipo_Cambio,
+            'subtotal' => (float) $cotizacion->Subtotal,
+            'descuento' => (float) $cotizacion->Descuento,
+            'total' => (float) $cotizacion->Total,
+            'observacion' => $cotizacion->Observacion,
+            'fecha' => $cotizacion->Fecha_Cotizacion?->format('d/m/Y h:i A'),
+            'vence' => $cotizacion->Fecha_Vencimiento?->format('d/m/Y h:i A'),
+            'validez_dias' => (int) $cotizacion->Plazo_Validez_Dias,
+            'estado' => $cotizacion->Estado,
+            'items' => $cotizacion->detalles->map(fn($detalle) => [
+                'descripcion' => $detalle->Descripcion,
+                'cantidad' => (float) $detalle->Cantidad,
+                'precio_unitario' => (float) $detalle->Precio_Unitario_Cotizado,
+                'descuento_valor' => (float) $detalle->Descuento,
+                'subtotal_bruto_valor' => (float) $detalle->Subtotal_Bruto,
+                'subtotal_valor' => (float) $detalle->Subtotal,
+            ])->values()->toArray(),
+        ]);
+    }
 
     public function generar(array $payload): string
     {
@@ -98,38 +129,59 @@ class CotizacionVentaPdfService
         $pdf->SetFillColor($fr, $fg, $fb);
         $pdf->Rect(10, 38, 196, 20, 'DF');
 
-        $cliente = $this->cortar((string) ($payload['cliente'] ?? 'Consumidor final'), 65);
+        $cliente = $this->cortar((string) ($payload['cliente'] ?? 'Consumidor final'), 62);
         $numero = (string) ($payload['numero'] ?? 'PROFORMA');
-        $fecha = now()->format('d/m/Y h:i A');
+        $fecha = (string) ($payload['fecha'] ?? now()->format('d/m/Y h:i A'));
+        $vence = (string) ($payload['vence'] ?? now()->addDays((int) ($payload['validez_dias'] ?? 15))->format('d/m/Y h:i A'));
+        $validez = (int) ($payload['validez_dias'] ?? 15);
+        $estado = (string) ($payload['estado'] ?? 'VIGENTE');
 
         $pdf->SetFont('helvetica', 'B', 7);
         $pdf->SetTextColor($sr, $sg, $sb);
 
         $pdf->SetXY(14, 41);
-        $pdf->Cell(70, 4, 'DIRIGIDO A', 0, 0, 'L');
-        $pdf->SetX(93);
-        $pdf->Cell(48, 4, 'NO. COTIZACION', 0, 0, 'L');
-        $pdf->SetX(153);
-        $pdf->Cell(45, 4, 'FECHA', 0, 1, 'L');
+        $pdf->Cell(62, 4, 'DIRIGIDO A', 0, 0, 'L');
+        $pdf->SetX(82);
+        $pdf->Cell(42, 4, 'NO. COTIZACION', 0, 0, 'L');
+        $pdf->SetX(130);
+        $pdf->Cell(34, 4, 'FECHA', 0, 0, 'L');
+        $pdf->SetX(169);
+        $pdf->Cell(30, 4, 'VENCE', 0, 1, 'L');
 
-        $pdf->SetFont('helvetica', 'B', 9);
+        $pdf->SetFont('helvetica', 'B', 8.2);
         $pdf->SetTextColor($tr, $tg, $tb);
 
         $pdf->SetXY(14, 47);
-        $pdf->Cell(70, 5, $cliente, 0, 0, 'L');
-        $pdf->SetX(93);
-        $pdf->Cell(48, 5, $numero, 0, 0, 'L');
-        $pdf->SetX(153);
-        $pdf->Cell(45, 5, $fecha, 0, 1, 'L');
+        $pdf->Cell(62, 5, $cliente, 0, 0, 'L');
+        $pdf->SetX(82);
+        $pdf->Cell(42, 5, $numero, 0, 0, 'L');
+        $pdf->SetX(130);
+        $pdf->Cell(34, 5, $fecha, 0, 0, 'L');
+        $pdf->SetX(169);
+        $pdf->Cell(30, 5, $vence, 0, 1, 'L');
+
+        $pdf->SetXY(14, 53);
+        $pdf->SetFont('helvetica', 'B', 7);
+        $pdf->SetTextColor($sr, $sg, $sb);
+        $pdf->Cell(16, 4, 'VALIDEZ:', 0, 0, 'L');
+        $pdf->SetFont('helvetica', '', 8);
+        $pdf->SetTextColor($tr, $tg, $tb);
+        $pdf->Cell(30, 4, $validez . ' dias', 0, 0, 'L');
+
+        $pdf->SetFont('helvetica', 'B', 7);
+        $pdf->SetTextColor($sr, $sg, $sb);
+        $pdf->Cell(14, 4, 'ESTADO:', 0, 0, 'L');
+        $pdf->SetFont('helvetica', '', 8);
+        $pdf->SetTextColor($tr, $tg, $tb);
+        $pdf->Cell(30, 4, $estado, 0, 0, 'L');
 
         if (! empty($payload['municipio'])) {
-            $pdf->SetXY(14, 53);
             $pdf->SetFont('helvetica', 'B', 7);
             $pdf->SetTextColor($sr, $sg, $sb);
             $pdf->Cell(20, 4, 'MUNICIPIO:', 0, 0, 'L');
             $pdf->SetFont('helvetica', '', 8);
             $pdf->SetTextColor($tr, $tg, $tb);
-            $pdf->Cell(80, 4, $this->cortar((string) $payload['municipio'], 60), 0, 1, 'L');
+            $pdf->Cell(70, 4, $this->cortar((string) $payload['municipio'], 48), 0, 1, 'L');
         }
 
         $pdf->SetY(65);
@@ -256,7 +308,7 @@ class CotizacionVentaPdfService
         $pdf->SetTextColor(26, 43, 66);
         $pdf->SetFont('helvetica', '', 8);
 
-        $pdf->Cell(95, 5, 'Cotizacion generada por GNET System', 0, 0, 'L');
+        $pdf->Cell(95, 5, 'Precios validos durante la vigencia indicada.', 0, 0, 'L');
         $pdf->Cell(95, 5, 'Firma / Autorizado: __________________________', 0, 1, 'R');
     }
 

@@ -19,7 +19,7 @@ use App\Models\Venta;
 
 new class extends Component
 {
-    // MODIFICADO: usamos los toast temporales nativos de MaryUI.
+
     use Toast;
 
     private const MONEDA_CORDOBA = 'NIO';
@@ -61,6 +61,11 @@ new class extends Component
     public string $clienteSeleccionadoNombre = '';
 
     public string $filtroProducto = '';
+    public bool $mostrarBusquedaProductos = false;
+    public bool $hayMasProductos = false;
+    public int $paginaBusquedaProductos = 1;
+    public int $totalProductosBusqueda = 0;
+    public string $productoSeleccionadoNombre = '';
 
     // MODIFICADO: listados completos paginados. No hay límite total de registros,
     // solo se pagina para que el snapshot de Livewire no se vuelva gigante.
@@ -78,9 +83,13 @@ new class extends Component
     public int $totalPaginasProductos = 1;
 
     public ?int $servicioTecnicoIdSeleccionado = null;
+    public bool $servicioPagado = false;
 
     public bool $modalPendientes = false;
     public string $filtroPendientes = '';
+
+    public bool $modalVoucherPdf = false;
+    public string $voucherPdfUrl = '';
     public int $paginaPendientes = 1;
     public int $totalPendientes = 0;
     public int $totalPaginasPendientes = 1;
@@ -171,6 +180,21 @@ new class extends Component
         ['key' => 'subtotal', 'label' => 'Subtotal'],
         ['key' => 'acciones', 'label' => ''],
     ];
+
+
+    public function estadosServicioDisponibles(): array
+    {
+        return collect($this->estadosServicio)
+            ->filter(function (array $estado) {
+                if (($estado['id'] ?? '') !== 'ENTREGADO') {
+                    return true;
+                }
+
+                return strtoupper((string) $this->estadoServicio) === 'ENTREGADO';
+            })
+            ->values()
+            ->toArray();
+    }
 
     public function mount(): void
     {
@@ -316,6 +340,11 @@ new class extends Component
     public function updatedPagoDolares($value): void
     {
         $this->pagoDolares = $this->formatearDecimal((string) $value);
+    }
+
+    public function updatedProductoPrecio($value): void
+    {
+        $this->productoPrecio = $this->formatearDecimal((string) $value);
     }
 
     public function updatedTipoCambio($value): void
@@ -517,18 +546,17 @@ new class extends Component
     {
         $filtro = trim($this->filtroProducto);
 
-        $query = Producto::query()
-            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
-            ->where('producto.Estado', 1)
-            ->where('producto.Stock_Actual', '>', 0)
-            ->when($filtro !== '', function ($query) use ($filtro) {
-                $query->where(function ($q) use ($filtro) {
-                    $q->where('producto.Nombre_Producto', 'like', '%' . $filtro . '%')
-                        ->orWhere('producto.Modelo', 'like', '%' . $filtro . '%')
-                        ->orWhere('m.Nombre_Marca', 'like', '%' . $filtro . '%')
-                        ->orWhere('producto.Id_Producto', 'like', '%' . $filtro . '%');
-                });
-            })
+        if ($this->productoId && $filtro === trim($this->productoSeleccionadoNombre)) {
+            $filtro = '';
+        }
+
+        $limite = max(1, $this->paginaBusquedaProductos) * self::PRODUCTOS_POR_PAGINA;
+
+        $query = $this->consultaProductosBase($filtro);
+
+        $this->totalProductosBusqueda = (clone $query)->count();
+
+        $productos = $query
             ->select([
                 'producto.Id_Producto as id',
                 'producto.Nombre_Producto',
@@ -538,23 +566,12 @@ new class extends Component
                 'm.Nombre_Marca',
             ])
             ->orderBy('producto.Nombre_Producto')
-            ->limit(self::RESULTADOS_BUSQUEDA_SELECT);
-
-        $productos = $query->get();
+            ->orderBy('producto.Modelo')
+            ->limit($limite)
+            ->get();
 
         if ($this->productoId && ! $productos->contains(fn ($item) => (int) $item->id === (int) $this->productoId)) {
-            $seleccionado = Producto::query()
-                ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
-                ->where('producto.Id_Producto', $this->productoId)
-                ->select([
-                    'producto.Id_Producto as id',
-                    'producto.Nombre_Producto',
-                    'producto.Modelo',
-                    'producto.Precio_Venta as precio',
-                    'producto.Stock_Actual',
-                    'm.Nombre_Marca',
-                ])
-                ->first();
+            $seleccionado = $this->buscarProductoPorId((int) $this->productoId);
 
             if ($seleccionado) {
                 $productos->prepend($seleccionado);
@@ -576,6 +593,8 @@ new class extends Component
             ->map(fn ($item) => $this->productoOpcion($item, (int) ($seriesDisponiblesPorProducto[$item->id] ?? 0)))
             ->values()
             ->toArray();
+
+        $this->hayMasProductos = $this->totalProductosBusqueda > count($this->productosDisponibles);
     }
 
     private function productoOpcion(object $item, int $seriesDisponibles): array
@@ -588,14 +607,36 @@ new class extends Component
             )
         );
 
+        $stock = (int) $item->Stock_Actual;
+        $precio = (float) $item->precio;
+
         return [
             'id' => (int) $item->id,
             'name' => $nombre .
-                ' - Stock: ' . (int) $item->Stock_Actual .
+                ' - Stock: ' . $stock .
                 ($seriesDisponibles > 0 ? ' | Series: ' . $seriesDisponibles : ''),
-            'precio' => (float) $item->precio,
+            'titulo' => $nombre,
+            'stock' => $stock,
+            'precio' => $precio,
+            'precio_texto' => 'C$ ' . number_format($precio, 2),
             'series_disponibles' => $seriesDisponibles,
         ];
+    }
+
+    private function buscarProductoPorId(int $id): ?object
+    {
+        return Producto::query()
+            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
+            ->where('producto.Id_Producto', $id)
+            ->select([
+                'producto.Id_Producto as id',
+                'producto.Nombre_Producto',
+                'producto.Modelo',
+                'producto.Precio_Venta as precio',
+                'producto.Stock_Actual',
+                'm.Nombre_Marca',
+            ])
+            ->first();
     }
 
     public function cargarPendientes(): void
@@ -792,6 +833,67 @@ new class extends Component
 
     public function updatedFiltroProducto(): void
     {
+        if ($this->productoId && trim($this->filtroProducto) !== trim($this->productoSeleccionadoNombre)) {
+            $this->productoId = null;
+            $this->productoSerieId = null;
+            $this->seriesDisponibles = [];
+            $this->productoTieneSeries = false;
+            $this->productoCantidad = 1;
+            $this->productoPrecio = 0;
+            $this->productoSeleccionadoNombre = '';
+        }
+
+        $this->paginaBusquedaProductos = 1;
+        $this->mostrarBusquedaProductos = true;
+        $this->cargarProductosDisponibles();
+    }
+
+    public function abrirBusquedaProductos(): void
+    {
+        $this->paginaBusquedaProductos = 1;
+        $this->mostrarBusquedaProductos = true;
+        $this->cargarProductosDisponibles();
+    }
+
+    public function cerrarBusquedaProductos(): void
+    {
+        $this->mostrarBusquedaProductos = false;
+    }
+
+    public function cargarMasProductos(): void
+    {
+        if (! $this->hayMasProductos) {
+            return;
+        }
+
+        $this->paginaBusquedaProductos++;
+        $this->mostrarBusquedaProductos = true;
+        $this->cargarProductosDisponibles();
+    }
+
+    public function seleccionarProducto(int $id): void
+    {
+        $producto = $this->buscarProductoPorId($id);
+
+        if (! $producto) {
+            $this->mostrarMensaje('error', 'Producto no encontrado', 'El producto seleccionado ya no está disponible.');
+            $this->cargarProductosDisponibles();
+            return;
+        }
+
+        $seriesDisponibles = ProductoSerie::query()
+            ->where('Id_Producto', $id)
+            ->where('Estado', 'DISPONIBLE')
+            ->count();
+
+        $opcion = $this->productoOpcion($producto, (int) $seriesDisponibles);
+
+        $this->productoId = (int) $opcion['id'];
+        $this->productoSeleccionadoNombre = (string) $opcion['name'];
+        $this->filtroProducto = (string) $opcion['name'];
+        $this->mostrarBusquedaProductos = false;
+        $this->resetErrorBag('productoId');
+        $this->updatedProductoId($this->productoId);
         $this->cargarProductosDisponibles();
     }
 
@@ -955,7 +1057,14 @@ new class extends Component
                     $q->where('producto.Nombre_Producto', 'like', '%' . $filtro . '%')
                         ->orWhere('producto.Modelo', 'like', '%' . $filtro . '%')
                         ->orWhere('m.Nombre_Marca', 'like', '%' . $filtro . '%')
-                        ->orWhere('producto.Id_Producto', 'like', '%' . $filtro . '%');
+                        ->orWhere('producto.Id_Producto', 'like', '%' . $filtro . '%')
+                        ->orWhereExists(function ($subquery) use ($filtro) {
+                            $subquery->select(DB::raw(1))
+                                ->from('producto_serie as ps_busqueda')
+                                ->whereColumn('ps_busqueda.Id_Producto', 'producto.Id_Producto')
+                                ->where('ps_busqueda.Estado', 'DISPONIBLE')
+                                ->where('ps_busqueda.Numero_Serie', 'like', '%' . $filtro . '%');
+                        });
                 });
             });
     }
@@ -984,9 +1093,7 @@ new class extends Component
 
     public function seleccionarProductoListado(int $id): void
     {
-        $this->productoId = $id;
-        $this->cargarProductosDisponibles();
-        $this->updatedProductoId($id);
+        $this->seleccionarProducto($id);
         $this->modalProductos = false;
     }
 
@@ -1002,6 +1109,7 @@ new class extends Component
         }
 
         $this->servicioTecnicoIdSeleccionado = (int) $servicio->Id_Servicio_Tecnico;
+        $this->servicioPagado = $this->servicioEstaPagado((int) $servicio->Id_Servicio_Tecnico);
         $this->clienteId = $servicio->Id_Cliente ? (int) $servicio->Id_Cliente : null;
         $this->tecnicoId = $servicio->Id_Trabajador ? (int) $servicio->Id_Trabajador : null;
         $this->tipoEquipo = (string) $servicio->Tipo_Equipo;
@@ -1235,10 +1343,105 @@ new class extends Component
         $this->cargarCombos();
     }
 
+
+    public function servicioPermiteCobro(): bool
+    {
+        return strtoupper((string) $this->estadoServicio) === 'REPARADO'
+            && ! $this->servicioPagado;
+    }
+
+    private function servicioTienePagoIngresado(): bool
+    {
+        return $this->limpiarMonto($this->pagoCordobas) > 0
+            || $this->limpiarDecimal($this->pagoDolares) > 0;
+    }
+
+    private function servicioPagadoEnBase(): bool
+    {
+        if (! $this->servicioTecnicoIdSeleccionado) {
+            return false;
+        }
+
+        $servicio = DB::table('servicio_tecnico')
+            ->where('Id_Servicio_Tecnico', (int) $this->servicioTecnicoIdSeleccionado)
+            ->select(['Total_Servicio', 'Monto_Pagado', 'Saldo_Pendiente'])
+            ->first();
+
+        if (! $servicio) {
+            return false;
+        }
+
+        $total = round((float) ($servicio->Total_Servicio ?? 0), 2);
+        $saldo = round((float) ($servicio->Saldo_Pendiente ?? $total), 2);
+
+        return $total > 0 && $saldo <= 0;
+    }
+
+    public function updatedEstadoServicio($value): void
+    {
+        $this->estadoServicio = (string) $value;
+
+        if (strtoupper((string) $this->estadoServicio) !== 'REPARADO') {
+            $this->limpiarCobroServicio();
+        }
+
+        $this->validarCampoEnTiempoReal('estadoServicio');
+    }
+
     public function guardar(): void
     {
         // MODIFICADO: reglas centralizadas para permitir alertas dinámicas y limpieza automática.
         $this->validate($this->reglasServicio(), $this->mensajesValidacionServicio());
+
+        if (! $this->servicioTecnicoIdSeleccionado && strtoupper((string) $this->estadoServicio) === 'ENTREGADO') {
+            $this->estadoServicio = 'RECIBIDO';
+
+            $this->mostrarMensaje(
+                'error',
+                'Estado no permitido',
+                'Un servicio nuevo no puede registrarse directamente como ENTREGADO.'
+            );
+
+            return;
+        }
+
+        if (($this->servicioPagado || $this->servicioPagadoEnBase()) && $this->servicioTienePagoIngresado()) {
+            $this->limpiarCobroServicio();
+            $this->servicioPagado = true;
+
+            $this->mostrarMensaje(
+                'error',
+                'Servicio ya pagado',
+                'Este servicio ya está pagado completo. No se puede registrar otro pago.'
+            );
+
+            return;
+        }
+
+        if (! $this->servicioPermiteCobro() && $this->servicioTienePagoIngresado()) {
+            $this->limpiarCobroServicio();
+
+            $this->mostrarMensaje(
+                'error',
+                'Cobro no permitido',
+                'Solo puede registrar pagos cuando el servicio esté en estado REPARADO.'
+            );
+
+            return;
+        }
+
+        if (
+            strtoupper((string) $this->estadoServicio) === 'ENTREGADO'
+            && ! $this->servicioListoParaVoucher((int) ($this->servicioTecnicoIdSeleccionado ?? 0))
+        ) {
+            $this->mostrarMensaje(
+                'error',
+                'Entrega no permitida',
+                'El estado ENTREGADO se asigna automáticamente cuando el servicio está REPARADO y queda pagado completo.'
+            );
+
+            return;
+        }
 
         if ($this->limpiarDecimal($this->tipoCambio) <= 0) {
             $this->mostrarMensaje('error', 'Tasa inválida', 'La tasa de cambio debe ser mayor que cero.');
@@ -1262,29 +1465,129 @@ new class extends Component
 
         try {
             if ($this->servicioTecnicoIdSeleccionado) {
+                $id = (int) $this->servicioTecnicoIdSeleccionado;
+                $yaEstabaListoParaVoucher = $this->servicioListoParaVoucher($id);
+
                 $this->actualizarServicioTecnico();
 
-                $id = $this->servicioTecnicoIdSeleccionado;
+                $abrirVoucher = ! $yaEstabaListoParaVoucher && $this->servicioListoParaVoucher($id);
 
                 $this->cargarCombos();
                 $this->cargarPendientes();
+
+                if ($abrirVoucher) {
+                    $this->prepararVoucherServicioTecnicoYLimpia($id);
+                    $this->mostrarMensaje('success', 'Servicio entregado automáticamente', 'El servicio estaba REPARADO y quedó pagado completo. Se limpiaron los campos y se abrió el voucher.');
+                    return;
+                }
+
                 $this->cargarPendiente($id, false);
+                $this->limpiarCobroServicio();
+
+                if ($this->estadoServicio === 'ENTREGADO' && ! $this->servicioEstaPagado($id)) {
+                    $this->mostrarMensaje('warning', 'Saldo pendiente', 'El servicio quedó entregado, pero aún tiene saldo pendiente. No se generó voucher.');
+                    return;
+                }
 
                 $this->mostrarMensaje('success', 'Servicio actualizado', 'El servicio técnico se actualizó correctamente.');
                 return;
             }
 
             $id = $this->crearServicioTecnico();
+            $abrirVoucher = $this->servicioListoParaVoucher($id);
 
-            $this->limpiarFormulario();
             $this->cargarCombos();
             $this->cargarPendientes();
+
+            if ($abrirVoucher) {
+                $this->prepararVoucherServicioTecnicoYLimpia($id);
+                $this->mostrarMensaje('success', 'Servicio entregado automáticamente', 'El servicio estaba REPARADO y quedó pagado completo. Se limpiaron los campos y se abrió el voucher.');
+                return;
+            }
+
+            $this->limpiarFormulario();
 
             $this->mostrarMensaje('success', 'Ingreso guardado', 'El servicio técnico se registró correctamente. Orden #' . $id . '.');
         } catch (\Throwable $e) {
             report($e);
             $this->mostrarMensaje('error', 'No se pudo guardar', $e->getMessage());
         }
+    }
+
+
+    private function estadoFinalDespuesDeCobro(string $estadoActual, array $cobro): string
+    {
+        $estado = strtoupper(trim($estadoActual));
+        $saldoPendiente = round((float) ($cobro['saldo_pendiente'] ?? 0), 2);
+
+        if ($estado === 'REPARADO' && $saldoPendiente <= 0) {
+            return 'ENTREGADO';
+        }
+
+        return $estado !== '' ? $estado : 'RECIBIDO';
+    }
+
+    private function prepararVoucherServicioTecnico(int $servicioTecnicoId): void
+    {
+        $this->servicioPagado = true;
+        $this->voucherPdfUrl = $this->voucherServicioTecnicoUrl($servicioTecnicoId);
+        $this->modalVoucherPdf = true;
+    }
+
+    private function prepararVoucherServicioTecnicoYLimpia(int $servicioTecnicoId): void
+    {
+        $url = $this->voucherServicioTecnicoUrl($servicioTecnicoId);
+
+        $this->limpiarFormulario();
+        $this->voucherPdfUrl = $url;
+        $this->modalVoucherPdf = true;
+    }
+
+    private function voucherServicioTecnicoUrl(int $servicioTecnicoId): string
+    {
+        return route('ventas.servicio-tecnico.voucher', [
+            'servicio' => $servicioTecnicoId,
+            'ancho' => 80,
+        ]);
+    }
+
+    public function cerrarVoucherPdf(): void
+    {
+        $this->modalVoucherPdf = false;
+        $this->voucherPdfUrl = '';
+    }
+
+    private function servicioListoParaVoucher(int $servicioTecnicoId): bool
+    {
+        $servicio = DB::table('servicio_tecnico')
+            ->where('Id_Servicio_Tecnico', $servicioTecnicoId)
+            ->select(['Estado_Servicio', 'Total_Servicio', 'Monto_Pagado', 'Saldo_Pendiente'])
+            ->first();
+
+        if (! $servicio) {
+            return false;
+        }
+
+        return strtoupper((string) ($servicio->Estado_Servicio ?? '')) === 'ENTREGADO'
+            && $this->servicioEstaPagado($servicioTecnicoId);
+    }
+
+    private function servicioEstaPagado(int $servicioTecnicoId): bool
+    {
+        $servicio = DB::table('servicio_tecnico')
+            ->where('Id_Servicio_Tecnico', $servicioTecnicoId)
+            ->select(['Total_Servicio', 'Monto_Pagado', 'Saldo_Pendiente'])
+            ->first();
+
+        if (! $servicio) {
+            return false;
+        }
+
+        $total = round((float) ($servicio->Total_Servicio ?? 0), 2);
+        $pagado = round((float) ($servicio->Monto_Pagado ?? 0), 2);
+        $saldo = round((float) ($servicio->Saldo_Pendiente ?? max($total - $pagado, 0)), 2);
+
+        return $total > 0 && $saldo <= 0;
     }
 
     public function estadoNombre(?string $estado): string
@@ -1331,6 +1634,8 @@ new class extends Component
             }
 
             $ventaId = $this->crearVentaServicioTecnico($usuarioId, $totalServicio, $cobro);
+            $estadoFinal = $this->estadoFinalDespuesDeCobro($this->estadoServicio, $cobro);
+            $this->estadoServicio = $estadoFinal;
 
             $servicioTecnico = $this->crearModelo(ServicioTecnico::class, [
                 'Id_Venta' => $ventaId,
@@ -1346,7 +1651,7 @@ new class extends Component
                 'Numero_Serie' => $this->numeroSerie ?: null,
                 'Problema_Reportado' => $this->problemaReportado,
                 'Detalle_Descriptivo' => $this->detalleDescriptivo ?: null,
-                'Estado_Servicio' => $this->estadoServicio,
+                'Estado_Servicio' => $estadoFinal,
                 'Costo_Estimado' => $this->numeroSeguro($this->costoEstimado),
                 'Fecha_Estimada_Entrega' => $this->fechaEstimadaEntrega ?: null,
                 'Observacion_Tecnica' => $this->observacionTecnica ?: null,
@@ -1442,6 +1747,9 @@ new class extends Component
 
             $this->actualizarVentaServicioTecnico($ventaId, $usuarioId, $totalServicio, $cobro);
 
+            $estadoFinal = $this->estadoFinalDespuesDeCobro($this->estadoServicio, $cobro);
+            $this->estadoServicio = $estadoFinal;
+
             $servicio->forceFill([
                 'Id_Venta' => $ventaId,
                 'Id_Cliente' => $this->clienteId,
@@ -1452,7 +1760,7 @@ new class extends Component
                 'Numero_Serie' => $this->numeroSerie ?: null,
                 'Problema_Reportado' => $this->problemaReportado,
                 'Detalle_Descriptivo' => $this->detalleDescriptivo ?: null,
-                'Estado_Servicio' => $this->estadoServicio,
+                'Estado_Servicio' => $estadoFinal,
                 'Costo_Estimado' => $this->numeroSeguro($this->costoEstimado),
                 'Fecha_Estimada_Entrega' => $this->fechaEstimadaEntrega ?: null,
                 'Observacion_Tecnica' => $this->observacionTecnica ?: null,
@@ -1594,6 +1902,10 @@ new class extends Component
         $this->productoPrecio = 0;
         $this->productoTieneSeries = false;
         $this->seriesDisponibles = [];
+        $this->filtroProducto = '';
+        $this->productoSeleccionadoNombre = '';
+        $this->mostrarBusquedaProductos = false;
+        $this->paginaBusquedaProductos = 1;
 
         $this->resetErrorBag([
             'productoId',
@@ -1606,6 +1918,9 @@ new class extends Component
     private function limpiarFormulario(): void
     {
         $this->servicioTecnicoIdSeleccionado = null;
+        $this->servicioPagado = false;
+        $this->modalVoucherPdf = false;
+        $this->voucherPdfUrl = '';
         $this->clienteId = null;
         $this->telefonoCliente = '';
         $this->tecnicoId = null;
@@ -1626,6 +1941,9 @@ new class extends Component
         $this->paginaBusquedaClientes = 1;
         $this->mostrarBusquedaClientes = false;
         $this->filtroProducto = '';
+        $this->productoSeleccionadoNombre = '';
+        $this->mostrarBusquedaProductos = false;
+        $this->paginaBusquedaProductos = 1;
         $this->tipoCambio = $this->tipoCambioActualFormateada();
         $this->limpiarCobroServicio();
         $this->cargarCombos();
@@ -1655,11 +1973,27 @@ new class extends Component
         return round($this->limpiarMonto($this->pagoCordobas) + ($this->limpiarDecimal($this->pagoDolares) * $this->tasaCambio()), 2);
     }
 
+    public function montoPagadoAnteriorServicio(): float
+    {
+        if (! $this->servicioTecnicoIdSeleccionado) {
+            return 0.00;
+        }
+
+        return round((float) DB::table('servicio_tecnico')
+            ->where('Id_Servicio_Tecnico', (int) $this->servicioTecnicoIdSeleccionado)
+            ->value('Monto_Pagado'), 2);
+    }
+
+    public function saldoPendienteAntesDePago(): float
+    {
+        return round(max($this->totalServicioActual() - $this->montoPagadoAnteriorServicio(), 0), 2);
+    }
+
     public function cambioServicio(): float
     {
         $base = $this->tipoOperacion === self::TIPO_CREDITO
             ? max($this->totalServicioActual() - $this->saldoFavorAplicadoServicio(), 0)
-            : $this->totalServicioActual();
+            : $this->saldoPendienteAntesDePago();
 
         return round(max($this->totalPagadoCordobas() - $base, 0), 2);
     }
@@ -1670,7 +2004,7 @@ new class extends Component
             return $this->saldoCreditoServicio();
         }
 
-        return round(max($this->totalServicioActual() - $this->totalPagadoCordobas(), 0), 2);
+        return round(max($this->saldoPendienteAntesDePago() - $this->totalPagadoCordobas(), 0), 2);
     }
 
     private function calcularCobroServicio(float $totalServicio, float $montoPagadoAnterior): array
@@ -2418,6 +2752,8 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
         $totalRepuestos = round((float) collect($productos)->sum('subtotal'), 2);
         $totalServicio = $this->totalServicioActual();
         $saldo = $this->saldoServicio();
+        $montoPagadoAnterior = $this->montoPagadoAnteriorServicio();
+        $saldoAntesPago = $this->saldoPendienteAntesDePago();
         @endphp
 
         {{-- MODIFICADO: resumen visual temporal cuando existen errores de validación en campos. --}}
@@ -2457,7 +2793,7 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                         </div>
 
                         <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                            <div class="xl:col-span-2">
+                            <div class="md:col-span-2 xl:col-span-3">
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">
                                     {{ $tipoOperacion === 'CREDITO' ? 'Institución' : 'Cliente' }}
                                 </label>
@@ -2525,11 +2861,6 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                                 {!! $errorAlert('clienteId') !!}
                             </div>
 
-                            <div>
-                                <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Teléfono</label>
-                                <x-input wire:model="telefonoCliente" readonly
-                                    class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                            </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Técnico</label>
@@ -2571,8 +2902,8 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Estado</label>
-                                <x-select wire:model.live="estadoServicio" :options="$estadosServicio" option-value="id"
-                                    option-label="name"
+                                <x-select wire:model.live="estadoServicio"
+                                    :options="$this->estadosServicioDisponibles()" option-value="id" option-label="name"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
                                 {!! $errorAlert('estadoServicio') !!}
                             </div>
@@ -2659,14 +2990,62 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                         <div class="mb-4 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3"
                             wire:keydown.enter.prevent="agregarProducto">
                             <div class="grid grid-cols-1 gap-3 md:grid-cols-12">
-                                <div class="md:col-span-5">
+                                <div class="relative md:col-span-5">
                                     <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Producto</label>
-                                    <x-input wire:model.live.debounce.350ms="filtroProducto" icon="o-magnifying-glass"
-                                        placeholder="Buscar producto, marca o modelo"
-                                        class="mb-2 h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
-                                    <x-select wire:model.live="productoId" :options="$productosDisponibles"
-                                        option-value="id" option-label="name" placeholder="Seleccione producto"
-                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    <x-input wire:model.live.debounce.350ms="filtroProducto"
+                                        wire:focus="abrirBusquedaProductos"
+                                        wire:keydown.escape="cerrarBusquedaProductos" icon="o-magnifying-glass"
+                                        placeholder="Buscar producto, marca, modelo, código o serie"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
+
+                                    @if($mostrarBusquedaProductos)
+                                    <div
+                                        class="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-2xl border border-[#D7E4F3] bg-white shadow-xl">
+                                        <div class="max-h-72 overflow-y-auto">
+                                            @forelse($productosDisponibles as $producto)
+                                            <button type="button"
+                                                wire:click="seleccionarProducto({{ $producto['id'] }})"
+                                                class="flex w-full items-start gap-3 border-b border-[#EEF3F8] px-3 py-2 text-left transition hover:bg-[#EAF2FB]">
+                                                <span
+                                                    class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#EAF2FB] text-[#0B6FE4]">
+                                                    <x-icon name="o-cube" class="h-4 w-4" />
+                                                </span>
+                                                <span class="min-w-0 flex-1">
+                                                    <span class="block truncate text-sm font-bold text-[#1A2B42]">{{
+                                                        $producto['titulo'] }}</span>
+                                                    <span class="block text-[11px] font-semibold text-[#5F6B7A]">
+                                                        Stock: {{ $producto['stock'] }}
+                                                        @if(($producto['series_disponibles'] ?? 0) > 0)
+                                                        · Series: {{ $producto['series_disponibles'] }}
+                                                        @endif
+                                                        · {{ $producto['precio_texto'] }}
+                                                    </span>
+                                                </span>
+                                            </button>
+                                            @empty
+                                            <div class="px-4 py-5 text-center text-sm font-semibold text-[#5F6B7A]">
+                                                No encontré productos disponibles con esa búsqueda.
+                                            </div>
+                                            @endforelse
+                                        </div>
+
+                                        <div
+                                            class="flex flex-col gap-2 bg-[#F7F9FC] px-3 py-2 text-xs font-semibold text-[#5F6B7A] sm:flex-row sm:items-center sm:justify-between">
+                                            <span>Mostrando {{ count($productosDisponibles) }} de {{
+                                                $totalProductosBusqueda }} producto(s)</span>
+                                            <div class="flex justify-end gap-2">
+                                                @if($hayMasProductos)
+                                                <x-button label="Cargar más" wire:click="cargarMasProductos"
+                                                    class="h-8 min-h-8 rounded-xl bg-white px-3 text-xs font-bold text-[#1A2B42] hover:bg-[#EAF2FB]" />
+                                                @endif
+                                                <x-button icon="o-x-mark" label="Cerrar"
+                                                    wire:click="cerrarBusquedaProductos"
+                                                    class="h-8 min-h-8 rounded-xl border border-[#D7E4F3] bg-white px-3 text-xs font-bold text-[#1A2B42] hover:bg-[#EAF2FB]" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    @endif
+
                                     {!! $errorAlert('productoId') !!}
                                 </div>
 
@@ -2687,10 +3066,11 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                                 </div>
                                 @endif
 
-                                <div class="{{ $productoTieneSeries ? 'md:col-span-2' : 'md:col-span-2' }}">
+                                <div class="{{ $productoTieneSeries ? 'md:col-span-2' : 'md:col-span-2' }} min-w-0">
                                     <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Precio</label>
-                                    <x-input wire:model.live="productoPrecio" type="number" step="0.01" prefix="C$"
-                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    <x-input wire:model.live.debounce.250ms="productoPrecio" type="text"
+                                        inputmode="decimal" placeholder="C$ 0.00"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white px-3 text-right text-sm font-black tabular-nums text-[#1A2B42] placeholder:text-left placeholder:font-semibold placeholder:text-[#7B8794]" />
                                     {!! $errorAlert('productoPrecio') !!}
                                 </div>
 
@@ -2769,6 +3149,54 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                             </div>
                         </div>
 
+                        @if($servicioTecnicoIdSeleccionado && $montoPagadoAnterior > 0 && ! $servicioPagado)
+                        <div class="mt-3 rounded-2xl border border-[#B7D6F2] bg-[#EAF4FD] p-3">
+                            <div class="flex items-start gap-3">
+                                <span
+                                    class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-[#0B6FE4]">
+                                    <x-icon name="o-banknotes" class="h-5 w-5" />
+                                </span>
+                                <div class="min-w-0 flex-1">
+                                    <h3 class="text-sm font-black text-[#1A2B42]">Este servicio ya tiene dinero recibido
+                                    </h3>
+                                    <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
+                                        <div class="rounded-xl bg-white p-2">
+                                            <span class="block font-semibold text-[#5F6B7A]">Pagado acumulado</span>
+                                            <strong class="text-[#1A2B42]">C$ {{ number_format($montoPagadoAnterior, 2)
+                                                }}</strong>
+                                        </div>
+                                        <div class="rounded-xl bg-white p-2">
+                                            <span class="block font-semibold text-[#5F6B7A]">Saldo pendiente</span>
+                                            <strong class="text-[#1A2B42]">C$ {{ number_format($saldoAntesPago, 2)
+                                                }}</strong>
+                                        </div>
+                                    </div>
+                                    <p class="mt-2 text-xs font-semibold leading-5 text-[#5F6B7A]">
+                                        Los campos de pago se limpian automáticamente. Ingresá solo el nuevo abono o el
+                                        saldo restante.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        @endif
+
+                        @if($servicioPagado)
+                        <div class="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
+                            <div class="flex items-start gap-3">
+                                <span
+                                    class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-700">
+                                    <x-icon name="o-check-circle" class="h-5 w-5" />
+                                </span>
+                                <div>
+                                    <h3 class="text-sm font-black text-[#1A2B42]">Servicio pagado completo</h3>
+                                    <p class="mt-1 text-xs font-semibold leading-5 text-emerald-700">
+                                        Este servicio ya quedó pagado completo. Los campos de cobro se limpian y no se
+                                        permite registrar otro pago.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        @elseif($this->servicioPermiteCobro())
                         <div class="mt-3 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3">
                             <h3 class="mb-3 text-sm font-black text-[#1A2B42]">Pago recibido</h3>
 
@@ -2849,6 +3277,26 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                             </div>
                         </div>
 
+                        @else
+                        <div class="mt-3 rounded-2xl border border-[#F6D28B] bg-[#FFF8E6] p-3">
+                            <div class="flex items-start gap-3">
+                                <span
+                                    class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-[#B7791F]">
+                                    <x-icon name="o-lock-closed" class="h-5 w-5" />
+                                </span>
+
+                                <div>
+                                    <h3 class="text-sm font-black text-[#1A2B42]">Pago bloqueado</h3>
+                                    <p class="mt-1 text-xs font-semibold leading-5 text-[#7A5A16]">
+                                        Para registrar el pago, primero cambie el estado del servicio a
+                                        <strong>Reparado</strong>. Cuando el pago complete el saldo, el sistema lo
+                                        pasará automáticamente a <strong>Entregado</strong> y abrirá el voucher.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        @endif
+
                         @if($tipoOperacion === 'CREDITO')
                         <div class="mt-3 rounded-2xl border border-[#B7D6F2] bg-[#EAF4FD] p-3">
                             <h3 class="text-sm font-black text-[#1A2B42]">Crédito institucional</h3>
@@ -2886,6 +3334,7 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                             label="{{ $servicioTecnicoIdSeleccionado ? ($tipoOperacion === 'CREDITO' ? 'Actualizar crédito' : 'Actualizar servicio') : ($tipoOperacion === 'CREDITO' ? 'Guardar crédito' : 'Guardar ingreso') }}"
                             wire:click="guardar" spinner="guardar"
                             class="mt-3 h-11 min-h-11 w-full rounded-xl border-0 bg-[#2E8BC0] text-sm font-black text-white hover:bg-[#0B6FE4]" />
+
                     </x-card>
 
 
@@ -2969,6 +3418,33 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
         <x-slot:actions>
             <x-button label="Cerrar" wire:click="$set('modalPendientes', false)"
                 class="rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42]" />
+        </x-slot:actions>
+    </x-modal>
+
+    <x-modal wire:model="modalVoucherPdf" class="backdrop-blur-sm"
+        box-class="w-full max-w-md rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
+        <div class="mb-4">
+            <h3 class="text-2xl font-bold text-[#1A2B42]">Voucher de servicio técnico</h3>
+            <p class="mt-1 text-sm text-[#5F6B7A]">
+                Revise el voucher. Se genera automáticamente al entregar un servicio pagado completo.
+            </p>
+        </div>
+
+        <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-[#F8FBFF]">
+            @if($voucherPdfUrl !== '')
+            <iframe src="{{ $voucherPdfUrl }}#toolbar=0&navpanes=0&scrollbar=1&view=FitH" loading="eager"
+                class="h-[68vh] w-full bg-white">
+            </iframe>
+            @else
+            <div class="px-4 py-12 text-center text-sm text-[#7B8794]">
+                No hay voucher para mostrar.
+            </div>
+            @endif
+        </div>
+
+        <x-slot:actions>
+            <x-button label="Cerrar" type="button" wire:click="cerrarVoucherPdf"
+                class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]" />
         </x-slot:actions>
     </x-modal>
 
