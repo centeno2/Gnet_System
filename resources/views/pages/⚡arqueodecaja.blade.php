@@ -1437,49 +1437,64 @@ new class extends Component
                         </p>
                     </div>
 
-                    <div class="space-y-2 p-4">
-                        <div class="{{ $softCardClass }} p-3">
+                    <div class="space-y-2 p-3">
+                        <div class="{{ $softCardClass }} p-2.5">
                             <span class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
                                 Apertura
                             </span>
 
-                            <div class="mt-2 flex items-center justify-between gap-3">
-                                <span class="text-sm font-medium text-[#5F6B7A]">Fondo inicial</span>
+                            <div class="mt-1.5 flex items-center justify-between gap-3">
+                                <span class="text-sm font-medium text-[#5F6B7A]">
+                                    Fondo inicial
+                                </span>
+
                                 <span class="text-xs font-extrabold text-[#1A2B42]">
                                     C$ {{ $this->formatear($this->montoApertura) }}
                                 </span>
                             </div>
                         </div>
 
-                        <div class="{{ $softCardClass }} p-3">
+                        <div class="{{ $softCardClass }} p-2.5">
                             <span class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
                                 Ingresos
                             </span>
 
-                            <div class="mt-2 space-y-1.5">
+                            <div class="mt-1.5 space-y-1">
                                 <div class="flex items-center justify-between gap-3">
-                                    <span class="text-sm font-medium text-[#5F6B7A]">Ventas C$</span>
+                                    <span class="text-sm font-medium text-[#5F6B7A]">
+                                        Ventas C$
+                                    </span>
+
                                     <span class="text-xs font-extrabold text-[#1A2B42]">
                                         C$ {{ $this->formatear($this->totalVentaCordobas) }}
                                     </span>
                                 </div>
 
                                 <div class="flex items-center justify-between gap-3">
-                                    <span class="text-sm font-medium text-[#5F6B7A]">Ventas $</span>
+                                    <span class="text-sm font-medium text-[#5F6B7A]">
+                                        Ventas $
+                                    </span>
+
                                     <span class="text-xs font-extrabold text-[#1A2B42]">
                                         $ {{ $this->formatear($this->totalVentaDolares) }}
                                     </span>
                                 </div>
 
                                 <div class="flex items-center justify-between gap-3">
-                                    <span class="text-sm font-medium text-[#5F6B7A]">Abonos C$</span>
+                                    <span class="text-sm font-medium text-[#5F6B7A]">
+                                        Abonos C$
+                                    </span>
+
                                     <span class="text-xs font-extrabold text-[#1A2B42]">
                                         C$ {{ $this->formatear($this->totalAbonoCordobas) }}
                                     </span>
                                 </div>
 
                                 <div class="flex items-center justify-between gap-3">
-                                    <span class="text-sm font-medium text-[#5F6B7A]">Abonos $</span>
+                                    <span class="text-sm font-medium text-[#5F6B7A]">
+                                        Abonos $
+                                    </span>
+
                                     <span class="text-xs font-extrabold text-[#1A2B42]">
                                         $ {{ $this->formatear($this->totalAbonoDolares) }}
                                     </span>
@@ -1487,21 +1502,27 @@ new class extends Component
                             </div>
                         </div>
 
-                        <div class="{{ $softCardClass }} p-3">
+                        <div class="{{ $softCardClass }} p-2.5">
                             <span class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
                                 Egresos
                             </span>
 
-                            <div class="mt-2 space-y-1.5">
+                            <div class="mt-1.5 space-y-1">
                                 <div class="flex items-center justify-between gap-3">
-                                    <span class="text-sm font-medium text-[#5F6B7A]">Egresos C$</span>
+                                    <span class="text-sm font-medium text-[#5F6B7A]">
+                                        Egresos C$
+                                    </span>
+
                                     <span class="text-xs font-extrabold text-[#1A2B42]">
                                         C$ {{ $this->formatear($this->totalEgresoCordobas) }}
                                     </span>
                                 </div>
 
                                 <div class="flex items-center justify-between gap-3">
-                                    <span class="text-sm font-medium text-[#5F6B7A]">Egresos $</span>
+                                    <span class="text-sm font-medium text-[#5F6B7A]">
+                                        Egresos $
+                                    </span>
+
                                     <span class="text-xs font-extrabold text-[#1A2B42]">
                                         $ {{ $this->formatear($this->totalEgresoDolares) }}
                                     </span>
@@ -1509,21 +1530,27 @@ new class extends Component
                             </div>
                         </div>
 
-                        <div class="rounded-2xl border border-[#D7E4F3] bg-[#EAF2FB] p-3">
+                        <div class="rounded-2xl border border-[#D7E4F3] bg-[#EAF2FB] p-2.5">
                             <span class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
                                 Totales esperados
                             </span>
 
-                            <div class="mt-2 space-y-1.5">
+                            <div class="mt-1.5 space-y-1">
                                 <div class="flex items-center justify-between gap-3">
-                                    <span class="text-sm font-bold text-[#1A2B42]">Córdobas</span>
+                                    <span class="text-sm font-bold text-[#1A2B42]">
+                                        Córdobas
+                                    </span>
+
                                     <span class="text-base font-extrabold text-[#0B6FE4]">
                                         C$ {{ $this->formatear($this->totalEsperadoCordobas()) }}
                                     </span>
                                 </div>
 
                                 <div class="flex items-center justify-between gap-3">
-                                    <span class="text-sm font-bold text-[#1A2B42]">Dólares</span>
+                                    <span class="text-sm font-bold text-[#1A2B42]">
+                                        Dólares
+                                    </span>
+
                                     <span class="text-base font-extrabold text-[#0B6FE4]">
                                         $ {{ $this->formatear($this->totalEsperadoDolares()) }}
                                     </span>
@@ -1532,7 +1559,7 @@ new class extends Component
                         </div>
                     </div>
 
-                    <div class="border-t border-[#D7E4F3] bg-white p-4">
+                    <div class="border-t border-[#D7E4F3] bg-white p-3">
                         <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:grid-cols-1">
                             <x-button
                                 label="Registrar egreso"
