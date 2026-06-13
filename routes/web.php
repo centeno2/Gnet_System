@@ -23,6 +23,8 @@ use App\Http\Controllers\Reportes\CompraGeneralReporteController;
 use App\Http\Controllers\Ventas\CreditoEntregaReciboController;
 use App\Http\Controllers\Ventas\ContratoInstalacionCamaraController;
 use App\Http\Controllers\Ventas\ServicioTecnicoVoucherController;
+use App\Http\Controllers\Creditos\CreditoVoucherController;
+
 
 
 
@@ -223,6 +225,9 @@ Route::prefix('reportes/instalacion-camara-factura')
         ->whereNumber('contrato')
         ->name('ventas.instalacion-camaras.contrato');
 
+    Route::get('/creditos/voucher/{recibo}', [CreditoVoucherController::class, 'show'])
+        ->where('recibo', '[A-Za-z0-9\-]+')
+        ->name('creditos.voucher');
 });
 
 Route::middleware(['auth', 'cargo: 1, 2'])->group(function () {
