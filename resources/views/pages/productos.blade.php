@@ -3,7 +3,6 @@
 use App\Models\CategoriaProducto;
 use App\Models\Marca;
 use App\Models\Producto;
-use App\Models\ProductoSerie;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 
@@ -31,6 +30,10 @@ new class extends Component
     public string $precioVenta = '0';
     public string $garantiaNuevo = '';
     public string $garantiaUsado = '';
+
+    public bool $bloquearGarantiaNuevo = false;
+    public bool $bloquearGarantiaUsado = false;
+
     public string $estado = '1';
     public string $fechaVencimiento = '';
 
@@ -80,6 +83,40 @@ new class extends Component
     public function updatedPrecioVenta($value): void
     {
         $this->precioVenta = $this->formatearMonto((string) $value);
+    }
+
+    public function updatedGarantiaNuevo($value): void
+    {
+        $this->garantiaNuevo = preg_replace('/[^\d]/', '', (string) $value) ?? '';
+
+        if (trim($this->garantiaNuevo) !== '') {
+            $this->garantiaUsado = '';
+            $this->bloquearGarantiaUsado = true;
+            $this->bloquearGarantiaNuevo = false;
+        } else {
+            $this->bloquearGarantiaNuevo = false;
+            $this->bloquearGarantiaUsado = false;
+        }
+
+        $this->resetErrorBag();
+        $this->resetValidation();
+    }
+
+    public function updatedGarantiaUsado($value): void
+    {
+        $this->garantiaUsado = preg_replace('/[^\d]/', '', (string) $value) ?? '';
+
+        if (trim($this->garantiaUsado) !== '') {
+            $this->garantiaNuevo = '';
+            $this->bloquearGarantiaNuevo = true;
+            $this->bloquearGarantiaUsado = false;
+        } else {
+            $this->bloquearGarantiaNuevo = false;
+            $this->bloquearGarantiaUsado = false;
+        }
+
+        $this->resetErrorBag();
+        $this->resetValidation();
     }
 
     protected function formatearMonto(?string $valor): string
@@ -197,6 +234,9 @@ new class extends Component
         $this->garantiaUsado = $producto->Meses_Garantia_Usado !== null
             ? (string) $producto->Meses_Garantia_Usado
             : '';
+
+        $this->bloquearGarantiaNuevo = false;
+        $this->bloquearGarantiaUsado = false;
 
         $this->estado = (string) ((int) $producto->Estado);
 
@@ -322,6 +362,19 @@ new class extends Component
             'precioVenta.regex' => 'Ingrese el precio sin decimales. Ejemplo: 40,000',
         ]);
 
+        $usuarioEscribioGarantia = $this->bloquearGarantiaNuevo || $this->bloquearGarantiaUsado;
+
+        if (
+            $usuarioEscribioGarantia
+            && trim((string) $datos['garantiaNuevo']) !== ''
+            && trim((string) $datos['garantiaUsado']) !== ''
+        ) {
+            $this->addError('garantiaNuevo', 'Solo puede editar una garantía a la vez.');
+            $this->addError('garantiaUsado', 'Limpie uno de los dos campos.');
+            $this->mostrarToast('Solo puede escribir en una garantía a la vez.', 'error');
+            return;
+        }
+
         $precioVentaLimpio = $this->desformatearMonto($datos['precioVenta']);
         $productoBaseId = $this->productoBaseSeleccionado;
         $esProductoExistente = $productoBaseId !== null;
@@ -390,6 +443,12 @@ new class extends Component
                 ? 'Producto actualizado correctamente.'
                 : 'Producto guardado correctamente.'
         );
+    }
+
+    public function cancelarFormularioProducto(): void
+    {
+        $this->resetFormularioProducto();
+        $this->mostrarToast('Formulario limpiado correctamente.');
     }
 
     public function verSeries(int $idProducto): void
@@ -538,6 +597,8 @@ new class extends Component
         $this->precioVenta = '0';
         $this->garantiaNuevo = '';
         $this->garantiaUsado = '';
+        $this->bloquearGarantiaNuevo = false;
+        $this->bloquearGarantiaUsado = false;
         $this->estado = '1';
         $this->fechaVencimiento = '';
 
@@ -820,8 +881,16 @@ new class extends Component
 
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Garantía nuevo</label>
-                        <x-input wire:model.defer="garantiaNuevo" type="number" min="0" placeholder="Meses"
-                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                        <input wire:model.live.debounce.250ms="garantiaNuevo" type="number" min="0" placeholder="Meses"
+                            @readonly($bloquearGarantiaNuevo)
+                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42] outline-none placeholder:text-[#7B8794] focus:ring-2 focus:ring-[#2E8BC0] {{ $bloquearGarantiaNuevo ? 'cursor-not-allowed opacity-60' : '' }}" />
+
+                        @if ($bloquearGarantiaNuevo)
+                        <span class="mt-1 block text-xs font-medium text-[#5F6B7A]">
+                            Bloqueado porque está usando garantía para producto usado.
+                        </span>
+                        @endif
+
                         @error('garantiaNuevo')
                         <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                         @enderror
@@ -829,8 +898,16 @@ new class extends Component
 
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Garantía usado</label>
-                        <x-input wire:model.defer="garantiaUsado" type="number" min="0" placeholder="Meses"
-                            class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
+                        <input wire:model.live.debounce.250ms="garantiaUsado" type="number" min="0" placeholder="Meses"
+                            @readonly($bloquearGarantiaUsado)
+                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42] outline-none placeholder:text-[#7B8794] focus:ring-2 focus:ring-[#2E8BC0] {{ $bloquearGarantiaUsado ? 'cursor-not-allowed opacity-60' : '' }}" />
+
+                        @if ($bloquearGarantiaUsado)
+                        <span class="mt-1 block text-xs font-medium text-[#5F6B7A]">
+                            Bloqueado porque está usando garantía para producto nuevo.
+                        </span>
+                        @endif
+
                         @error('garantiaUsado')
                         <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
                         @enderror
@@ -859,6 +936,10 @@ new class extends Component
                 </div>
 
                 <x-slot:actions>
+                    <x-button label="{{ $productoBaseSeleccionado ? 'Cancelar edición' : 'Cancelar' }}" type="button"
+                        wire:click="cancelarFormularioProducto"
+                        class="h-10 min-h-10 border border-[#D7E4F3] bg-white px-4 text-sm text-[#1A2B42] hover:bg-[#F0F3F7]" />
+
                     <x-button label="Guardar producto" type="submit"
                         class="h-10 min-h-10 border-0 bg-[#2E8BC0] px-4 text-sm text-white hover:bg-[#0B6FE4]" />
                 </x-slot:actions>
@@ -887,28 +968,37 @@ new class extends Component
                             <tr>
                                 <th
                                     class="rounded-tl-xl bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white whitespace-nowrap">
-                                    Código</th>
+                                    Código
+                                </th>
                                 <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white whitespace-nowrap">
-                                    Producto</th>
+                                    Producto
+                                </th>
                                 <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white whitespace-nowrap">
-                                    Marca</th>
+                                    Marca
+                                </th>
                                 <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white whitespace-nowrap">
-                                    Modelo</th>
+                                    Modelo
+                                </th>
                                 <th
                                     class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white whitespace-nowrap">
-                                    Disponibles</th>
+                                    Disponibles
+                                </th>
                                 <th
                                     class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white whitespace-nowrap">
-                                    Stock</th>
+                                    Stock
+                                </th>
                                 <th
                                     class="bg-[#2E8BC0] px-3 py-3 text-right font-semibold text-white whitespace-nowrap">
-                                    Precio venta</th>
+                                    Precio venta
+                                </th>
                                 <th
                                     class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white whitespace-nowrap">
-                                    Estado</th>
+                                    Estado
+                                </th>
                                 <th
                                     class="rounded-tr-xl bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white whitespace-nowrap">
-                                    Acciones</th>
+                                    Acciones
+                                </th>
                             </tr>
                         </thead>
 

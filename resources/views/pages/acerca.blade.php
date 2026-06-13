@@ -153,6 +153,7 @@ new class extends Component
             'delay' => -32,
             'fallback' => 'LX',
         ],
+
     ];
 };
 ?>

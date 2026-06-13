@@ -22,6 +22,7 @@ use App\Http\Controllers\Reportes\ServicioTecnicoFacturaReporteController;
 use App\Http\Controllers\Reportes\CompraGeneralReporteController;
 use App\Http\Controllers\Ventas\CreditoEntregaReciboController;
 use App\Http\Controllers\Ventas\ContratoInstalacionCamaraController;
+use App\Http\Controllers\Ventas\ServicioTecnicoVoucherController;
 
 
 
@@ -247,6 +248,10 @@ Route::middleware(['auth', 'cargo: 1, 2'])->group(function () {
         ->whereNumber('year')
         ->where('formato', 'pdf|excel|xlsx|word|docx')
         ->name('planillapago.exportar.anual');
+
+    Route::get('/ventas/servicio-tecnico/{servicio}/voucher', [ServicioTecnicoVoucherController::class, 'show'])
+        ->whereNumber('servicio')
+        ->name('ventas.servicio-tecnico.voucher');
 });
 
 Route::middleware(['auth', 'cargo: 1,2,3'])->group(function () {
