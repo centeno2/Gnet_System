@@ -51,6 +51,10 @@ new class extends Component
     public array $detalleCredito = [];
     public array $headersDetalle = [];
 
+    public bool $modalVoucherCredito = false;
+    public string $voucherCreditoPreviewUrl = '';
+    public string $ultimoReciboCreditoNumero = '';
+
     public function mount(): void
     {
         $this->fechaPago = now()->format('Y-m-d H:i:s');
@@ -343,6 +347,7 @@ new class extends Component
         $saldoFavorGenerado = 0.0;
         $creditosCancelados = 0;
         $fechaHoraPago = now();
+        $numeroRecibo = $this->generarNumeroReciboCredito();
 
         try {
             DB::transaction(function () use (
@@ -352,6 +357,7 @@ new class extends Component
                 $tasaCambio,
                 $idUsuario,
                 $fechaHoraPago,
+                $numeroRecibo,
                 &$montoAplicadoTotal,
                 &$saldoFavorGenerado,
                 &$creditosCancelados
@@ -413,6 +419,13 @@ new class extends Component
                 }
 
                 $totalRecibidoCordobas = round($montoCordobas + ($montoDolares * $tasaCambio), 2);
+
+                if ($totalRecibidoCordobas < $saldoPendienteCuenta) {
+                    throw ValidationException::withMessages([
+                        'abonarCordobas' => 'El pago debe cancelar todo el saldo pendiente de la institución. Pendiente: C$ ' . $this->formatoMoneda($saldoPendienteCuenta) . '.',
+                    ]);
+                }
+
                 $saldoFavorGenerado = max(round($totalRecibidoCordobas - $saldoPendienteCuenta, 2), 0);
 
                 $bolsasPago = [
@@ -458,6 +471,7 @@ new class extends Component
 
                         $this->crearAbonoCredito(
                             credito: $credito,
+                            numeroRecibo: $numeroRecibo,
                             idUsuario: $idUsuario,
                             moneda: $bolsa['moneda'],
                             monto: $montoMoneda,
@@ -504,6 +518,27 @@ new class extends Component
                         saldoFavorGenerado: $saldoFavorGenerado
                     );
                 }
+
+                DB::table('credito_recibo')->insert([
+                    'Numero_Recibo' => $numeroRecibo,
+                    'Id_Cliente_Credito' => (int) $clienteCredito->Id_Cliente_Credito,
+                    'Id_Cliente' => (int) $clienteCredito->Id_Cliente,
+                    'Id_Usuario' => $idUsuario,
+                    'Fecha_Recibo' => $fechaHoraPago,
+                    'Metodo_Pago' => $datos['metodoPago'],
+                    'Referencia' => filled($datos['referenciaPago'] ?? null) ? trim((string) $datos['referenciaPago']) : null,
+                    'Observacion' => filled($datos['observacion'] ?? null) ? trim((string) $datos['observacion']) : null,
+                    'Monto_Cordobas' => $montoCordobas,
+                    'Monto_Dolares' => $montoDolares,
+                    'Tasa_Cambio' => $tasaCambio,
+                    'Total_Pendiente_Antes' => $saldoPendienteCuenta,
+                    'Total_Recibido_Cordobas' => $totalRecibidoCordobas,
+                    'Total_Aplicado_Cordobas' => $montoAplicadoTotal,
+                    'Saldo_Favor_Generado' => $saldoFavorGenerado,
+                    'Creditos_Cancelados' => $creditosCancelados,
+                    'Estado' => 'REGISTRADO',
+                    'Fecha_Registro' => now(),
+                ]);
             });
         } catch (ValidationException $e) {
             foreach ($e->errors() as $campo => $mensajes) {
@@ -532,12 +567,39 @@ new class extends Component
         }
 
         $this->limpiarBusqueda();
+        $this->prepararVoucherCredito($numeroRecibo);
 
         $this->notificar(
             type: 'success',
             title: 'Pago registrado',
             description: $mensaje
         );
+    }
+
+    protected function generarNumeroReciboCredito(): string
+    {
+        do {
+            $numero = 'REC-ABO-' . now()->format('Ymd-His') . '-' . random_int(100, 999);
+        } while (DB::table('credito_recibo')->where('Numero_Recibo', $numero)->exists());
+
+        return $numero;
+    }
+
+    protected function prepararVoucherCredito(string $numeroRecibo): void
+    {
+        $this->ultimoReciboCreditoNumero = $numeroRecibo;
+        $this->voucherCreditoPreviewUrl = route('creditos.voucher', [
+            'recibo' => $numeroRecibo,
+            'ancho' => 80,
+        ]);
+        $this->modalVoucherCredito = true;
+    }
+
+    public function cerrarModalVoucherCredito(): void
+    {
+        $this->modalVoucherCredito = false;
+        $this->voucherCreditoPreviewUrl = '';
+        $this->ultimoReciboCreditoNumero = '';
     }
 
     protected function obtenerTasaCambioDelDia(): string
@@ -682,6 +744,7 @@ new class extends Component
 
     protected function crearAbonoCredito(
         Credito $credito,
+        string $numeroRecibo,
         int $idUsuario,
         string $moneda,
         float $monto,
@@ -715,6 +778,7 @@ new class extends Component
 
         $abono->Id_Credito = (int) $credito->Id_Credito;
         $abono->Id_Usuario = $idUsuario;
+        $abono->Numero_Recibo = $numeroRecibo;
         $abono->Fecha_Abono = $fechaPago;
         $abono->Moneda = $moneda;
         $abono->Monto = round($monto, 2);
@@ -1037,35 +1101,36 @@ new class extends Component
 ?>
 
 @php
-    $fieldClass = 'rounded-xl border-[#D7E4F3] bg-white text-[#1A2B42] placeholder:text-[#8A97A8] disabled:bg-[#EEF3F8] disabled:text-[#8A97A8] [&_.fieldset-legend]:text-[#1A2B42] [&_.label]:text-[#1A2B42] [&_label]:text-[#1A2B42]';
+$fieldClass = 'rounded-xl border-[#D7E4F3] bg-white text-[#1A2B42] placeholder:text-[#8A97A8] disabled:bg-[#EEF3F8]
+disabled:text-[#8A97A8] [&_.fieldset-legend]:text-[#1A2B42] [&_.label]:text-[#1A2B42] [&_label]:text-[#1A2B42]';
 
-    $readonlyFieldClass = 'rounded-xl border-[#D7E4F3] bg-[#EEF3F8] font-semibold text-[#1A2B42] [&_.fieldset-legend]:text-[#1A2B42] [&_.label]:text-[#1A2B42] [&_label]:text-[#1A2B42]';
+$readonlyFieldClass = 'rounded-xl border-[#D7E4F3] bg-[#EEF3F8] font-semibold text-[#1A2B42]
+[&_.fieldset-legend]:text-[#1A2B42] [&_.label]:text-[#1A2B42] [&_label]:text-[#1A2B42]';
 
-    $cardClass = 'border border-[#D7E4F3] bg-white shadow-sm [&_.text-base-content\/70]:text-[#5F6B7A] [&_.text-sm]:text-[#5F6B7A] [&_.text-base-content]:text-[#1A2B42] [&_.card-title]:text-[#1A2B42] [&_label]:text-[#1A2B42] [&_.fieldset-legend]:text-[#1A2B42]';
+$cardClass = 'border border-[#D7E4F3] bg-white shadow-sm [&_.text-base-content\/70]:text-[#5F6B7A]
+[&_.text-sm]:text-[#5F6B7A] [&_.text-base-content]:text-[#1A2B42] [&_.card-title]:text-[#1A2B42]
+[&_label]:text-[#1A2B42] [&_.fieldset-legend]:text-[#1A2B42]';
 
-    $primaryButtonClass = 'btn-sm border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4] disabled:border-0 disabled:bg-[#B8CADB] disabled:text-white';
+$primaryButtonClass = 'btn-sm border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4] disabled:border-0
+disabled:bg-[#B8CADB] disabled:text-white';
 
-    $pagoBloqueado = $idClienteCreditoSeleccionado === 0
-        || $estadoCredito === \App\Models\Credito::ESTADO_CANCELADO
-        || (float) str_replace(',', '', $saldoPendiente) <= 0;
-
-    $estadoClass = $estadoCredito === \App\Models\Credito::ESTADO_CANCELADO
-        ? 'bg-green-100 text-green-700'
-        : ($estadoCredito === \App\Models\Credito::ESTADO_VENCIDO
-            ? 'bg-red-100 text-red-700'
-            : 'bg-[#EAF4FD] text-[#0B6FE4]');
-@endphp
-
-<div class="flex h-[calc(100vh-3rem)] min-h-0 w-full flex-col gap-4 overflow-hidden bg-[#F0F3F7] px-4 py-4 md:px-6 md:py-5">
+$pagoBloqueado = $idClienteCreditoSeleccionado === 0
+|| $estadoCredito === \App\Models\Credito::ESTADO_CANCELADO
+|| (float) str_replace(',', '', $saldoPendiente) <= 0;
+    $estadoClass=$estadoCredito===\App\Models\Credito::ESTADO_CANCELADO ? 'bg-green-100 text-green-700' :
+    ($estadoCredito===\App\Models\Credito::ESTADO_VENCIDO ? 'bg-red-100 text-red-700' : 'bg-[#EAF4FD] text-[#0B6FE4]' );
+    @endphp <div
+    class="flex h-[calc(100vh-3rem)] min-h-0 w-full flex-col gap-4 overflow-hidden bg-[#F0F3F7] px-4 py-4 md:px-6 md:py-5">
     <x-toast />
 
     <div class="flex shrink-0 items-center justify-between">
         <h1 class="text-2xl font-bold text-[#1A2B42]">Gestión de Créditos</h1>
 
         @if ($idClienteCreditoSeleccionado > 0)
-            <span class="rounded-full border border-[#B7D6F2] bg-[#EAF4FD] px-3 py-1.5 text-xs font-semibold text-[#0B6FE4]">
-                {{ $codigoCredito }} · {{ $totalCreditosPendientes }} crédito(s)
-            </span>
+        <span
+            class="rounded-full border border-[#B7D6F2] bg-[#EAF4FD] px-3 py-1.5 text-xs font-semibold text-[#0B6FE4]">
+            {{ $codigoCredito }} · {{ $totalCreditosPendientes }} crédito(s)
+        </span>
         @endif
     </div>
 
@@ -1073,51 +1138,45 @@ new class extends Component
         <div class="flex min-h-0 flex-col gap-4 overflow-hidden">
             <x-card title="Buscar cliente con crédito" shadow separator class="{{ $cardClass }}">
                 <div class="relative">
-                    <x-input
-                        label="Cliente"
-                        wire:model.live.debounce.300ms="valorBusqueda"
-                        placeholder="Ej: Comercial Norte, Juan Pérez, cédula, RUC o teléfono"
-                        icon="o-magnifying-glass"
-                        autocomplete="off"
-                        class="{{ $fieldClass }}"
-                    />
+                    <x-input label="Cliente" wire:model.live.debounce.300ms="valorBusqueda"
+                        placeholder="Ej: Comercial Norte, Juan Pérez, cédula, RUC o teléfono" icon="o-magnifying-glass"
+                        autocomplete="off" class="{{ $fieldClass }}" />
 
                     @if ($mostrarSugerenciasCredito && count($sugerenciasCredito))
-                        <div class="absolute left-0 right-0 z-50 mt-2 max-h-72 overflow-auto rounded-2xl border border-[#D7E4F3] bg-white shadow-xl">
-                            @foreach ($sugerenciasCredito as $sugerencia)
-                                <button
-                                    type="button"
-                                    wire:click="seleccionarClienteCredito({{ $sugerencia['id'] }})"
-                                    class="block w-full border-b border-[#EEF3F8] px-4 py-3 text-left last:border-b-0 hover:bg-[#EAF4FD]"
-                                >
-                                    <div class="flex items-start justify-between gap-3">
-                                        <div class="min-w-0">
-                                            <p class="truncate text-sm font-bold text-[#1A2B42]">
-                                                {{ $sugerencia['cliente'] }}
-                                            </p>
+                    <div
+                        class="absolute left-0 right-0 z-50 mt-2 max-h-72 overflow-auto rounded-2xl border border-[#D7E4F3] bg-white shadow-xl">
+                        @foreach ($sugerenciasCredito as $sugerencia)
+                        <button type="button" wire:click="seleccionarClienteCredito({{ $sugerencia['id'] }})"
+                            class="block w-full border-b border-[#EEF3F8] px-4 py-3 text-left last:border-b-0 hover:bg-[#EAF4FD]">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0">
+                                    <p class="truncate text-sm font-bold text-[#1A2B42]">
+                                        {{ $sugerencia['cliente'] }}
+                                    </p>
 
-                                            <p class="mt-1 truncate text-xs font-medium text-[#5F6B7A]">
-                                                {{ $sugerencia['documento'] }} · {{ $sugerencia['ubicacion'] }}
-                                            </p>
+                                    <p class="mt-1 truncate text-xs font-medium text-[#5F6B7A]">
+                                        {{ $sugerencia['documento'] }} · {{ $sugerencia['ubicacion'] }}
+                                    </p>
 
-                                            <p class="mt-1 truncate text-xs text-[#5F6B7A]">
-                                                {{ $sugerencia['factura'] }}
-                                            </p>
-                                        </div>
+                                    <p class="mt-1 truncate text-xs text-[#5F6B7A]">
+                                        {{ $sugerencia['factura'] }}
+                                    </p>
+                                </div>
 
-                                        <div class="shrink-0 text-right">
-                                            <p class="text-xs font-black text-[#1A2B42]">
-                                                {{ $sugerencia['saldo'] }}
-                                            </p>
+                                <div class="shrink-0 text-right">
+                                    <p class="text-xs font-black text-[#1A2B42]">
+                                        {{ $sugerencia['saldo'] }}
+                                    </p>
 
-                                            <span class="mt-1 inline-flex rounded-full bg-[#EAF4FD] px-2 py-0.5 text-[11px] font-bold text-[#0B6FE4]">
-                                                Cuenta
-                                            </span>
-                                        </div>
-                                    </div>
-                                </button>
-                            @endforeach
-                        </div>
+                                    <span
+                                        class="mt-1 inline-flex rounded-full bg-[#EAF4FD] px-2 py-0.5 text-[11px] font-bold text-[#0B6FE4]">
+                                        Cuenta
+                                    </span>
+                                </div>
+                            </div>
+                        </button>
+                        @endforeach
+                    </div>
                     @endif
                 </div>
 
@@ -1142,11 +1201,14 @@ new class extends Component
                     <div class="min-w-0 rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
                         <div class="flex items-start justify-between gap-2">
                             <div class="min-w-0">
-                                <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Total pendiente</p>
+                                <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Total pendiente
+                                </p>
                                 <p class="mt-1 text-base font-black text-[#1A2B42]">C$ {{ $saldoPendiente }}</p>
                             </div>
 
-                            <span class="{{ $estadoClass }} shrink-0 rounded-full px-2.5 py-1 text-center text-xs font-bold" title="{{ $estadoCredito }}">
+                            <span
+                                class="{{ $estadoClass }} shrink-0 rounded-full px-2.5 py-1 text-center text-xs font-bold"
+                                title="{{ $estadoCredito }}">
                                 {{ ucfirst(strtolower($estadoCredito)) }}
                             </span>
                         </div>
@@ -1154,19 +1216,17 @@ new class extends Component
                 </div>
             </x-card>
 
-            <x-card title="Créditos pendientes del cliente" shadow separator class="flex min-h-0 flex-1 flex-col {{ $cardClass }}">
-                <div class="min-h-[230px] max-h-[360px] overflow-hidden rounded-2xl border border-[#D7E4F3]">
-                    <div class="h-full max-h-[360px] overflow-auto overscroll-contain">
-                        <x-table
-                            :headers="$headersDetalle"
-                            :rows="$detalleCredito"
-                            no-hover
-                            class="min-w-[980px] [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_td]:border-[#D7E4F3] [&_tbody_td]:text-[#1A2B42] [&_tbody_tr:hover]:!bg-[#EAF4FD]"
-                        >
+            <x-card title="Créditos pendientes del cliente" shadow separator
+                class="flex min-h-0 flex-1 flex-col {{ $cardClass }}">
+                <div class="min-h-57.5 max-h-90 overflow-hidden rounded-2xl border border-[#D7E4F3]">
+                    <div class="h-full max-h-90 overflow-auto overscroll-contain">
+                        <x-table :headers="$headersDetalle" :rows="$detalleCredito" no-hover
+                            class="min-w-245 [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_td]:border-[#D7E4F3] [&_tbody_td]:text-[#1A2B42] [&_tbody_tr:hover]:bg-[#EAF4FD]!">
                             @scope('cell_estado', $fila)
-                                <span class="{{ $fila['estado'] === \App\Models\Credito::ESTADO_VENCIDO ? 'bg-red-100 text-red-700' : 'bg-[#EAF4FD] text-[#0B6FE4]' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">
-                                    {{ ucfirst(strtolower($fila['estado'])) }}
-                                </span>
+                            <span
+                                class="{{ $fila['estado'] === \App\Models\Credito::ESTADO_VENCIDO ? 'bg-red-100 text-red-700' : 'bg-[#EAF4FD] text-[#0B6FE4]' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">
+                                {{ ucfirst(strtolower($fila['estado'])) }}
+                            </span>
                             @endscope
                         </x-table>
                     </div>
@@ -1178,96 +1238,68 @@ new class extends Component
             <x-card title="Registrar pago a cuenta" shadow separator class="{{ $cardClass }}">
                 <x-form wire:submit="registrarPago" no-separator>
                     <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
-                        <x-input
-                            label="Total pendiente"
-                            wire:model="saldoPendiente"
-                            prefix="C$"
-                            readonly
-                            class="{{ $readonlyFieldClass }}"
-                        />
+                        <x-input label="Total pendiente" wire:model="saldoPendiente" prefix="C$" readonly
+                            class="{{ $readonlyFieldClass }}" />
 
-                        <x-input
-                            label="Saldo a favor"
-                            wire:model="saldoFavorVista"
-                            prefix="C$"
-                            readonly
-                            class="rounded-xl border-[#D7E4F3] bg-[#EEF3F8] font-black text-[#1C7C45] [&_.fieldset-legend]:text-[#1A2B42] [&_.label]:text-[#1A2B42] [&_label]:text-[#1A2B42]"
-                        />
+                        <x-input label="Saldo a favor" wire:model="saldoFavorVista" prefix="C$" readonly
+                            class="rounded-xl border-[#D7E4F3] bg-[#EEF3F8] font-black text-[#1C7C45] [&_.fieldset-legend]:text-[#1A2B42] [&_.label]:text-[#1A2B42] [&_label]:text-[#1A2B42]" />
 
-                        <x-input
-                            label="Abonar en C$"
-                            wire:model.live.debounce.250ms="abonarCordobas"
-                            placeholder="0.00"
-                            type="number"
-                            step="0.01"
-                            inputmode="decimal"
-                            prefix="C$"
-                            :disabled="$pagoBloqueado"
-                            class="{{ $fieldClass }}"
-                        />
+                        <x-input label="Abonar en C$" wire:model.live.debounce.250ms="abonarCordobas" placeholder="0.00"
+                            type="number" step="0.01" inputmode="decimal" prefix="C$" :disabled="$pagoBloqueado"
+                            class="{{ $fieldClass }}" />
 
-                        <x-input
-                            label="Abonar en US$"
-                            wire:model.live.debounce.250ms="abonarDolares"
-                            placeholder="0.00"
-                            type="number"
-                            step="0.01"
-                            inputmode="decimal"
-                            prefix="US$"
-                            :disabled="$pagoBloqueado"
-                            class="{{ $fieldClass }}"
-                        />
+                        <x-input label="Abonar en US$" wire:model.live.debounce.250ms="abonarDolares" placeholder="0.00"
+                            type="number" step="0.01" inputmode="decimal" prefix="US$" :disabled="$pagoBloqueado"
+                            class="{{ $fieldClass }}" />
 
-                        <x-select
-                            label="Método"
-                            wire:model="metodoPago"
-                            :options="$metodosPagoOptions"
-                            option-value="id"
-                            option-label="name"
-                            :disabled="$pagoBloqueado"
-                            class="{{ $fieldClass }}"
-                        />
+                        <x-select label="Método" wire:model="metodoPago" :options="$metodosPagoOptions"
+                            option-value="id" option-label="name" :disabled="$pagoBloqueado"
+                            class="{{ $fieldClass }}" />
 
-                        <x-input
-                            label="Tasa del día"
-                            wire:model="tasaCambio"
-                            prefix="C$"
-                            readonly
-                            class="{{ $readonlyFieldClass }}"
-                        />
+                        <x-input label="Tasa del día" wire:model="tasaCambio" prefix="C$" readonly
+                            class="{{ $readonlyFieldClass }}" />
 
-                        <x-input
-                            label="Referencia"
-                            wire:model="referenciaPago"
-                            placeholder="Voucher, recibo o transferencia"
-                            :disabled="$pagoBloqueado"
-                            class="{{ $fieldClass }} md:col-span-2"
-                        />
+                        <x-input label="Referencia" wire:model="referenciaPago"
+                            placeholder="Voucher, recibo o transferencia" :disabled="$pagoBloqueado"
+                            class="{{ $fieldClass }} md:col-span-2" />
                     </div>
 
                     <div class="mt-3">
-                        <x-textarea
-                            label="Observación"
-                            wire:model="observacion"
-                            rows="3"
-                            placeholder="Detalle breve del pago realizado..."
-                            :disabled="$pagoBloqueado"
-                            class="{{ $fieldClass }}"
-                        />
+                        <x-textarea label="Observación" wire:model="observacion" rows="3"
+                            placeholder="Detalle breve del pago realizado..." :disabled="$pagoBloqueado"
+                            class="{{ $fieldClass }}" />
                     </div>
 
                     <div class="sticky bottom-0 -mx-1 mt-4 border-t border-[#D7E4F3] bg-white/95 pt-3 backdrop-blur">
-                        <x-button
-                            label="Guardar pago"
-                            type="submit"
-                            spinner="registrarPago"
-                            icon="o-check-circle"
-                            class="{{ $primaryButtonClass }} w-full"
-                            :disabled="$pagoBloqueado"
-                        />
+                        <x-button label="Guardar pago" type="submit" spinner="registrarPago" icon="o-check-circle"
+                            class="{{ $primaryButtonClass }} w-full" :disabled="$pagoBloqueado" />
                     </div>
                 </x-form>
             </x-card>
         </aside>
     </div>
-</div>
+
+    <x-modal wire:model="modalVoucherCredito" class="backdrop-blur-sm"
+        box-class="w-full max-w-md rounded-2xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
+        <div class="mb-4">
+            <h3 class="text-2xl font-bold text-[#1A2B42]">Voucher de crédito</h3>
+            <p class="mt-1 text-sm text-[#5F6B7A]">
+                {{ $ultimoReciboCreditoNumero ?: 'Pago registrado' }} · Se genera automáticamente al guardar el pago.
+            </p>
+        </div>
+
+        <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-[#F8FBFF]">
+            @if ($voucherCreditoPreviewUrl !== '')
+            <iframe src="{{ $voucherCreditoPreviewUrl }}#toolbar=0&navpanes=0&scrollbar=1&view=FitH" loading="eager"
+                class="h-[68vh] w-full bg-white"></iframe>
+            @else
+            <div class="px-4 py-12 text-center text-sm text-[#7B8794]">No hay voucher para mostrar.</div>
+            @endif
+        </div>
+
+        <x-slot:actions>
+            <x-button label="Cerrar" type="button" wire:click="cerrarModalVoucherCredito"
+                class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]" />
+        </x-slot:actions>
+    </x-modal>
+    </div>

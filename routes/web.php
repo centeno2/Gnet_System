@@ -20,6 +20,13 @@ use App\Http\Controllers\Reportes\FacturaContadoReporteController;
 use App\Http\Controllers\Reportes\InstalacionCamaraFacturaReporteController;
 use App\Http\Controllers\Reportes\ServicioTecnicoFacturaReporteController;
 use App\Http\Controllers\Reportes\CompraGeneralReporteController;
+use App\Http\Controllers\Ventas\CreditoEntregaReciboController;
+use App\Http\Controllers\Ventas\ContratoInstalacionCamaraController;
+use App\Http\Controllers\Ventas\ServicioTecnicoVoucherController;
+use App\Http\Controllers\Creditos\CreditoVoucherController;
+
+
+
 
 Route::get('/', function () {
     return auth()->check()
@@ -143,7 +150,7 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
 
     Route::get('/ventas/voucher/{venta}', [VentaVoucherController::class, 'show'])
         ->name('ventas.voucher');
-        
+
     Route::get('/reportes/compras-proveedor/pdf', [ComprasProveedorReporteController::class, 'pdf'])
         ->name('reportes.compras-proveedor.pdf');
 
@@ -164,7 +171,7 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
         Route::get('/excel', 'excel')->name('excel');
         Route::get('/word', 'word')->name('word');
     });
-        
+
     Route::prefix('reportes/credito-factura')
     ->name('reportes.credito-factura.')
     ->controller(CreditoFacturaReporteController::class)
@@ -210,6 +217,17 @@ Route::prefix('reportes/instalacion-camara-factura')
         Route::get('/word', 'word')->name('word');
     });
 
+    Route::get('/ventas/credito/entregas/{entrega}/recibo', [CreditoEntregaReciboController::class, 'show'])
+        ->whereNumber('entrega')
+        ->name('ventas.credito.entrega.recibo');
+
+    Route::get('/ventas/instalacion-camaras/{contrato}/contrato', [ContratoInstalacionCamaraController::class, 'show'])
+        ->whereNumber('contrato')
+        ->name('ventas.instalacion-camaras.contrato');
+
+    Route::get('/creditos/voucher/{recibo}', [CreditoVoucherController::class, 'show'])
+        ->where('recibo', '[A-Za-z0-9\-]+')
+        ->name('creditos.voucher');
 });
 
 Route::middleware(['auth', 'cargo: 1, 2'])->group(function () {
@@ -235,6 +253,10 @@ Route::middleware(['auth', 'cargo: 1, 2'])->group(function () {
         ->whereNumber('year')
         ->where('formato', 'pdf|excel|xlsx|word|docx')
         ->name('planillapago.exportar.anual');
+
+    Route::get('/ventas/servicio-tecnico/{servicio}/voucher', [ServicioTecnicoVoucherController::class, 'show'])
+        ->whereNumber('servicio')
+        ->name('ventas.servicio-tecnico.voucher');
 });
 
 Route::middleware(['auth', 'cargo: 1,2,3'])->group(function () {
