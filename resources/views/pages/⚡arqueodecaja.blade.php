@@ -115,6 +115,8 @@ new class extends Component
 
     public function mount(): void
     {
+        $this->cerrarCajasAbiertasAnterioresAHoy();
+
         $this->cargarTasaCambio();
         $this->cargarAperturaAbierta();
         $this->cargarAbonosCreditoHoy();
@@ -141,6 +143,190 @@ new class extends Component
             position: 'toast-top toast-end',
             timeout: 3500
         );
+    }
+
+    private function cerrarCajasAbiertasAnterioresAHoy(): int
+    {
+        return $this->cerrarCajasAutomaticamente(false);
+    }
+
+    private function cerrarCajasAutomaticamente(bool $incluirHoy = false, ?int $soloUsuarioId = null): int
+    {
+        try {
+            return DB::transaction(function () use ($incluirHoy, $soloUsuarioId) {
+                $aperturas = AperturaCaja::query()
+                    ->where('Estado_Apertura', AperturaCaja::ABIERTO)
+                    ->when(
+                        $incluirHoy,
+                        fn ($query) => $query->whereDate('Fecha_Apertura', '<=', now()->toDateString()),
+                        fn ($query) => $query->whereDate('Fecha_Apertura', '<', now()->toDateString())
+                    )
+                    ->when($soloUsuarioId, fn ($query) => $query->where('Id_Usuario', $soloUsuarioId))
+                    ->orderBy('Fecha_Apertura')
+                    ->orderBy('Id_Apertura_Caja')
+                    ->lockForUpdate()
+                    ->get();
+
+                $cerradas = 0;
+
+                foreach ($aperturas as $apertura) {
+                    if ($this->crearArqueoTecnicoYCerrarCaja($apertura)) {
+                        $cerradas++;
+                    }
+                }
+
+                return $cerradas;
+            });
+        } catch (Throwable $e) {
+            report($e);
+
+            return 0;
+        }
+    }
+
+    private function crearArqueoTecnicoYCerrarCaja(AperturaCaja $apertura): bool
+    {
+        $arqueoExistente = ArqueoCaja::query()
+            ->where('Id_Apertura_Caja', $apertura->Id_Apertura_Caja)
+            ->lockForUpdate()
+            ->first();
+
+        if ($arqueoExistente) {
+            AperturaCaja::query()
+                ->where('Id_Apertura_Caja', $apertura->Id_Apertura_Caja)
+                ->update([
+                    'Estado_Apertura' => AperturaCaja::CERRADO,
+                ]);
+
+            return true;
+        }
+
+        $usuarioId = (int) $apertura->Id_Usuario;
+        $inicioCaja = $apertura->Fecha_Apertura;
+        $finCaja = now();
+
+        $totales = $this->calcularTotalesCajaParaCierreAutomatico(
+            usuarioId: $usuarioId,
+            aperturaId: (int) $apertura->Id_Apertura_Caja,
+            inicioCaja: $inicioCaja,
+            finCaja: $finCaja,
+            montoApertura: (float) $apertura->Monto_Apertura
+        );
+
+        $arqueo = ArqueoCaja::create([
+            'Id_Usuario' => $usuarioId,
+            'Id_Apertura_Caja' => $apertura->Id_Apertura_Caja,
+            'Total_Caja_Cordoba' => number_format($totales['esperado_cordoba'], 2, '.', ''),
+            'Total_Caja_Dolar' => number_format($totales['esperado_dolar'], 2, '.', ''),
+            'Fecha_Arqueo' => $finCaja,
+        ]);
+
+        DetalleArqueo::create([
+            'Id_Arqueo' => $arqueo->Id_Arqueo,
+            'Faltante_Cordoba' => number_format(0, 2, '.', ''),
+            'Faltante_Dolar' => number_format(0, 2, '.', ''),
+            'Sobrante_Cordoba' => number_format(0, 2, '.', ''),
+            'Sobrante_Dolar' => number_format(0, 2, '.', ''),
+            'Cantidad_Egresada_Cordoba' => number_format($totales['egreso_cordoba'], 2, '.', ''),
+            'Cantidad_Egresada_Dolar' => number_format($totales['egreso_dolar'], 2, '.', ''),
+            'Estado_Arqueo' => DetalleArqueo::ESTADO_CUADRADO,
+        ]);
+
+        AperturaCaja::query()
+            ->where('Id_Apertura_Caja', $apertura->Id_Apertura_Caja)
+            ->update([
+                'Estado_Apertura' => AperturaCaja::CERRADO,
+            ]);
+
+        return true;
+    }
+
+    private function calcularTotalesCajaParaCierreAutomatico(
+        int $usuarioId,
+        int $aperturaId,
+        mixed $inicioCaja,
+        mixed $finCaja,
+        float $montoApertura
+    ): array {
+        $tablaPagos = (new PagoVenta())->getTable();
+        $tablaVentas = (new Venta())->getTable();
+
+        $basePagosEfectivo = DB::table($tablaPagos . ' as pv')
+            ->join($tablaVentas . ' as v', 'v.Id_Venta', '=', 'pv.Id_Venta')
+            ->whereBetween('pv.Fecha_Pago', [$inicioCaja, $finCaja])
+            ->where('pv.Tipo_Pago', PagoVenta::TIPO_EFECTIVO)
+            ->where('v.Id_Usuario', $usuarioId)
+            ->where('v.Estado', Venta::ESTADO_ACTIVA);
+
+        $ventasCordobas = round((float) (clone $basePagosEfectivo)
+            ->where('pv.Moneda', PagoVenta::MONEDA_CORDOBA)
+            ->sum('pv.Monto'), 2);
+
+        $ventasDolares = round((float) (clone $basePagosEfectivo)
+            ->where('pv.Moneda', PagoVenta::MONEDA_DOLAR)
+            ->sum('pv.Monto'), 2);
+
+        $cambioEntregadoCordobas = round((float) DB::query()
+            ->fromSub(
+                (clone $basePagosEfectivo)
+                    ->select([
+                        'v.Id_Venta',
+                        DB::raw('COALESCE(MAX(v.Cambio_Entregado_Cordobas), 0) as cambio_entregado_cordobas'),
+                    ])
+                    ->groupBy('v.Id_Venta'),
+                'ventas_efectivo'
+            )
+            ->sum('cambio_entregado_cordobas'), 2);
+
+        $ventasCordobas = round($ventasCordobas - $cambioEntregadoCordobas, 2);
+
+        $baseAbonos = DB::table('abono_credito')
+            ->where('Id_Usuario', $usuarioId)
+            ->whereBetween('Fecha_Abono', [$inicioCaja, $finCaja]);
+
+        $abonosCordobas = round((float) (clone $baseAbonos)
+            ->whereRaw('UPPER(TRIM(Moneda)) = ?', ['NIO'])
+            ->sum('Monto'), 2);
+
+        $abonosDolares = round((float) (clone $baseAbonos)
+            ->whereRaw('UPPER(TRIM(Moneda)) = ?', ['USD'])
+            ->sum('Monto'), 2);
+
+        $baseEgresos = Egresos::query()
+            ->deApertura($aperturaId)
+            ->deUsuario($usuarioId);
+
+        $egresosCordobas = round((float) (clone $baseEgresos)
+            ->sum('Monto_Egresado_Cordoba'), 2);
+
+        $egresosDolares = round((float) (clone $baseEgresos)
+            ->sum('Monto_Egresado_Dolar'), 2);
+
+        $esperadoCordobas = round(
+            $montoApertura
+            + $ventasCordobas
+            + $abonosCordobas
+            - $egresosCordobas,
+            2
+        );
+
+        $esperadoDolares = round(
+            $ventasDolares
+            + $abonosDolares
+            - $egresosDolares,
+            2
+        );
+
+        return [
+            'venta_cordoba' => max(0, $ventasCordobas),
+            'venta_dolar' => max(0, $ventasDolares),
+            'abono_cordoba' => max(0, $abonosCordobas),
+            'abono_dolar' => max(0, $abonosDolares),
+            'egreso_cordoba' => max(0, $egresosCordobas),
+            'egreso_dolar' => max(0, $egresosDolares),
+            'esperado_cordoba' => max(0, $esperadoCordobas),
+            'esperado_dolar' => max(0, $esperadoDolares),
+        ];
     }
 
     private function limpiarTotalesVenta(): void
@@ -325,6 +511,8 @@ new class extends Component
 
     public function cargarAperturaAbierta(): void
     {
+        $this->cerrarCajasAbiertasAnterioresAHoy();
+
         $usuarioId = $this->usuarioActualId();
 
         if (! $usuarioId) {
@@ -462,6 +650,8 @@ new class extends Component
     {
         $this->resetValidation();
 
+        $this->cerrarCajasAbiertasAnterioresAHoy();
+
         $usuarioId = $this->usuarioActualId();
 
         if (! $usuarioId) {
@@ -553,6 +743,8 @@ new class extends Component
 
         $tasaCambioApertura = trim($this->tasaCambioApertura);
         $actualizoTasaCambio = $tasaCambioApertura !== '';
+
+        $this->cerrarCajasAbiertasAnterioresAHoy();
 
         try {
             DB::transaction(function () use ($usuarioId, $tasaCambioApertura, $actualizoTasaCambio) {
