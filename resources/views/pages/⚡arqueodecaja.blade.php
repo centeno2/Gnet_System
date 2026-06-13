@@ -170,6 +170,10 @@ new class extends Component
                 $cerradas = 0;
 
                 foreach ($aperturas as $apertura) {
+                    if (! $apertura instanceof AperturaCaja) {
+                        continue;
+                    }
+
                     if ($this->crearArqueoTecnicoYCerrarCaja($apertura)) {
                         $cerradas++;
                     }
