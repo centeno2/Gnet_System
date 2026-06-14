@@ -100,8 +100,11 @@ Para poder generar y visualizar correctamente los **reportes PDF** y **vouchers*
 Ejecutar los siguientes comandos en la raíz del proyecto:
 
 ```bash
-composer require tecnickcom/tcpdf
+composer require tecnickcom/tcpdfa
 composer dump-autoload -o
+composer require phpoffice/phpspreadsheet phpoffice/phpword
+composer dump-autoload -o
+php artisan optimize:clear
 ```
 
 > Sin esta librería, los reportes y vouchers PDF pueden fallar o no mostrarse correctamente dentro del sistema.
