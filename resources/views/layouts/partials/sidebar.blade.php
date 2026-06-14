@@ -72,6 +72,13 @@
     "
 >
 
+    {{-- Menú principal: todos los cargos --}}
+<x-menu-item
+    title="Menú principal"
+    icon="o-home"
+    link="{{ route('main') }}"
+/>
+
     {{-- Ventas: cargos 1  2 3  --}}
     @if ($puedeVerVentas)
         <x-menu-sub title="Ventas" icon="o-shopping-cart">
