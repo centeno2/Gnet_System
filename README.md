@@ -72,161 +72,39 @@ Además, cuenta con un **dashboard principal interactivo** que permite visualiza
 | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
 | <img src="https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=1200&auto=format&fit=crop" width="100%" /> | <img src="https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=1200&auto=format&fit=crop" width="100%" /> | <img src="https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?q=80&w=1200&auto=format&fit=crop" width="100%" /> |
 
-| Clientes                                                                                                                 | Compras                                                                                                               | Crédito                                                                                                               |
-| ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Clientes | Compras | Crédito |
+|---|---|---|
 | <img src="https://images.unsplash.com/photo-1521791136064-7986c2920216?q=80&w=1200&auto=format&fit=crop" width="100%" /> | <img src="https://images.unsplash.com/photo-1554224155-6726b3ff858f?q=80&w=1200&auto=format&fit=crop" width="100%" /> | <img src="https://images.unsplash.com/photo-1563013544-824ae1b704d3?q=80&w=1200&auto=format&fit=crop" width="100%" /> |
 
 ---
 
 ## Tecnologías utilizadas
 
-| Tecnología          | Uso principal                                                            |
-| ------------------- | ------------------------------------------------------------------------ |
-| **Laravel**         | Backend, rutas, modelos, validaciones y lógica del sistema               |
-| **Livewire**        | Componentes dinámicos sin recargar la página                             |
-| **MaryUI**          | Componentes visuales modernos para Laravel                               |
-| **Tailwind CSS**    | Diseño responsivo y personalización visual                               |
-| **Chart.js**        | Gráficos interactivos del dashboard principal                            |
-| **MySQL / MariaDB** | Base de datos principal del sistema                                      |
-| **Laragon**         | Entorno local de desarrollo en Windows                                   |
-| **Vite**            | Compilación de assets frontend                                           |
-| **Symfony Intl**    | Soporte para internacionalización, monedas, países y formatos regionales |
+| Tecnología | Uso principal |
+|---|---|
+| **Laravel** | Backend, rutas, modelos, validaciones y lógica del sistema |
+| **Livewire** | Componentes dinámicos sin recargar la página |
+| **MaryUI** | Componentes visuales modernos para Laravel |
+| **Tailwind CSS** | Diseño responsivo y personalización visual |
+| **MySQL** | Base de datos principal del sistema |
+| **Laragon** | Entorno local de desarrollo |
+| **Vite** | Compilación de assets frontend |
+| **TCPDF** | Generación y visualización de reportes PDF y vouchers |
 
 ---
 
-## Dependencias adicionales
+## Requisito para reportes y vouchers
 
-### Symfony Intl
+Para poder generar y visualizar correctamente los **reportes PDF** y **vouchers** dentro del sistema, se debe instalar la librería **TCPDF** y regenerar el autoload optimizado de Composer.
 
-Para el correcto funcionamiento de componentes relacionados con formatos regionales, monedas, países e internacionalización, el sistema utiliza el paquete **Symfony Intl**.
-
-Instalación:
+Ejecutar los siguientes comandos en la raíz del proyecto:
 
 ```bash
-composer require symfony/intl
+composer require tecnickcom/tcpdf
+composer dump-autoload -o
 ```
 
----
-
-### Chart.js para dashboard
-
-El dashboard principal utiliza **Chart.js** junto con los componentes de gráficos de **MaryUI** para mostrar información visual e interactiva del sistema.
-
-Esta dependencia permite renderizar gráficos como:
-
-```txt
-- Ventas por día, semana, mes o año
-- Ventas por tipo: contado y crédito
-- Estado operativo: servicios, instalaciones, créditos y stock bajo
-- Inventario agrupado por categoría
-```
-
-Instalación:
-
-```bash
-npm install chart.js
-```
-
-Después de instalarlo, verificar que `resources/js/app.js` tenga registrado Chart.js de forma global:
-
-```js
-import Chart from 'chart.js/auto';
-
-window.Chart = Chart;
-```
-
-Luego compilar o levantar Vite:
-
-```bash
-npm run dev
-```
-
-Para producción:
-
-```bash
-npm run build
-```
-
----
-
-## Solución a error de Chart.js
-
-Si al abrir el dashboard aparece un error similar a:
-
-```txt
-Failed to resolve import "chart.js/auto" from "resources/js/app.js"
-```
-
-significa que el proyecto tiene el import de Chart.js, pero la dependencia no está instalada en `node_modules`.
-
-Solución recomendada:
-
-```bash
-npm install
-npm run dev
-```
-
-Si el error continúa, instalar Chart.js directamente:
-
-```bash
-npm install chart.js
-npm run dev
-```
-
-Si Vite ya estaba abierto antes de instalar la dependencia, detenerlo con:
-
-```bash
-Ctrl + C
-```
-
-y volver a levantarlo:
-
-```bash
-npm run dev
-```
-
-También se puede limpiar la caché de Vite:
-
-```bash
-rm -rf node_modules/.vite
-npm run dev
-```
-
-Para confirmar que Chart.js está instalado:
-
-```bash
-npm ls chart.js
-```
-
-Debe aparecer una versión instalada de `chart.js`.
-
-> Importante: si `chart.js` ya está registrado en `package.json` y `package-lock.json`, cualquier persona que clone el proyecto solo necesita ejecutar `npm install`.
-
----
-
-## Instalación general del proyecto
-
-Después de clonar el repositorio, ejecutar:
-
-```bash
-composer install
-npm install
-cp .env.example .env
-php artisan key:generate
-npm run dev
-php artisan serve
-```
-
-Si se trabaja con una base de datos existente, configurar las credenciales en el archivo `.env`:
-
-```env
-DB_CONNECTION=mysql
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_DATABASE=bd_gnet
-DB_USERNAME=usuario
-DB_PASSWORD=contraseña
-```
+> Sin esta librería, los reportes y vouchers PDF pueden fallar o no mostrarse correctamente dentro del sistema.
 
 ---
 
