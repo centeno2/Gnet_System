@@ -65,43 +65,11 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
 
     public function resumen(Collection $datos): array
     {
-        $copias = $datos->where('Tipo_Detalle', 'COPIA');
-        $pendientes = $datos->filter(fn($fila) => trim((string) ($fila->Recibido_Por ?? '')) === '');
-
-        $resumen = [
+        return [
             'Institución' => $this->texto($datos->first()?->Institucion ?? 'Institución no seleccionada'),
             'Municipio' => $this->texto($datos->first()?->Municipio ?? '—'),
             'Periodo' => $this->periodoTexto(),
-            'Facturas' => number_format($datos->pluck('Id_Venta')->unique()->count()),
         ];
-
-        foreach ($this->formatosCopia() as $formatoId => $nombreFormato) {
-            $copiasFormato = $copias->where('Formato_Copia', $formatoId);
-
-            if ($copiasFormato->isEmpty()) {
-                continue;
-            }
-
-            $resumen['Copias ' . strtolower($nombreFormato)] =
-                $this->formatearCantidad((float) $copiasFormato->sum('Cantidad'))
-                . ' / '
-                . $this->formatearDinero((float) $copiasFormato->sum('Total_Linea'));
-        }
-
-        if ($copias->isNotEmpty()) {
-            $resumen['Total copias'] =
-                $this->formatearCantidad((float) $copias->sum('Cantidad'))
-                . ' / '
-                . $this->formatearDinero((float) $copias->sum('Total_Linea'));
-        }
-
-        if ($pendientes->isNotEmpty()) {
-            $resumen['Pendientes'] = number_format($pendientes->count());
-        }
-
-        $resumen['Total general'] = $this->formatearDinero((float) $datos->sum('Total_Linea'));
-
-        return $resumen;
     }
 
     public function columnas(): array

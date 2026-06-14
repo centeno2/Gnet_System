@@ -34,7 +34,7 @@ new class extends Component
             'descripcion' => 'Diseño, programación y base de datos.',
             'iniciales' => 'EC',
             'foto' => 'Engel.jpg',
-            'github' => 'https://github.com/integrante3',
+            'github' => 'https://github.com/Engel-s',
             'color' => 'from-white via-[#EAF2FB] to-[#F0F3F7]',
             'aportes' => ['Diseño', 'Programación', 'Base de datos'],
         ],
@@ -44,7 +44,7 @@ new class extends Component
             'stack' => 'Full Stack Developer',
             'descripcion' => 'Diseño, programación y base de datos.',
             'iniciales' => 'HC',
-            'foto' => 'BananCat4.jpg',
+            'foto' => 'Centeno.jpg',
             'github' => 'https://github.com/centeno2',
             'color' => 'from-[#EAF2FB] via-white to-[#F8FBFF]',
             'aportes' => ['Diseño', 'Programación', 'Base de datos'],
@@ -153,6 +153,7 @@ new class extends Component
             'delay' => -32,
             'fallback' => 'LX',
         ],
+
     ];
 };
 ?>

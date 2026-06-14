@@ -19,7 +19,7 @@ use App\Models\ContratoInstalacionCamaraProducto;
 
 new class extends Component
 {
-    // MODIFICADO: usamos los toast temporales nativos de MaryUI.
+
     use Toast;
 
     private const MONEDA_CORDOBA = 'NIO';
@@ -69,6 +69,9 @@ new class extends Component
 
     public bool $modalPendientes = false;
     public string $filtroPendientes = '';
+
+    public bool $modalContratoPdf = false;
+    public string $contratoPdfUrl = '';
 
     public string $tipoOperacion = self::TIPO_CONTADO;
 
@@ -705,6 +708,26 @@ new class extends Component
         $this->modalPendientes = true;
     }
 
+    public function abrirContratoPdf(): void
+    {
+        if (! $this->contratoInstalacionIdSeleccionado) {
+            $this->mostrarMensaje('error', 'Contrato no seleccionado', 'Primero guardá o cargá un contrato.');
+            return;
+        }
+
+        $this->contratoPdfUrl = route('ventas.instalacion-camaras.contrato', [
+            'contrato' => $this->contratoInstalacionIdSeleccionado,
+        ]);
+
+        $this->modalContratoPdf = true;
+    }
+
+    public function cerrarContratoPdf(): void
+    {
+        $this->modalContratoPdf = false;
+        $this->contratoPdfUrl = '';
+    }
+
     public function paginaAnteriorPendientes(): void
     {
         if ($this->paginaPendientes > 1) {
@@ -1099,14 +1122,15 @@ new class extends Component
 
             $contratoId = $this->crearContratoInstalacion();
 
-            $this->limpiarFormulario();
+            $this->contratoInstalacionIdSeleccionado = $contratoId;
             $this->cargarCombos();
             $this->cargarPendientes();
+            $this->cargarPendiente($contratoId, false);
 
             $this->mostrarMensaje(
                 'success',
                 'Contrato guardado',
-                'La instalación de cámaras se registró correctamente. Contrato #' . $contratoId . '.'
+                'La instalación de cámaras se registró correctamente. Ya podés generar el contrato PDF.'
             );
         } catch (\Throwable $e) {
             report($e);
@@ -2888,6 +2912,12 @@ new class extends Component
                             label="{{ $contratoInstalacionIdSeleccionado ? ($tipoOperacion === 'CREDITO' ? 'Actualizar crédito' : 'Actualizar contrato') : ($tipoOperacion === 'CREDITO' ? 'Guardar crédito' : 'Guardar contrato') }}"
                             wire:click="guardar" spinner="guardar"
                             class="mt-3 h-11 min-h-11 w-full rounded-xl border-0 bg-[#2E8BC0] text-sm font-black text-white hover:bg-[#0B6FE4]" />
+
+                        @if($contratoInstalacionIdSeleccionado)
+                        <x-button icon="o-document-text" label="Ver contrato" wire:click="abrirContratoPdf"
+                            spinner="abrirContratoPdf"
+                            class="mt-2 h-11 min-h-11 w-full rounded-xl border border-[#D7E4F3] bg-white text-sm font-black text-[#1A2B42] hover:bg-[#F7F9FC]" />
+                        @endif
                     </x-card>
 
 
@@ -3003,6 +3033,42 @@ new class extends Component
         <x-slot:actions>
             <x-button label="Cerrar" wire:click="$set('modalPendientes', false)"
                 class="rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42]" />
+        </x-slot:actions>
+    </x-modal>
+
+    <x-modal wire:model="modalContratoPdf" class="backdrop-blur-sm"
+        box-class="w-[96vw] max-w-6xl rounded-3xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
+        <div class="space-y-4">
+            <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                <div>
+                    <h3 class="text-2xl font-black text-[#1A2B42]">Contrato de instalación</h3>
+                    <p class="mt-1 text-sm font-semibold text-[#5F6B7A]">
+                        Revisá el contrato antes de imprimirlo o entregarlo para firma.
+                    </p>
+                </div>
+
+                @if($contratoInstalacionIdSeleccionado)
+                <span class="rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-black text-[#0B6FE4]">
+                    Contrato #{{ $contratoInstalacionIdSeleccionado }}
+                </span>
+                @endif
+            </div>
+
+            <div class="overflow-hidden rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC]">
+                @if($contratoPdfUrl !== '')
+                <iframe src="{{ $contratoPdfUrl }}#toolbar=0&navpanes=0&scrollbar=1&view=FitH" loading="eager"
+                    class="h-[76vh] w-full bg-white"></iframe>
+                @else
+                <div class="px-4 py-16 text-center text-sm font-bold text-[#5F6B7A]">
+                    No hay contrato para mostrar.
+                </div>
+                @endif
+            </div>
+        </div>
+
+        <x-slot:actions>
+            <x-button label="Cerrar" type="button" wire:click="cerrarContratoPdf"
+                class="rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]" />
         </x-slot:actions>
     </x-modal>
 

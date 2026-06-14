@@ -1857,7 +1857,8 @@ private function nombreProveedorReporte(Proveedor $proveedor): string
             };
             @endphp
 
-            <article wire:key="reporte-{{ $reporte['id'] }}-{{ match ($reporte['id']) { 'planilla-pago' => $planillaModo, 'credito-factura' => $creditoFacturaVista, 'servicio-tecnico-factura' => $servicioTecnicoEstado, 'instalacion-camara-factura' => $instalacionCamaraEstado, default => 'normal' } }}"
+            <article
+                wire:key="reporte-{{ $reporte['id'] }}-{{ match ($reporte['id']) { 'planilla-pago' => $planillaModo, 'credito-factura' => $creditoFacturaVista, 'servicio-tecnico-factura' => $servicioTecnicoEstado, 'instalacion-camara-factura' => $instalacionCamaraEstado, default => 'normal' } }}"
                 class="group flex min-h-58 flex-col rounded-2xl border border-[#D7E4F3] bg-white p-3 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#B7D6F2] hover:shadow-md">
                 <div class="mb-3 flex items-start gap-2.5">
                     <div
@@ -1883,11 +1884,11 @@ private function nombreProveedorReporte(Proveedor $proveedor): string
                     $mostrarCampo = true;
 
                     if (! empty($campo['mostrar_si'])) {
-                        $modeloCondicion = $campo['mostrar_si']['model'] ?? '';
-                        $valorCondicion = $campo['mostrar_si']['value'] ?? null;
-                        $mostrarCampo = is_string($modeloCondicion)
-                            && property_exists($this, $modeloCondicion)
-                            && $this->{$modeloCondicion} === $valorCondicion;
+                    $modeloCondicion = $campo['mostrar_si']['model'] ?? '';
+                    $valorCondicion = $campo['mostrar_si']['value'] ?? null;
+                    $mostrarCampo = is_string($modeloCondicion)
+                    && property_exists($this, $modeloCondicion)
+                    && $this->{$modeloCondicion} === $valorCondicion;
                     }
                     @endphp
 
@@ -1905,7 +1906,7 @@ private function nombreProveedorReporte(Proveedor $proveedor): string
                         $accionSeleccion = $campo['accion'] ?? '';
 
                         if (is_string($coincidenciasCampo) && property_exists($this, $coincidenciasCampo)) {
-                            $coincidenciasReporte = $this->{$coincidenciasCampo};
+                        $coincidenciasReporte = $this->{$coincidenciasCampo};
                         }
                         @endphp
 
@@ -1951,7 +1952,8 @@ private function nombreProveedorReporte(Proveedor $proveedor): string
                                     </span>
 
                                     <span class="block truncate font-semibold text-[#5F6B7A]">
-                                        {{ $factura['fecha'] }} · {{ $factura['estado'] }} · Saldo {{ $factura['saldo'] }}
+                                        {{ $factura['fecha'] }} · {{ $factura['estado'] }} · Saldo {{ $factura['saldo']
+                                        }}
                                     </span>
                                 </button>
                                 @endforeach
