@@ -187,7 +187,7 @@ new class extends Component
         $this->notificar(
             'warning',
             'Opción no disponible',
-            "No se puede {$accion} porque la planilla del periodo actual ya fue generada."
+            "Periodo cerrado para {$accion}."
         );
 
         return true;
@@ -203,7 +203,7 @@ new class extends Component
             $this->resetPage('comprobantePage');
             $this->modalComprobante = true;
 
-            $this->notificar('info', 'Planilla existente', 'Ya existe una planilla para el periodo actual. Se cargó el comprobante.');
+            $this->notificar('info', 'Planilla existente', 'Comprobante cargado.');
             return;
         }
 
@@ -221,7 +221,7 @@ new class extends Component
         $this->notificar(
             'info',
             'Aguinaldo trimestral',
-            'El aguinaldo ya se aplica automáticamente dentro de la planilla normal del segundo corte de marzo, junio, septiembre y diciembre.'
+            'Se aplica en la planilla normal del segundo corte trimestral.'
         );
     }
 
@@ -242,7 +242,7 @@ new class extends Component
                 $this->resetPage('detallesPage');
             }
 
-            $this->notificar('info', 'Planilla existente', 'No se duplicó el periodo. Se cargó el comprobante.');
+            $this->notificar('info', 'Planilla existente', 'Comprobante cargado.');
             return;
         }
 
@@ -270,7 +270,7 @@ new class extends Component
         $this->modalConfirmarPlanilla = false;
         $this->modalComprobante = true;
 
-        $this->notificar('success', 'Planilla generada', 'La planilla fue generada y marcada como pagada.');
+        $this->notificar('success', 'Planilla generada', 'Marcada como pagada.');
     }
 
     private function procesarPlanillaPagada(array $ids, string $tipo): Planilla
@@ -338,7 +338,7 @@ new class extends Component
         ]);
 
         $this->modalIncentivo = false;
-        $this->notificar('success', 'Incentivo registrado', 'Quedó listo para la planilla del periodo actual.');
+        $this->notificar('success', 'Incentivo registrado', 'Pendiente de aplicar.');
     }
 
     public function registrarDeduccion(): void
@@ -371,7 +371,7 @@ new class extends Component
         ]);
 
         $this->modalDeduccion = false;
-        $this->notificar('success', 'Deducción registrada', 'Quedó lista para la planilla del periodo actual.');
+        $this->notificar('success', 'Deducción registrada', 'Pendiente de aplicar.');
     }
 
     public function registrarVacaciones(): void
@@ -437,7 +437,7 @@ new class extends Component
         });
 
         $this->modalVacaciones = false;
-        $this->notificar('success', 'Vacaciones registradas', 'El saldo del trabajador fue actualizado.');
+        $this->notificar('success', 'Vacaciones registradas', 'Saldo actualizado.');
     }
 
     public function liquidarTrabajador(): void
@@ -517,7 +517,7 @@ new class extends Component
         $this->resetPage('comprobantePage');
         $this->modalComprobante = true;
 
-        $this->notificar('success', 'Liquidación generada', 'Se abrió el comprobante individual y el trabajador fue retirado del listado activo.');
+        $this->notificar('success', 'Liquidación generada', 'Comprobante cargado.');
     }
 
     private function crearDetallePlanilla(Planilla $planilla, Trabajador $trabajador, Carbon $desde, Carbon $hasta, string $tipo): DetallePlanilla
@@ -606,7 +606,7 @@ new class extends Component
             'Fecha_Pago' => Carbon::now(),
             'Monto_Pagado' => $this->numeroSeguro($detalle->Total_Neto),
             'Metodo_Pago' => PagoPlanilla::METODO_EFECTIVO,
-            'Observacion' => 'Pago generado automáticamente al crear la planilla.',
+            'Observacion' => 'Pago de planilla.',
         ]);
     }
 
@@ -644,7 +644,7 @@ new class extends Component
             'Fecha_Movimiento' => $fecha,
             'Tipo_Movimiento' => MovimientoVacacion::TIPO_PAGADA,
             'Dias' => $dias,
-            'Observacion' => 'Vacaciones acumuladas liquidadas.',
+            'Observacion' => 'Vacaciones liquidadas.',
         ]);
     }
 
@@ -765,7 +765,7 @@ new class extends Component
         $planilla = $this->planillaActual();
 
         if (! $planilla) {
-            $this->notificar('warning', 'Sin planilla', 'Todavía no hay una planilla generada para este periodo.');
+            $this->notificar('warning', 'Sin planilla', 'No hay planilla generada.');
             return;
         }
 
@@ -1782,9 +1782,6 @@ new class extends Component
     <div class="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
         <div>
             <h1 class="text-2xl md:text-3xl font-bold text-[#1A2B42]">Gestión de planilla</h1>
-            <p class="mt-1 text-sm text-[#111827]">
-                Control del periodo actual de pagos, incentivos, deducciones, vacaciones, aguinaldo y liquidaciones.
-            </p>
         </div>
 
         <div class="flex flex-wrap gap-2">
@@ -1880,7 +1877,7 @@ new class extends Component
                     @if($planillaActual)
                     {{ 'Planilla #' . $planillaActual->Id_Planilla . ' - ' . $planillaActual->Estado }}
                     @else
-                    La planilla normal incluirá automáticamente a todos los trabajadores activos.
+                    Trabajadores activos disponibles para el periodo.
                     @endif
                 </p>
             </div>
@@ -1901,8 +1898,7 @@ new class extends Component
 
         @if(! $planillaActual && $this->aguinaldoTrimestralDisponible())
         <div class="mb-4 rounded-2xl border border-[#D7E4F3] bg-[#EAF2FB] p-4 text-sm text-[#1A2B42]">
-            En este segundo corte se aplicará automáticamente el aguinaldo proporcional del trimestre
-            <strong>{{ $this->trimestreTexto() }}</strong>. Ejemplo: salario mensual ÷ 12 × 3.
+            Incluye aguinaldo trimestral proporcional: <strong>{{ $this->trimestreTexto() }}</strong>.
         </div>
         @endif
 
@@ -2018,18 +2014,12 @@ new class extends Component
         <div class="space-y-4 text-[#111827]">
             @if($this->aguinaldoTrimestralDisponible())
             <x-alert icon="o-banknotes" class="alert-info">
-                <span>
-                    Este periodo incluye aguinaldo trimestral automático: salario mensual ÷ 12 × 3,
-                    proporcional cuando el trabajador ingresó dentro del trimestre.
-                </span>
+                <span>Este periodo incluye aguinaldo trimestral proporcional.</span>
             </x-alert>
             @endif
 
             <x-alert icon="o-exclamation-triangle" class="alert-warning">
-                <span>
-                    Al confirmar, la planilla será generada como <strong>PAGADA</strong>. No se podrán registrar
-                    incentivos, deducciones ni cambios sobre este mismo periodo después de generarla.
-                </span>
+                <span>Al confirmar, la planilla será generada como <strong>PAGADA</strong>.</span>
             </x-alert>
 
             <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -2195,9 +2185,6 @@ new class extends Component
                 <x-select :options="$trabajadorOptions" option-value="id" option-label="name"
                     wire:model="formTrabajadorId" placeholder="Seleccione un trabajador"
                     class="bg-[#F0F3F7] text-[#111827]" />
-                <p class="mt-1 text-xs text-[#5F6B7A]">
-                    Escriba para buscar; solo se envían resultados pequeños a Livewire.
-                </p>
                 @error('formTrabajadorId') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
 
@@ -2246,9 +2233,6 @@ new class extends Component
                 <x-select :options="$trabajadorOptions" option-value="id" option-label="name"
                     wire:model="formTrabajadorId" placeholder="Seleccione un trabajador"
                     class="bg-[#F0F3F7] text-[#111827]" />
-                <p class="mt-1 text-xs text-[#5F6B7A]">
-                    Escriba para buscar; solo se envían resultados pequeños a Livewire.
-                </p>
                 @error('formTrabajadorId') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
 
@@ -2297,9 +2281,6 @@ new class extends Component
                 <x-select :options="$trabajadorOptions" option-value="id" option-label="name"
                     wire:model="formTrabajadorId" placeholder="Seleccione un trabajador"
                     class="bg-[#F0F3F7] text-[#111827]" />
-                <p class="mt-1 text-xs text-[#5F6B7A]">
-                    Escriba para buscar; solo se envían resultados pequeños a Livewire.
-                </p>
                 @error('formTrabajadorId') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
 
@@ -2345,10 +2326,6 @@ new class extends Component
 
     <x-modal wire:model="modalLiquidacion" title="Liquidar trabajador" separator
         box-class="bg-white text-[#111827] border border-[#D7E4F3] rounded-2xl shadow-xl">
-        <div class="mb-4 rounded-2xl border border-[#D7E4F3] bg-[#EAF2FB] p-4 text-sm text-[#1A2B42]">
-            La liquidación se genera como una planilla individual. Al confirmar, se abre su comprobante y el trabajador se retira del listado activo sin cerrar la planilla normal del periodo.
-        </div>
-
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2 text-[#111827]">
             <div class="md:col-span-2">
                 <p class="mb-2 text-sm font-semibold text-[#1A2B42]">Trabajador</p>
@@ -2357,9 +2334,6 @@ new class extends Component
                 <x-select :options="$trabajadorOptions" option-value="id" option-label="name"
                     wire:model="formTrabajadorId" placeholder="Seleccione un trabajador"
                     class="bg-[#F0F3F7] text-[#111827]" />
-                <p class="mt-1 text-xs text-[#5F6B7A]">
-                    Escriba para buscar; solo se envían resultados pequeños a Livewire.
-                </p>
                 @error('formTrabajadorId') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
 
