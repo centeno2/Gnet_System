@@ -49,6 +49,15 @@ new class extends Component
 
     public array $metodosPagoOptions = [];
     public array $detalleCredito = [];
+    public array $detalleCreditoCompleto = [];
+    public array $porPaginaCreditosOptions = [];
+    public array $paginasCreditos = [1];
+
+    public int $paginaCreditos = 1;
+    public int $porPaginaCreditos = 3;
+    public int $totalPaginasCreditos = 1;
+    public int $totalFilasCreditos = 0;
+
     public array $headersDetalle = [];
 
     public bool $modalVoucherCredito = false;
@@ -67,14 +76,22 @@ new class extends Component
             ['id' => 'deposito', 'name' => 'Depósito'],
         ];
 
+        $this->porPaginaCreditosOptions = [
+            ['id' => 3, 'name' => '3'],
+            ['id' => 5, 'name' => '5'],
+            ['id' => 10, 'name' => '10'],
+            ['id' => 15, 'name' => '15'],
+            ['id' => 25, 'name' => '25'],
+        ];
+
         $this->headersDetalle = [
-            ['key' => 'codigo', 'label' => 'Crédito', 'class' => 'min-w-[110px]'],
-            ['key' => 'fecha_credito', 'label' => 'Fecha', 'class' => 'min-w-[135px]'],
-            ['key' => 'factura', 'label' => 'Factura', 'class' => 'min-w-[130px]'],
-            ['key' => 'total', 'label' => 'Total crédito', 'class' => 'min-w-[150px]'],
-            ['key' => 'abonado', 'label' => 'Abonado', 'class' => 'min-w-[140px]'],
-            ['key' => 'pendiente', 'label' => 'Pendiente', 'class' => 'min-w-[150px]'],
-            ['key' => 'estado', 'label' => 'Estado', 'class' => 'min-w-[120px]'],
+            ['key' => 'codigo', 'label' => 'Crédito', 'class' => 'w-[95px] min-w-[95px]'],
+            ['key' => 'fecha_credito', 'label' => 'Fecha', 'class' => 'w-[100px] min-w-[100px]'],
+            ['key' => 'factura', 'label' => 'Factura', 'class' => 'w-[190px] min-w-[190px]'],
+            ['key' => 'total', 'label' => 'Total crédito', 'class' => 'w-[130px] min-w-[130px]'],
+            ['key' => 'abonado', 'label' => 'Abonado', 'class' => 'w-[120px] min-w-[120px]'],
+            ['key' => 'pendiente', 'label' => 'Pendiente', 'class' => 'w-[130px] min-w-[130px]'],
+            ['key' => 'estado', 'label' => 'Estado', 'class' => 'w-[95px] min-w-[95px]'],
         ];
     }
 
@@ -113,6 +130,13 @@ new class extends Component
     {
         $this->tasaCambio = $this->obtenerTasaCambioDelDia();
         $this->calcularSaldoFavorVista();
+    }
+
+    public function updatedPorPaginaCreditos(): void
+    {
+        $this->porPaginaCreditos = max(1, (int) $this->porPaginaCreditos);
+        $this->paginaCreditos = 1;
+        $this->actualizarDetalleCreditoPaginado();
     }
 
     protected function buscarSugerenciasCredito(): void
@@ -294,7 +318,7 @@ new class extends Component
 
             $this->notificar(
                 type: 'error',
-                title: 'Revisa los datos',
+                title: 'Datos inválidos',
                 description: $validator->errors()->first()
             );
 
@@ -550,7 +574,7 @@ new class extends Component
             $this->notificar(
                 type: 'error',
                 title: 'No se pudo registrar',
-                description: collect($e->errors())->flatten()->first() ?? 'Revisa los datos del cliente.'
+                description: collect($e->errors())->flatten()->first() ?? 'No se pudo validar el cliente.'
             );
 
             return;
@@ -888,10 +912,87 @@ new class extends Component
         $this->saldoOriginal = $this->formatoMoneda($resumen['saldo_original_valor']);
         $this->saldoPendiente = $this->formatoMoneda($resumen['saldo_pendiente_valor']);
 
-        $this->detalleCredito = $this->mapearDetalleCreditosCliente($creditos);
+        $this->detalleCreditoCompleto = $this->mapearDetalleCreditosCliente($creditos);
+        $this->paginaCreditos = 1;
+        $this->actualizarDetalleCreditoPaginado();
 
         $this->limpiarPago();
         $this->calcularSaldoFavorVista();
+    }
+
+    protected function actualizarDetalleCreditoPaginado(): void
+    {
+        $this->porPaginaCreditos = max(1, (int) $this->porPaginaCreditos);
+        $this->totalFilasCreditos = count($this->detalleCreditoCompleto);
+        $this->totalPaginasCreditos = max((int) ceil($this->totalFilasCreditos / $this->porPaginaCreditos), 1);
+
+        if ($this->paginaCreditos > $this->totalPaginasCreditos) {
+            $this->paginaCreditos = $this->totalPaginasCreditos;
+        }
+
+        if ($this->paginaCreditos < 1) {
+            $this->paginaCreditos = 1;
+        }
+
+        $inicio = ($this->paginaCreditos - 1) * $this->porPaginaCreditos;
+        $this->detalleCredito = array_slice($this->detalleCreditoCompleto, $inicio, $this->porPaginaCreditos);
+        $this->paginasCreditos = $this->resolverPaginasCreditos();
+    }
+
+    protected function resolverPaginasCreditos(): array
+    {
+        $paginas = collect([
+            1,
+            $this->totalPaginasCreditos,
+            $this->paginaCreditos - 1,
+            $this->paginaCreditos,
+            $this->paginaCreditos + 1,
+        ])
+            ->filter(fn ($pagina) => $pagina >= 1 && $pagina <= $this->totalPaginasCreditos)
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+
+        $resultado = [];
+        $paginaAnterior = null;
+
+        foreach ($paginas as $pagina) {
+            if ($paginaAnterior !== null && $pagina - $paginaAnterior > 1) {
+                $resultado[] = null;
+            }
+
+            $resultado[] = (int) $pagina;
+            $paginaAnterior = (int) $pagina;
+        }
+
+        return $resultado ?: [1];
+    }
+
+    public function irPaginaCreditos(int $pagina): void
+    {
+        $this->paginaCreditos = max(1, min($pagina, $this->totalPaginasCreditos));
+        $this->actualizarDetalleCreditoPaginado();
+    }
+
+    public function anteriorPaginaCreditos(): void
+    {
+        $this->irPaginaCreditos($this->paginaCreditos - 1);
+    }
+
+    public function siguientePaginaCreditos(): void
+    {
+        $this->irPaginaCreditos($this->paginaCreditos + 1);
+    }
+
+    protected function resetearPaginadoCreditos(): void
+    {
+        $this->detalleCreditoCompleto = [];
+        $this->detalleCredito = [];
+        $this->paginaCreditos = 1;
+        $this->totalPaginasCreditos = 1;
+        $this->totalFilasCreditos = 0;
+        $this->paginasCreditos = [1];
     }
 
     protected function mapearDetalleCreditosCliente($creditos): array
@@ -950,7 +1051,7 @@ new class extends Component
         $this->saldoOriginal = '0.00';
         $this->saldoPendiente = '0.00';
         $this->totalCreditosPendientes = 0;
-        $this->detalleCredito = [];
+        $this->resetearPaginadoCreditos();
 
         if ($limpiarPago) {
             $this->limpiarPago();
@@ -1119,12 +1220,15 @@ $pagoBloqueado = $idClienteCreditoSeleccionado === 0
 || (float) str_replace(',', '', $saldoPendiente) <= 0;
     $estadoClass=$estadoCredito===\App\Models\Credito::ESTADO_CANCELADO ? 'bg-green-100 text-green-700' :
     ($estadoCredito===\App\Models\Credito::ESTADO_VENCIDO ? 'bg-red-100 text-red-700' : 'bg-[#EAF4FD] text-[#0B6FE4]' );
+
+$inicioCreditos = $totalFilasCreditos === 0 ? 0 : (($paginaCreditos - 1) * $porPaginaCreditos) + 1;
+$finCreditos = min($paginaCreditos * $porPaginaCreditos, $totalFilasCreditos);
     @endphp <div
-    class="flex h-[calc(100vh-3rem)] min-h-0 w-full flex-col gap-4 overflow-hidden bg-[#F0F3F7] px-4 py-4 md:px-6 md:py-5">
+    class="flex min-h-[calc(100vh-3rem)] w-full flex-col gap-3 overflow-y-auto overflow-x-hidden bg-[#F0F3F7] px-4 py-3 md:px-5 md:py-4">
     <x-toast />
 
     <div class="flex shrink-0 items-center justify-between">
-        <h1 class="text-2xl font-bold text-[#1A2B42]">Gestión de Créditos</h1>
+        <h1 class="text-[1.65rem] font-bold leading-none text-[#1A2B42]">Gestión de Créditos</h1>
 
         @if ($idClienteCreditoSeleccionado > 0)
         <span
@@ -1134,12 +1238,14 @@ $pagoBloqueado = $idClienteCreditoSeleccionado === 0
         @endif
     </div>
 
-    <div class="grid min-h-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div class="flex min-h-0 flex-col gap-4 overflow-hidden">
-            <x-card title="Buscar cliente con crédito" shadow separator class="{{ $cardClass }}">
+    <div class="grid min-h-0 grid-cols-1 items-start gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(380px,400px)]">
+        <div class="flex min-h-0 flex-col gap-3 overflow-visible">
+            <x-card shadow class="{{ $cardClass }} [&_.card-body]:gap-0 [&_.card-body]:p-4">
+                <h2 class="mb-3 text-xl font-bold leading-none text-[#1A2B42]">Buscar cliente con crédito</h2>
+
                 <div class="relative">
                     <x-input label="Cliente" wire:model.live.debounce.300ms="valorBusqueda"
-                        placeholder="Ej: Comercial Norte, Juan Pérez, cédula, RUC o teléfono" icon="o-magnifying-glass"
+                        placeholder="Buscar por cliente, RUC, cédula o teléfono" icon="o-magnifying-glass"
                         autocomplete="off" class="{{ $fieldClass }}" />
 
                     @if ($mostrarSugerenciasCredito && count($sugerenciasCredito))
@@ -1180,30 +1286,30 @@ $pagoBloqueado = $idClienteCreditoSeleccionado === 0
                     @endif
                 </div>
 
-                <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-4">
-                    <div class="min-w-0 rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
+                <div class="mt-3 grid grid-cols-1 gap-2.5 md:grid-cols-2 2xl:grid-cols-4">
+                    <div class="min-w-0 rounded-xl border border-[#D7E4F3] bg-[#F8FAFC] p-2.5">
                         <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Cliente</p>
                         <p class="mt-1 truncate text-sm font-bold text-[#1A2B42]">{{ $cliente ?: '—' }}</p>
                         <p class="mt-1 truncate text-xs text-[#5F6B7A]">{{ $cedula ?: 'Sin documento' }}</p>
                     </div>
 
-                    <div class="min-w-0 rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
+                    <div class="min-w-0 rounded-xl border border-[#D7E4F3] bg-[#F8FAFC] p-2.5">
                         <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Cuenta</p>
                         <p class="mt-1 truncate text-sm font-bold text-[#1A2B42]">{{ $codigoCredito ?: '—' }}</p>
                         <p class="mt-1 text-xs text-[#5F6B7A]">Créditos pendientes: {{ $totalCreditosPendientes }}</p>
                     </div>
 
-                    <div class="min-w-0 rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
+                    <div class="min-w-0 rounded-xl border border-[#D7E4F3] bg-[#F8FAFC] p-2.5">
                         <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Total original</p>
-                        <p class="mt-1 text-base font-black text-[#1A2B42]">C$ {{ $saldoOriginal }}</p>
+                        <p class="mt-1 text-[0.98rem] font-black text-[#1A2B42]">C$ {{ $saldoOriginal }}</p>
                     </div>
 
-                    <div class="min-w-0 rounded-2xl border border-[#D7E4F3] bg-[#F8FAFC] p-3">
+                    <div class="min-w-0 rounded-xl border border-[#D7E4F3] bg-[#F8FAFC] p-2.5">
                         <div class="flex items-start justify-between gap-2">
                             <div class="min-w-0">
                                 <p class="text-xs font-semibold uppercase tracking-wide text-[#5F6B7A]">Total pendiente
                                 </p>
-                                <p class="mt-1 text-base font-black text-[#1A2B42]">C$ {{ $saldoPendiente }}</p>
+                                <p class="mt-1 text-[0.98rem] font-black text-[#1A2B42]">C$ {{ $saldoPendiente }}</p>
                             </div>
 
                             <span
@@ -1216,28 +1322,97 @@ $pagoBloqueado = $idClienteCreditoSeleccionado === 0
                 </div>
             </x-card>
 
-            <x-card title="Créditos pendientes del cliente" shadow separator
-                class="flex min-h-0 flex-1 flex-col {{ $cardClass }}">
-                <div class="min-h-57.5 max-h-90 overflow-hidden rounded-2xl border border-[#D7E4F3]">
-                    <div class="h-full max-h-90 overflow-auto overscroll-contain">
+            <x-card shadow
+                class="flex min-h-0 shrink-0 flex-col overflow-hidden {{ $cardClass }} [&_.card-body]:gap-0 [&_.card-body]:p-3">
+                <div class="mb-1.5 flex flex-col gap-1.5 md:flex-row md:items-start md:justify-between">
+                    <div class="min-w-0">
+                        <h2 class="text-lg font-bold leading-none text-[#1A2B42]">Créditos pendientes del cliente</h2>
+                        <p class="mt-1 text-sm font-semibold text-[#5F6B7A]">
+                            Mostrando {{ $inicioCreditos }} - {{ $finCreditos }} de {{ $totalFilasCreditos }} crédito(s)
+                        </p>
+                    </div>
+
+                    <div class="flex shrink-0 items-center gap-2">
+                        <span class="text-xs font-semibold text-[#5F6B7A]">Filas</span>
+                        <x-select wire:model.live="porPaginaCreditos" :options="$porPaginaCreditosOptions"
+                            option-value="id" option-label="name" class="{{ $fieldClass }} w-[5.5rem]" />
+                    </div>
+                </div>
+
+                <div class="h-[145px] min-h-[145px] max-h-[145px] w-full min-w-0 overflow-hidden rounded-xl border border-[#D7E4F3]">
+                    <div class="h-full w-full min-w-0 overflow-auto overscroll-contain">
                         <x-table :headers="$headersDetalle" :rows="$detalleCredito" no-hover
-                            class="min-w-245 [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:text-white [&_thead_th]:font-semibold [&_tbody_td]:border-[#D7E4F3] [&_tbody_td]:text-[#1A2B42] [&_tbody_tr:hover]:bg-[#EAF4FD]!">
+                            class="w-full min-w-[860px] table-fixed text-sm [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:border-0 [&_thead_th]:bg-[#2E8BC0] [&_thead_th]:px-3 [&_thead_th]:py-1.5 [&_thead_th]:font-semibold [&_thead_th]:text-white [&_thead_th]:whitespace-nowrap [&_tbody_td]:border-[#D7E4F3] [&_tbody_td]:px-3 [&_tbody_td]:py-1.5 [&_tbody_td]:text-[#1A2B42] [&_tbody_td]:whitespace-nowrap [&_tbody_tr:hover]:bg-[#EAF4FD]!">
+                            @scope('cell_codigo', $fila)
+                            <span class="block truncate font-semibold text-[#1A2B42]" title="{{ $fila['codigo'] }}">{{ $fila['codigo'] }}</span>
+                            @endscope
+
+                            @scope('cell_fecha_credito', $fila)
+                            <span class="block truncate" title="{{ $fila['fecha_credito'] }}">{{ $fila['fecha_credito'] }}</span>
+                            @endscope
+
+                            @scope('cell_factura', $fila)
+                            <span class="block truncate" title="{{ $fila['factura'] }}">{{ $fila['factura'] }}</span>
+                            @endscope
+
+                            @scope('cell_total', $fila)
+                            <span class="block truncate" title="{{ $fila['total'] }}">{{ $fila['total'] }}</span>
+                            @endscope
+
+                            @scope('cell_abonado', $fila)
+                            <span class="block truncate" title="{{ $fila['abonado'] }}">{{ $fila['abonado'] }}</span>
+                            @endscope
+
+                            @scope('cell_pendiente', $fila)
+                            <span class="block truncate font-semibold text-[#1A2B42]" title="{{ $fila['pendiente'] }}">{{ $fila['pendiente'] }}</span>
+                            @endscope
+
                             @scope('cell_estado', $fila)
                             <span
-                                class="{{ $fila['estado'] === \App\Models\Credito::ESTADO_VENCIDO ? 'bg-red-100 text-red-700' : 'bg-[#EAF4FD] text-[#0B6FE4]' }} inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">
+                                class="{{ $fila['estado'] === \App\Models\Credito::ESTADO_VENCIDO ? 'bg-red-100 text-red-700' : 'bg-[#EAF4FD] text-[#0B6FE4]' }} inline-flex max-w-full truncate rounded-full px-2.5 py-1 text-xs font-semibold"
+                                title="{{ $fila['estado'] }}">
                                 {{ ucfirst(strtolower($fila['estado'])) }}
                             </span>
                             @endscope
                         </x-table>
                     </div>
                 </div>
+
+                @if ($totalFilasCreditos > 0)
+                <div class="mt-1.5 flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between">
+                    <p class="text-xs font-semibold text-[#5F6B7A]">
+                        Página {{ $paginaCreditos }} de {{ $totalPaginasCreditos }}
+                    </p>
+
+                    <div class="flex flex-wrap items-center gap-1.5">
+                        <x-button label="Anterior" icon="o-chevron-left" wire:click="anteriorPaginaCreditos"
+                            class="btn-sm border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]"
+                            :disabled="$paginaCreditos <= 1" />
+
+                        @foreach ($paginasCreditos as $pagina)
+                        @if ($pagina === null)
+                        <span class="px-1 text-sm font-bold text-[#7B8794]">...</span>
+                        @else
+                        <x-button label="{{ $pagina }}" wire:click="irPaginaCreditos({{ $pagina }})"
+                            class="{{ $pagina === $paginaCreditos ? 'btn-sm border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]' : 'btn-sm border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]' }}" />
+                        @endif
+                        @endforeach
+
+                        <x-button label="Siguiente" icon-right="o-chevron-right" wire:click="siguientePaginaCreditos"
+                            class="btn-sm border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]"
+                            :disabled="$paginaCreditos >= $totalPaginasCreditos" />
+                    </div>
+                </div>
+                @endif
             </x-card>
         </div>
 
-        <aside class="flex min-h-0 flex-col gap-4 overflow-hidden xl:sticky xl:top-4 xl:max-h-[calc(100vh-5rem)]">
-            <x-card title="Registrar pago a cuenta" shadow separator class="{{ $cardClass }}">
+        <aside class="flex min-h-0 flex-col gap-3 overflow-visible xl:sticky xl:top-3 xl:max-h-none">
+            <x-card shadow class="{{ $cardClass }} [&_.card-body]:gap-0 [&_.card-body]:p-4">
+                <h2 class="mb-3 text-xl font-bold leading-none text-[#1A2B42]">Registrar pago a cuenta</h2>
+
                 <x-form wire:submit="registrarPago" no-separator>
-                    <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
+                    <div class="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-2">
                         <x-input label="Total pendiente" wire:model="saldoPendiente" prefix="C$" readonly
                             class="{{ $readonlyFieldClass }}" />
 
@@ -1260,17 +1435,17 @@ $pagoBloqueado = $idClienteCreditoSeleccionado === 0
                             class="{{ $readonlyFieldClass }}" />
 
                         <x-input label="Referencia" wire:model="referenciaPago"
-                            placeholder="Voucher, recibo o transferencia" :disabled="$pagoBloqueado"
+                            placeholder="Voucher o transferencia" :disabled="$pagoBloqueado"
                             class="{{ $fieldClass }} md:col-span-2" />
                     </div>
 
-                    <div class="mt-3">
-                        <x-textarea label="Observación" wire:model="observacion" rows="3"
-                            placeholder="Detalle breve del pago realizado..." :disabled="$pagoBloqueado"
+                    <div class="mt-2.5">
+                        <x-textarea label="Observación" wire:model="observacion" rows="2"
+                            placeholder="Observación del pago" :disabled="$pagoBloqueado"
                             class="{{ $fieldClass }}" />
                     </div>
 
-                    <div class="sticky bottom-0 -mx-1 mt-4 border-t border-[#D7E4F3] bg-white/95 pt-3 backdrop-blur">
+                    <div class="mt-3 border-t border-[#D7E4F3] bg-white pt-3">
                         <x-button label="Guardar pago" type="submit" spinner="registrarPago" icon="o-check-circle"
                             class="{{ $primaryButtonClass }} w-full" :disabled="$pagoBloqueado" />
                     </div>
@@ -1284,7 +1459,7 @@ $pagoBloqueado = $idClienteCreditoSeleccionado === 0
         <div class="mb-4">
             <h3 class="text-2xl font-bold text-[#1A2B42]">Voucher de crédito</h3>
             <p class="mt-1 text-sm text-[#5F6B7A]">
-                {{ $ultimoReciboCreditoNumero ?: 'Pago registrado' }} · Se genera automáticamente al guardar el pago.
+                {{ $ultimoReciboCreditoNumero ?: 'Pago registrado' }}
             </p>
         </div>
 
