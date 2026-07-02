@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AbonoCredito;
 use App\Models\AperturaCaja;
 use App\Models\ArqueoCaja;
 use App\Models\DetalleArqueo;
@@ -7,7 +8,6 @@ use App\Models\Egresos;
 use App\Models\PagoVenta;
 use App\Models\TasaCambio;
 use App\Models\Venta;
-use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use Mary\Traits\Toast;
 
@@ -145,6 +145,11 @@ new class extends Component
         );
     }
 
+    private function transaccion(callable $callback): mixed
+    {
+        return (new AperturaCaja())->getConnection()->transaction($callback);
+    }
+
     private function cerrarCajasAbiertasAnterioresAHoy(): int
     {
         return $this->cerrarCajasAutomaticamente(false);
@@ -153,7 +158,7 @@ new class extends Component
     private function cerrarCajasAutomaticamente(bool $incluirHoy = false, ?int $soloUsuarioId = null): int
     {
         try {
-            return DB::transaction(function () use ($incluirHoy, $soloUsuarioId) {
+            return $this->transaccion(function () use ($incluirHoy, $soloUsuarioId) {
                 $aperturas = AperturaCaja::query()
                     ->where('Estado_Apertura', AperturaCaja::ABIERTO)
                     ->when(
@@ -252,48 +257,47 @@ new class extends Component
         mixed $finCaja,
         float $montoApertura
     ): array {
-        $tablaPagos = (new PagoVenta())->getTable();
-        $tablaVentas = (new Venta())->getTable();
+        $ventasActivasDelUsuario = Venta::query()
+            ->select('Id_Venta')
+            ->where('Id_Usuario', $usuarioId)
+            ->where('Estado', Venta::ESTADO_ACTIVA);
 
-        $basePagosEfectivo = DB::table($tablaPagos . ' as pv')
-            ->join($tablaVentas . ' as v', 'v.Id_Venta', '=', 'pv.Id_Venta')
-            ->whereBetween('pv.Fecha_Pago', [$inicioCaja, $finCaja])
-            ->where('pv.Tipo_Pago', PagoVenta::TIPO_EFECTIVO)
-            ->where('v.Id_Usuario', $usuarioId)
-            ->where('v.Estado', Venta::ESTADO_ACTIVA);
+        $pagosEfectivoDelRango = PagoVenta::query()
+            ->whereBetween('Fecha_Pago', [$inicioCaja, $finCaja])
+            ->where('Tipo_Pago', PagoVenta::TIPO_EFECTIVO)
+            ->whereIn('Id_Venta', clone $ventasActivasDelUsuario);
 
-        $ventasCordobas = round((float) (clone $basePagosEfectivo)
-            ->where('pv.Moneda', PagoVenta::MONEDA_CORDOBA)
-            ->sum('pv.Monto'), 2);
+        $ventasCordobas = round((float) (clone $pagosEfectivoDelRango)
+            ->where('Moneda', PagoVenta::MONEDA_CORDOBA)
+            ->sum('Monto'), 2);
 
-        $ventasDolares = round((float) (clone $basePagosEfectivo)
-            ->where('pv.Moneda', PagoVenta::MONEDA_DOLAR)
-            ->sum('pv.Monto'), 2);
+        $ventasDolares = round((float) (clone $pagosEfectivoDelRango)
+            ->where('Moneda', PagoVenta::MONEDA_DOLAR)
+            ->sum('Monto'), 2);
 
-        $cambioEntregadoCordobas = round((float) DB::query()
-            ->fromSub(
-                (clone $basePagosEfectivo)
-                    ->select([
-                        'v.Id_Venta',
-                        DB::raw('COALESCE(MAX(v.Cambio_Entregado_Cordobas), 0) as cambio_entregado_cordobas'),
-                    ])
-                    ->groupBy('v.Id_Venta'),
-                'ventas_efectivo'
-            )
-            ->sum('cambio_entregado_cordobas'), 2);
+        $ventasConPagoEfectivo = PagoVenta::query()
+            ->select('Id_Venta')
+            ->whereBetween('Fecha_Pago', [$inicioCaja, $finCaja])
+            ->where('Tipo_Pago', PagoVenta::TIPO_EFECTIVO)
+            ->whereIn('Id_Venta', clone $ventasActivasDelUsuario)
+            ->distinct();
+
+        $cambioEntregadoCordobas = round((float) Venta::query()
+            ->whereIn('Id_Venta', $ventasConPagoEfectivo)
+            ->sum('Cambio_Entregado_Cordobas'), 2);
 
         $ventasCordobas = round($ventasCordobas - $cambioEntregadoCordobas, 2);
 
-        $baseAbonos = DB::table('abono_credito')
+        $baseAbonos = AbonoCredito::query()
             ->where('Id_Usuario', $usuarioId)
             ->whereBetween('Fecha_Abono', [$inicioCaja, $finCaja]);
 
         $abonosCordobas = round((float) (clone $baseAbonos)
-            ->whereRaw('UPPER(TRIM(Moneda)) = ?', ['NIO'])
+            ->where('Moneda', AbonoCredito::MONEDA_CORDOBA)
             ->sum('Monto'), 2);
 
         $abonosDolares = round((float) (clone $baseAbonos)
-            ->whereRaw('UPPER(TRIM(Moneda)) = ?', ['USD'])
+            ->where('Moneda', AbonoCredito::MONEDA_DOLAR)
             ->sum('Monto'), 2);
 
         $baseEgresos = Egresos::query()
@@ -563,27 +567,24 @@ new class extends Component
         $rangoCaja = $this->rangoCajaActual();
 
         if (! $usuarioId || ! $rangoCaja) {
-
             $this->totalAbonoCordobas = 0;
             $this->totalAbonoDolares = 0;
             return;
         }
 
-        $fechaHoy = now()->toDateString();
         [$inicioCaja, $finCaja] = $rangoCaja;
 
-        $baseAbonos = DB::table('abono_credito')
+        $baseAbonos = AbonoCredito::query()
             ->where('Id_Usuario', $usuarioId)
             ->whereDate('Fecha_Abono', now()->toDateString())
             ->whereBetween('Fecha_Abono', [$inicioCaja, $finCaja]);
 
-
         $this->totalAbonoCordobas = round((float) (clone $baseAbonos)
-            ->whereRaw('UPPER(TRIM(Moneda)) = ?', ['NIO'])
+            ->where('Moneda', AbonoCredito::MONEDA_CORDOBA)
             ->sum('Monto'), 2);
 
         $this->totalAbonoDolares = round((float) (clone $baseAbonos)
-            ->whereRaw('UPPER(TRIM(Moneda)) = ?', ['USD'])
+            ->where('Moneda', AbonoCredito::MONEDA_DOLAR)
             ->sum('Monto'), 2);
     }
 
@@ -599,35 +600,34 @@ new class extends Component
 
         [$inicioCaja, $finCaja] = $rangoCaja;
 
-        $tablaPagos = (new PagoVenta())->getTable();
-        $tablaVentas = (new Venta())->getTable();
+        $ventasActivasDelUsuario = Venta::query()
+            ->select('Id_Venta')
+            ->where('Id_Usuario', $usuarioId)
+            ->where('Estado', Venta::ESTADO_ACTIVA);
 
-        $basePagosEfectivo = DB::table($tablaPagos . ' as pv')
-            ->join($tablaVentas . ' as v', 'v.Id_Venta', '=', 'pv.Id_Venta')
-            ->whereBetween('pv.Fecha_Pago', [$inicioCaja, $finCaja])
-            ->where('pv.Tipo_Pago', PagoVenta::TIPO_EFECTIVO)
-            ->where('v.Id_Usuario', $usuarioId)
-            ->where('v.Estado', Venta::ESTADO_ACTIVA);
+        $basePagosEfectivo = PagoVenta::query()
+            ->whereBetween('Fecha_Pago', [$inicioCaja, $finCaja])
+            ->where('Tipo_Pago', PagoVenta::TIPO_EFECTIVO)
+            ->whereIn('Id_Venta', clone $ventasActivasDelUsuario);
 
         $pagosCordobas = (float) (clone $basePagosEfectivo)
-            ->where('pv.Moneda', PagoVenta::MONEDA_CORDOBA)
-            ->sum('pv.Monto');
+            ->where('Moneda', PagoVenta::MONEDA_CORDOBA)
+            ->sum('Monto');
 
         $pagosDolares = (float) (clone $basePagosEfectivo)
-            ->where('pv.Moneda', PagoVenta::MONEDA_DOLAR)
-            ->sum('pv.Monto');
+            ->where('Moneda', PagoVenta::MONEDA_DOLAR)
+            ->sum('Monto');
 
-        $cambioEntregadoCordobas = (float) DB::query()
-            ->fromSub(
-                (clone $basePagosEfectivo)
-                    ->select([
-                        'v.Id_Venta',
-                        DB::raw('COALESCE(MAX(v.Cambio_Entregado_Cordobas), 0) as cambio_entregado_cordobas'),
-                    ])
-                    ->groupBy('v.Id_Venta'),
-                'ventas_efectivo'
-            )
-            ->sum('cambio_entregado_cordobas');
+        $ventasConPagoEfectivo = PagoVenta::query()
+            ->select('Id_Venta')
+            ->whereBetween('Fecha_Pago', [$inicioCaja, $finCaja])
+            ->where('Tipo_Pago', PagoVenta::TIPO_EFECTIVO)
+            ->whereIn('Id_Venta', clone $ventasActivasDelUsuario)
+            ->distinct();
+
+        $cambioEntregadoCordobas = (float) Venta::query()
+            ->whereIn('Id_Venta', $ventasConPagoEfectivo)
+            ->sum('Cambio_Entregado_Cordobas');
 
         $this->totalVentaCordobas = round($pagosCordobas - $cambioEntregadoCordobas, 2);
         $this->totalVentaDolares = round($pagosDolares, 2);
@@ -751,7 +751,7 @@ new class extends Component
         $this->cerrarCajasAbiertasAnterioresAHoy();
 
         try {
-            DB::transaction(function () use ($usuarioId, $tasaCambioApertura, $actualizoTasaCambio) {
+            $this->transaccion(function () use ($usuarioId, $tasaCambioApertura, $actualizoTasaCambio) {
                 $aperturaUsuario = AperturaCaja::query()
                     ->abierta()
                     ->deHoy()
@@ -990,7 +990,7 @@ new class extends Component
         }
 
         try {
-            DB::transaction(function () use ($usuarioId) {
+            $this->transaccion(function () use ($usuarioId) {
                 $apertura = AperturaCaja::query()
                     ->where('Id_Apertura_Caja', $this->aperturaCajaId)
                     ->where('Id_Usuario', $usuarioId)
@@ -1425,7 +1425,7 @@ new class extends Component
         </div>
 
         <div class="grid grid-cols-1 items-start gap-4 xl:grid-cols-12">
-            <div class="xl:col-span-4">
+            <div class="xl:col-span-3">
                 <div class="{{ $cardClass }} overflow-hidden">
                     <div class="border-b border-[#D7E4F3] bg-white px-4 py-3">
                         <h2 class="text-base font-bold text-[#1A2B42]">
@@ -1437,93 +1437,93 @@ new class extends Component
                         </p>
                     </div>
 
-                    <div class="space-y-2 p-3">
-                        <div class="{{ $softCardClass }} p-2.5">
+                    <div class="space-y-1.5 p-2">
+                        <div class="{{ $softCardClass }} p-2">
                             <span class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
                                 Apertura
                             </span>
 
                             <div class="mt-1.5 flex items-center justify-between gap-3">
-                                <span class="text-sm font-medium text-[#5F6B7A]">
+                              <span class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
                                     Fondo inicial
                                 </span>
 
-                                <span class="text-xs font-extrabold text-[#1A2B42]">
+                                <span class="shrink-0 whitespace-nowrap text-right text-xs font-extrabold text-[#1A2B42] tabular-nums">
                                     C$ {{ $this->formatear($this->montoApertura) }}
                                 </span>
                             </div>
                         </div>
 
-                        <div class="{{ $softCardClass }} p-2.5">
+                        <div class="{{ $softCardClass }} p-2">
                             <span class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
                                 Ingresos
                             </span>
 
                             <div class="mt-1.5 space-y-1">
-                                <div class="flex items-center justify-between gap-3">
-                                    <span class="text-sm font-medium text-[#5F6B7A]">
+                                <div class="flex min-w-0 items-center justify-between gap-2">
+                                    <span class="min-w-0 truncate text-sm font-medium text-[#5F6B7A]">
                                         Ventas C$
                                     </span>
 
-                                    <span class="text-xs font-extrabold text-[#1A2B42]">
+                                    <span class="shrink-0 whitespace-nowrap text-right text-xs font-extrabold text-[#1A2B42] tabular-nums">
                                         C$ {{ $this->formatear($this->totalVentaCordobas) }}
                                     </span>
                                 </div>
 
-                                <div class="flex items-center justify-between gap-3">
-                                    <span class="text-sm font-medium text-[#5F6B7A]">
+                                <div class="flex min-w-0 items-center justify-between gap-2">
+                                    <span class="min-w-0 truncate text-sm font-medium text-[#5F6B7A]">
                                         Ventas $
                                     </span>
 
-                                    <span class="text-xs font-extrabold text-[#1A2B42]">
+                                    <span class="shrink-0 whitespace-nowrap text-right text-xs font-extrabold text-[#1A2B42] tabular-nums">
                                         $ {{ $this->formatear($this->totalVentaDolares) }}
                                     </span>
                                 </div>
 
-                                <div class="flex items-center justify-between gap-3">
-                                    <span class="text-sm font-medium text-[#5F6B7A]">
+                                <div class="flex min-w-0 items-center justify-between gap-2">
+                                    <span class="min-w-0 truncate text-sm font-medium text-[#5F6B7A]">
                                         Abonos C$
                                     </span>
 
-                                    <span class="text-xs font-extrabold text-[#1A2B42]">
+                                    <span class="shrink-0 whitespace-nowrap text-right text-xs font-extrabold text-[#1A2B42] tabular-nums">
                                         C$ {{ $this->formatear($this->totalAbonoCordobas) }}
                                     </span>
                                 </div>
 
-                                <div class="flex items-center justify-between gap-3">
-                                    <span class="text-sm font-medium text-[#5F6B7A]">
+                                <div class="flex min-w-0 items-center justify-between gap-2">
+                                    <span class="min-w-0 truncate text-sm font-medium text-[#5F6B7A]">
                                         Abonos $
                                     </span>
 
-                                    <span class="text-xs font-extrabold text-[#1A2B42]">
+                                    <span class="shrink-0 whitespace-nowrap text-right text-xs font-extrabold text-[#1A2B42] tabular-nums">
                                         $ {{ $this->formatear($this->totalAbonoDolares) }}
                                     </span>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="{{ $softCardClass }} p-2.5">
+                        <div class="{{ $softCardClass }} p-2">
                             <span class="text-xs font-bold uppercase tracking-wide text-[#5F6B7A]">
                                 Egresos
                             </span>
 
                             <div class="mt-1.5 space-y-1">
-                                <div class="flex items-center justify-between gap-3">
-                                    <span class="text-sm font-medium text-[#5F6B7A]">
+                                <div class="flex min-w-0 items-center justify-between gap-2">
+                                    <span class="min-w-0 truncate text-sm font-medium text-[#5F6B7A]">
                                         Egresos C$
                                     </span>
 
-                                    <span class="text-xs font-extrabold text-[#1A2B42]">
+                                    <span class="shrink-0 whitespace-nowrap text-right text-xs font-extrabold text-[#1A2B42] tabular-nums">
                                         C$ {{ $this->formatear($this->totalEgresoCordobas) }}
                                     </span>
                                 </div>
 
-                                <div class="flex items-center justify-between gap-3">
-                                    <span class="text-sm font-medium text-[#5F6B7A]">
+                                <div class="flex min-w-0 items-center justify-between gap-2">
+                                    <span class="min-w-0 truncate text-sm font-medium text-[#5F6B7A]">
                                         Egresos $
                                     </span>
 
-                                    <span class="text-xs font-extrabold text-[#1A2B42]">
+                                    <span class="shrink-0 whitespace-nowrap text-right text-xs font-extrabold text-[#1A2B42] tabular-nums">
                                         $ {{ $this->formatear($this->totalEgresoDolares) }}
                                     </span>
                                 </div>
@@ -1536,22 +1536,22 @@ new class extends Component
                             </span>
 
                             <div class="mt-1.5 space-y-1">
-                                <div class="flex items-center justify-between gap-3">
+                                <div class="flex min-w-0 items-center justify-between gap-2">
                                     <span class="text-sm font-bold text-[#1A2B42]">
                                         Córdobas
                                     </span>
 
-                                    <span class="text-base font-extrabold text-[#0B6FE4]">
+                                    <span class="shrink-0 whitespace-nowrap text-right text-sm font-extrabold text-[#0B6FE4] tabular-nums">
                                         C$ {{ $this->formatear($this->totalEsperadoCordobas()) }}
                                     </span>
                                 </div>
 
-                                <div class="flex items-center justify-between gap-3">
+                                <div class="flex min-w-0 items-center justify-between gap-2">
                                     <span class="text-sm font-bold text-[#1A2B42]">
                                         Dólares
                                     </span>
 
-                                    <span class="text-base font-extrabold text-[#0B6FE4]">
+                                    <span class="shrink-0 whitespace-nowrap text-right text-sm font-extrabold text-[#0B6FE4] tabular-nums">
                                         $ {{ $this->formatear($this->totalEsperadoDolares()) }}
                                     </span>
                                 </div>
@@ -1583,7 +1583,7 @@ new class extends Component
                 </div>
             </div>
 
-            <div class="xl:col-span-8">
+            <div class="xl:col-span-9">
                 <div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
                     <div class="{{ $cardClass }} overflow-hidden">
                         <div class="flex items-center justify-between gap-3 border-b border-[#D7E4F3] bg-white px-4 py-3">
@@ -1626,18 +1626,18 @@ new class extends Component
                                             </div>
 
                                             <div class="col-span-5">
-                                                <input
+                                                <x-input
                                                     type="number"
                                                     min="0"
                                                     step="1"
                                                     placeholder="0"
                                                     wire:model.live="conteoCordobas.{{ $denominacion }}"
                                                     class="{{ $inputCounterClass }}"
-                                                >
+                                                />
                                             </div>
 
                                             <div class="col-span-4 text-right">
-                                                <span class="text-xs font-extrabold text-[#1A2B42]">
+                                                <span class="shrink-0 whitespace-nowrap text-right text-xs font-extrabold text-[#1A2B42] tabular-nums">
                                                     C$ {{ $this->formatear($this->subtotalCordoba($denominacion)) }}
                                                 </span>
                                             </div>
@@ -1699,18 +1699,18 @@ new class extends Component
                                             </div>
 
                                             <div class="col-span-5">
-                                                <input
+                                                <x-input
                                                     type="number"
                                                     min="0"
                                                     step="1"
                                                     placeholder="0"
                                                     wire:model.live="conteoDolares.{{ $denominacion }}"
                                                     class="{{ $inputCounterClass }}"
-                                                >
+                                                />
                                             </div>
 
                                             <div class="col-span-4 text-right">
-                                                <span class="text-xs font-extrabold text-[#1A2B42]">
+                                                <span class="shrink-0 whitespace-nowrap text-right text-xs font-extrabold text-[#1A2B42] tabular-nums">
                                                     $ {{ $this->formatear($this->subtotalDolar($denominacion)) }}
                                                 </span>
                                             </div>
