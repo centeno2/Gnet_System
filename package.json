@@ -23,5 +23,8 @@
         "@tailwindcss/vite": "^4.2.2",
         "daisyui": "^5.5.19",
         "tailwindcss": "^4.2.2"
+    },
+    "overrides": {
+        "shell-quote": "^1.8.4"
     }
 }

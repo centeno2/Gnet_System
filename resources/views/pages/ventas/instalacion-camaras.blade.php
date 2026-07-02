@@ -155,62 +155,10 @@ new class extends Component
         $this->cargarPendientes();
     }
 
-    // MODIFICADO: validación reactiva para que las alertas se limpien al corregir el campo,
-    // sin esperar otro intento de guardado.
-    public function updated(string $campo): void
-    {
-        $this->validarCampoEnTiempoReal($campo);
-    }
-
     // MODIFICADO: permite que las alertas visuales desaparezcan automáticamente luego de unos segundos.
     public function limpiarErrorCampo(string $campo): void
     {
-        if (in_array($campo, $this->camposConValidacion(), true)) {
-            $this->resetErrorBag($campo);
-        }
-    }
-
-    private function validarCampoEnTiempoReal(string $campo): void
-    {
-        if (! in_array($campo, $this->camposConValidacion(), true)) {
-            return;
-        }
-
         $this->resetErrorBag($campo);
-
-        $reglasContrato = $this->reglasContrato();
-
-        if (array_key_exists($campo, $reglasContrato)) {
-            $this->validateOnly($campo, $reglasContrato, $this->mensajesValidacionContrato());
-            return;
-        }
-
-        $reglasProducto = $this->reglasProducto();
-
-        if (array_key_exists($campo, $reglasProducto)) {
-            $this->validateOnly($campo, $reglasProducto, $this->mensajesValidacionProducto());
-        }
-    }
-
-    private function camposConValidacion(): array
-    {
-        return [
-            'clienteId',
-            'tecnicoId',
-            'municipio',
-            'direccionInstalacion',
-            'cantidadCamaras',
-            'metrosCableado',
-            'costoManoObra',
-            'porcentajeAnticipo',
-            'fechaEstimada',
-            'detalleContrato',
-            'estadoContrato',
-            'productoId',
-            'productoSerieId',
-            'productoCantidad',
-            'productoPrecio',
-        ];
     }
 
     private function reglasContrato(): array
