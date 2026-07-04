@@ -52,7 +52,8 @@ Apoyo estratégico, criterio técnico y la paciencia suficiente para sobrevivir 
 
 ---
 
-# Centeno para contador
+# Centeno para Gerente
+
 
 El guardián de los números, los totales, los subtotales, las compras, las ventas y todo lo que no puede cuadrar “más o menos”.
 
