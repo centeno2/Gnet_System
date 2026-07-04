@@ -2,9 +2,12 @@
 
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
+use Mary\Traits\Toast;
 
 new class extends Component
 {
+    use Toast;
+
     private const ESTADO_PRODUCTO_ACTIVO = 1;
     private const ESTADO_SERIE_DISPONIBLE = 'DISPONIBLE';
 
@@ -34,10 +37,6 @@ new class extends Component
     public array $detalleSerie = [];
 
     public string $productoNombreSeries = '';
-
-    public bool $mostrarToast = false;
-    public string $toastMensaje = '';
-    public string $toastTipo = 'success';
 
     public function mount(): void
     {
@@ -239,6 +238,11 @@ new class extends Component
                     ->selectRaw('COUNT(*)')
                     ->whereColumn('ps.Id_Producto', 'p.Id_Producto')
                     ->where('ps.Estado', self::ESTADO_SERIE_DISPONIBLE);
+            }, 'series_disponibles')
+            ->selectSub(function ($sub) {
+                $sub->from('producto_serie as ps')
+                    ->selectRaw('COUNT(*)')
+                    ->whereColumn('ps.Id_Producto', 'p.Id_Producto');
             }, 'total_series');
 
         $this->aplicarDisponibilidadProducto($query);
@@ -281,6 +285,8 @@ new class extends Component
             ->map(function ($producto) {
                 $stock = (int) $producto->Stock_Actual;
                 $stockMinimo = (int) $producto->Stock_Minimo;
+                $totalSeries = (int) $producto->total_series;
+                $seriesDisponibles = (int) $producto->series_disponibles;
 
                 return [
                     'id_producto' => (int) $producto->Id_Producto,
@@ -289,7 +295,8 @@ new class extends Component
                     'marca' => $producto->marca ?: '—',
                     'modelo' => $producto->Modelo ?: '—',
                     'categoria' => $producto->categoria ?: '—',
-                    'series' => (int) $producto->total_series,
+                    'usa_series' => $totalSeries > 0,
+                    'series' => $seriesDisponibles,
                     'stock' => $stock,
                     'stock_minimo' => $stockMinimo,
                     'stock_bajo' => $stock <= $stockMinimo && $stockMinimo > 0,
@@ -536,16 +543,12 @@ new class extends Component
 
     protected function mostrarToast(string $mensaje, string $tipo = 'success'): void
     {
-        $this->toastMensaje = $mensaje;
-        $this->toastTipo = $tipo;
-        $this->mostrarToast = true;
-    }
-
-    public function cerrarToast(): void
-    {
-        $this->mostrarToast = false;
-        $this->toastMensaje = '';
-        $this->toastTipo = 'success';
+        match ($tipo) {
+            'error' => $this->error($mensaje, position: 'toast-top toast-end', timeout: 3500),
+            'warning' => $this->warning($mensaje, position: 'toast-top toast-end', timeout: 3000),
+            'info' => $this->info($mensaje, position: 'toast-top toast-end', timeout: 2500),
+            default => $this->success($mensaje, position: 'toast-top toast-end', timeout: 2500),
+        };
     }
 };
 ?>
@@ -568,22 +571,6 @@ new class extends Component
                 Volver a productos
             </a>
         </div>
-
-        @if ($mostrarToast)
-        <div class="fixed right-5 top-5 z-9999 w-full max-w-sm">
-            <div
-                class="{{ $toastTipo === 'success' ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#1A2B42]' : 'border-red-200 bg-red-50 text-red-700' }} rounded-2xl border px-4 py-4 shadow-lg">
-                <div class="flex items-start justify-between gap-3">
-                    <p class="text-sm font-medium">{{ $toastMensaje }}</p>
-
-                    <button type="button" wire:click="cerrarToast"
-                        class="text-lg leading-none text-[#5F6B7A] hover:text-[#1A2B42]">
-                        ×
-                    </button>
-                </div>
-            </div>
-        </div>
-        @endif
 
         <x-card class="flex min-h-0 flex-1 flex-col rounded-2xl border border-[#D7E4F3] bg-white p-3 shadow-sm md:p-4">
 
@@ -733,11 +720,18 @@ new class extends Component
                                 </td>
 
                                 <td class="px-3 py-2.5 text-center align-middle">
+                                    @if ($fila['usa_series'])
                                     <button type="button" wire:click="verSeries({{ $fila['id_producto'] }})"
                                         class="inline-flex min-w-8 justify-center rounded-full bg-[#EAF4FD] px-2 py-0.5 text-xs font-semibold text-[#0E48A1] hover:bg-[#DDEFFD]"
                                         title="Ver series disponibles">
                                         {{ $fila['series'] }}
                                     </button>
+                                    @else
+                                    <span
+                                        class="inline-flex min-w-16 justify-center rounded-full bg-[#F0F3F7] px-2 py-0.5 text-xs font-semibold text-[#5F6B7A]">
+                                        Sin serie
+                                    </span>
+                                    @endif
                                 </td>
 
                                 <td class="px-3 py-2.5 text-center align-middle">

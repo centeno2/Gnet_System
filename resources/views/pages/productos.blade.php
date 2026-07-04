@@ -5,13 +5,13 @@ use App\Models\Marca;
 use App\Models\Producto;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
+use Mary\Traits\Toast;
 
 new class extends Component
 {
+    use Toast;
+
     private const ESTADO_SERIE_DISPONIBLE = 'DISPONIBLE';
-    private const ESTADO_SERIE_RESERVADO = 'RESERVADO';
-    private const ESTADO_SERIE_DANADO = 'DAÑADO';
-    private const ESTADO_SERIE_VENDIDO = 'VENDIDO';
 
     public bool $modalCategoria = false;
     public bool $modalMarca = false;
@@ -46,10 +46,6 @@ new class extends Component
     public ?int $productoBaseSeleccionado = null;
     public array $coincidenciasProducto = [];
     public bool $mostrarCoincidenciasProducto = false;
-
-    public string $toastMensaje = '';
-    public string $toastTipo = 'success';
-    public bool $mostrarToast = false;
 
     public string $productoNombreSeries = '';
     public string $productoNombreAgregarSerie = '';
@@ -255,16 +251,12 @@ new class extends Component
 
     protected function mostrarToast(string $mensaje, string $tipo = 'success'): void
     {
-        $this->toastMensaje = $mensaje;
-        $this->toastTipo = $tipo;
-        $this->mostrarToast = true;
-    }
-
-    public function cerrarToast(): void
-    {
-        $this->mostrarToast = false;
-        $this->toastMensaje = '';
-        $this->toastTipo = 'success';
+        match ($tipo) {
+            'error' => $this->error($mensaje, position: 'toast-top toast-end', timeout: 3500),
+            'warning' => $this->warning($mensaje, position: 'toast-top toast-end', timeout: 3000),
+            'info' => $this->info($mensaje, position: 'toast-top toast-end', timeout: 2500),
+            default => $this->success($mensaje, position: 'toast-top toast-end', timeout: 2500),
+        };
     }
 
     public function abrirModalCategoria(): void
@@ -411,12 +403,18 @@ new class extends Component
                 return;
             }
 
+            $stockInicial = (int) $datos['stockActual'];
+
+            if (! empty($datos['numeroSerie']) && $stockInicial < 1) {
+                $stockInicial = 1;
+            }
+
             $producto = Producto::create([
                 'Id_Categoria' => (int) $datos['idCategoria'],
                 'Id_Marca' => $datos['idMarca'] !== '' ? (int) $datos['idMarca'] : null,
                 'Nombre_Producto' => trim($datos['nombreProducto']),
                 'Modelo' => $datos['modelo'] !== '' ? trim($datos['modelo']) : null,
-                'Stock_Actual' => (int) $datos['stockActual'],
+                'Stock_Actual' => $stockInicial,
                 'Stock_Minimo' => (int) $datos['stockMinimo'],
                 'Precio_Venta' => $precioVentaLimpio,
                 'Fecha_Vencimiento' => $datos['fechaVencimiento'] !== '' ? $datos['fechaVencimiento'] : null,
@@ -475,7 +473,7 @@ new class extends Component
         );
 
         $this->seriesProducto = $producto->series()
-            ->where('Estado', '<>', self::ESTADO_SERIE_VENDIDO)
+            ->where('Estado', self::ESTADO_SERIE_DISPONIBLE)
             ->orderByDesc('id_producto_serie')
             ->get([
                 'Numero_Serie',
@@ -642,11 +640,6 @@ new class extends Component
                 'categoria:Id_Categoria,Nombre_Categoria',
                 'marca:Id_Marca,Nombre_Marca',
             ])
-            ->withCount([
-                'series as total_series' => function ($serie) {
-                    $serie->where('Estado', '<>', self::ESTADO_SERIE_VENDIDO);
-                },
-            ])
             ->select([
                 'Id_Producto',
                 'Id_Categoria',
@@ -662,7 +655,7 @@ new class extends Component
             ->where(function ($query) {
                 $query->doesntHave('series')
                     ->orWhereHas('series', function ($serie) {
-                        $serie->where('Estado', '<>', self::ESTADO_SERIE_VENDIDO);
+                        $serie->where('Estado', self::ESTADO_SERIE_DISPONIBLE);
                     });
             })
             ->orderByDesc('Id_Producto');
@@ -678,7 +671,7 @@ new class extends Component
                         $marca->where('Nombre_Marca', 'like', "%{$busqueda}%");
                     })
                     ->orWhereHas('series', function ($serie) use ($busqueda) {
-                        $serie->where('Estado', '<>', self::ESTADO_SERIE_VENDIDO)
+                        $serie->where('Estado', self::ESTADO_SERIE_DISPONIBLE)
                             ->where('Numero_Serie', 'like', "%{$busqueda}%");
                     });
             });
@@ -694,7 +687,6 @@ new class extends Component
                     'categoria' => $producto->categoria?->Nombre_Categoria ?: '—',
                     'marca' => $producto->marca?->Nombre_Marca ?: '—',
                     'modelo' => $producto->Modelo ?: '—',
-                    'series_registradas' => (int) $producto->total_series,
                     'stock' => (int) $producto->Stock_Actual,
                     'precio_venta' => 'C$ ' . number_format((float) $producto->Precio_Venta, 0, '.', ','),
                     'estado' => 'Activo',
@@ -728,22 +720,6 @@ new class extends Component
                 </a>
             </div>
         </div>
-
-        @if ($mostrarToast)
-        <div class="fixed right-5 top-5 z-999 w-full max-w-sm">
-            <div
-                class="{{ $toastTipo === 'success' ? 'border-[#B7D6F2] bg-[#EAF4FD] text-[#1A2B42]' : 'border-red-200 bg-red-50 text-red-700' }} rounded-2xl border px-4 py-4 shadow-lg">
-                <div class="flex items-start justify-between gap-3">
-                    <p class="text-sm font-medium">{{ $toastMensaje }}</p>
-
-                    <button type="button" wire:click="cerrarToast"
-                        class="text-lg leading-none text-[#5F6B7A] hover:text-[#1A2B42]">
-                        ×
-                    </button>
-                </div>
-            </div>
-        </div>
-        @endif
 
         <form wire:submit.prevent="guardarProducto">
             <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
@@ -949,9 +925,9 @@ new class extends Component
         <x-card class="rounded-2xl border border-[#D7E4F3] bg-white shadow-sm">
             <div class="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                    <h2 class="text-xl font-bold text-[#1A2B42]">Resumen de productos disponibles</h2>
+                    <h2 class="text-xl font-bold text-[#1A2B42]">Resumen de productos con stock</h2>
                     <p class="text-sm text-[#5F6B7A]">
-                        No se muestran productos sin stock ni series vendidas.
+                        No se muestran productos inactivos ni sin stock.
                     </p>
                 </div>
 
@@ -978,10 +954,6 @@ new class extends Component
                                 </th>
                                 <th class="bg-[#2E8BC0] px-3 py-3 text-left font-semibold text-white whitespace-nowrap">
                                     Modelo
-                                </th>
-                                <th
-                                    class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white whitespace-nowrap">
-                                    Disponibles
                                 </th>
                                 <th
                                     class="bg-[#2E8BC0] px-3 py-3 text-center font-semibold text-white whitespace-nowrap">
@@ -1018,12 +990,6 @@ new class extends Component
                                     {{ $producto['modelo'] }}
                                 </td>
                                 <td class="px-3 py-3 text-center align-middle whitespace-nowrap">
-                                    <span
-                                        class="inline-flex min-w-8.5 justify-center rounded-full bg-[#EAF4FD] px-2.5 py-1 text-xs font-semibold text-[#0E48A1]">
-                                        {{ $producto['series_registradas'] }}
-                                    </span>
-                                </td>
-                                <td class="px-3 py-3 text-center align-middle whitespace-nowrap">
                                     {{ $producto['stock'] }}
                                 </td>
                                 <td class="px-3 py-3 text-right align-middle whitespace-nowrap">
@@ -1048,8 +1014,8 @@ new class extends Component
                             </tr>
                             @empty
                             <tr>
-                                <td colspan="9" class="px-4 py-8 text-center text-sm text-[#7B8794]">
-                                    No hay productos disponibles.
+                                <td colspan="8" class="px-4 py-8 text-center text-sm text-[#7B8794]">
+                                    No hay productos con stock.
                                 </td>
                             </tr>
                             @endforelse
