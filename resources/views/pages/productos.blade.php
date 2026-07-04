@@ -4,6 +4,7 @@ use App\Models\CategoriaProducto;
 use App\Models\Marca;
 use App\Models\Producto;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Mary\Traits\Toast;
 
@@ -259,6 +260,18 @@ new class extends Component
         };
     }
 
+    protected function validarConToast(array $rules, array $messages = [], array $attributes = []): ?array
+    {
+        try {
+            return $this->validate($rules, $messages, $attributes);
+        } catch (ValidationException $e) {
+            $this->setErrorBag($e->validator->errors());
+            $this->mostrarToast('Complete todos los campos obligatorios.', 'error');
+
+            return null;
+        }
+    }
+
     public function abrirModalCategoria(): void
     {
         $this->resetErrorBag();
@@ -278,9 +291,11 @@ new class extends Component
     {
         $this->resetErrorBag();
 
-        $this->validate([
+        if ($this->validarConToast([
             'nombreCategoria' => 'required|string|max:100|unique:categoria_producto,Nombre_Categoria',
-        ]);
+        ]) === null) {
+            return;
+        }
 
         $categoria = CategoriaProducto::create([
             'Nombre_Categoria' => trim($this->nombreCategoria),
@@ -314,10 +329,12 @@ new class extends Component
     {
         $this->resetErrorBag();
 
-        $this->validate([
+        if ($this->validarConToast([
             'nombreMarca' => 'required|string|max:100|unique:marca,Nombre_Marca',
             'estadoMarca' => 'required|in:0,1',
-        ]);
+        ]) === null) {
+            return;
+        }
 
         $marca = Marca::create([
             'Nombre_Marca' => trim($this->nombreMarca),
@@ -337,7 +354,7 @@ new class extends Component
     {
         $this->resetErrorBag();
 
-        $datos = $this->validate([
+        $datos = $this->validarConToast([
             'nombreProducto' => 'required|string|max:150',
             'modelo' => 'nullable|string|max:100',
             'numeroSerie' => 'nullable|string|max:100|unique:producto_serie,Numero_Serie',
@@ -353,6 +370,10 @@ new class extends Component
         ], [
             'precioVenta.regex' => 'Ingrese el precio sin decimales. Ejemplo: 40,000',
         ]);
+
+        if ($datos === null) {
+            return;
+        }
 
         $usuarioEscribioGarantia = $this->bloquearGarantiaNuevo || $this->bloquearGarantiaUsado;
 
@@ -554,12 +575,16 @@ new class extends Component
     {
         $this->resetErrorBag();
 
-        $datos = $this->validate([
+        $datos = $this->validarConToast([
             'productoIdAgregarSerie' => 'required|integer|exists:producto,Id_Producto',
             'numeroSerieExtra' => 'required|string|max:100|unique:producto_serie,Numero_Serie',
             'estadoSerieExtra' => 'required|in:DISPONIBLE,RESERVADO,DAÑADO',
             'observacionSerieExtra' => 'nullable|string|max:255',
         ]);
+
+        if ($datos === null) {
+            return;
+        }
 
         DB::transaction(function () use ($datos) {
             $producto = Producto::query()
@@ -738,6 +763,7 @@ new class extends Component
                         <div class="relative">
                             <x-input wire:model.live.debounce.300ms="nombreProducto" type="text" autocomplete="off"
                                 placeholder="Escriba para buscar coincidencias"
+                                error-class="hidden"
                                 class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
 
                             @if ($mostrarCoincidenciasProducto)
@@ -776,90 +802,71 @@ new class extends Component
                         </p>
                         @endif
 
-                        @error('nombreProducto')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                        @enderror
                     </div>
 
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Modelo</label>
                         <x-input wire:model.defer="modelo" type="text" placeholder="Ingrese el modelo"
+                            error-class="hidden"
                             class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
-                        @error('modelo')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                        @enderror
                     </div>
 
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Primer número de serie</label>
                         <x-input wire:model.defer="numeroSerie" type="text" placeholder="Opcional"
+                            error-class="hidden"
                             class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
-                        @error('numeroSerie')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                        @enderror
                     </div>
 
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Categoría</label>
                         <select wire:model.defer="idCategoria"
-                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
+                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42] focus:ring-2 {{ $errors->has('idCategoria') ? 'ring-2 ring-red-400 focus:ring-red-400' : 'focus:ring-[#2E8BC0]' }}">
                             <option value="">Seleccione una categoría</option>
                             @foreach ($categorias as $categoria)
                             <option value="{{ $categoria['id'] }}">{{ $categoria['nombre'] }}</option>
                             @endforeach
                         </select>
-                        @error('idCategoria')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                        @enderror
                     </div>
 
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Marca</label>
                         <select wire:model.defer="idMarca"
-                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
+                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42] focus:ring-2 {{ $errors->has('idMarca') ? 'ring-2 ring-red-400 focus:ring-red-400' : 'focus:ring-[#2E8BC0]' }}">
                             <option value="">Seleccione una marca</option>
                             @foreach ($marcas as $marca)
                             <option value="{{ $marca['id'] }}">{{ $marca['nombre'] }}</option>
                             @endforeach
                         </select>
-                        @error('idMarca')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                        @enderror
                     </div>
 
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Stock inicial</label>
                         <x-input wire:model.defer="stockActual" type="number" min="0" placeholder="0"
+                            error-class="hidden"
                             class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                        @error('stockActual')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                        @enderror
                     </div>
 
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Stock mínimo</label>
                         <x-input wire:model.defer="stockMinimo" type="number" min="0" placeholder="0"
+                            error-class="hidden"
                             class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                        @error('stockMinimo')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                        @enderror
                     </div>
 
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Precio de venta</label>
                         <x-input wire:model.live.debounce.250ms="precioVenta" type="text" inputmode="numeric"
                             placeholder="0"
+                            error-class="hidden"
                             class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                        @error('precioVenta')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                        @enderror
                     </div>
 
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Garantía nuevo</label>
                         <input wire:model.live.debounce.250ms="garantiaNuevo" type="number" min="0" placeholder="Meses"
                             @readonly($bloquearGarantiaNuevo)
-                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42] outline-none placeholder:text-[#7B8794] focus:ring-2 focus:ring-[#2E8BC0] {{ $bloquearGarantiaNuevo ? 'cursor-not-allowed opacity-60' : '' }}" />
+                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42] outline-none placeholder:text-[#7B8794] focus:ring-2 {{ $errors->has('garantiaNuevo') ? 'ring-2 ring-red-400 focus:ring-red-400' : 'focus:ring-[#2E8BC0]' }} {{ $bloquearGarantiaNuevo ? 'cursor-not-allowed opacity-60' : '' }}" />
 
                         @if ($bloquearGarantiaNuevo)
                         <span class="mt-1 block text-xs font-medium text-[#5F6B7A]">
@@ -867,16 +874,13 @@ new class extends Component
                         </span>
                         @endif
 
-                        @error('garantiaNuevo')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                        @enderror
                     </div>
 
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Garantía usado</label>
                         <input wire:model.live.debounce.250ms="garantiaUsado" type="number" min="0" placeholder="Meses"
                             @readonly($bloquearGarantiaUsado)
-                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42] outline-none placeholder:text-[#7B8794] focus:ring-2 focus:ring-[#2E8BC0] {{ $bloquearGarantiaUsado ? 'cursor-not-allowed opacity-60' : '' }}" />
+                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42] outline-none placeholder:text-[#7B8794] focus:ring-2 {{ $errors->has('garantiaUsado') ? 'ring-2 ring-red-400 focus:ring-red-400' : 'focus:ring-[#2E8BC0]' }} {{ $bloquearGarantiaUsado ? 'cursor-not-allowed opacity-60' : '' }}" />
 
                         @if ($bloquearGarantiaUsado)
                         <span class="mt-1 block text-xs font-medium text-[#5F6B7A]">
@@ -884,30 +888,22 @@ new class extends Component
                         </span>
                         @endif
 
-                        @error('garantiaUsado')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                        @enderror
                     </div>
 
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Estado</label>
                         <select wire:model.defer="estado"
-                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42]">
+                            class="h-10 min-h-10 w-full rounded-lg border-0 bg-[#F0F3F7] px-3 text-sm text-[#1A2B42] focus:ring-2 {{ $errors->has('estado') ? 'ring-2 ring-red-400 focus:ring-red-400' : 'focus:ring-[#2E8BC0]' }}">
                             <option value="1">Activo</option>
                             <option value="0">Inactivo</option>
                         </select>
-                        @error('estado')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                        @enderror
                     </div>
 
                     <div>
                         <label class="mb-1 block text-sm font-semibold text-[#1A2B42]">Fecha de vencimiento</label>
                         <x-input wire:model.defer="fechaVencimiento" type="date"
+                            error-class="hidden"
                             class="h-10 min-h-10 w-full rounded-lg bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                        @error('fechaVencimiento')
-                        <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                        @enderror
                     </div>
                 </div>
 
@@ -1036,10 +1032,8 @@ new class extends Component
                 <div>
                     <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">Nombre de la categoría</label>
                     <x-input type="text" wire:model.defer="nombreCategoria" placeholder="Ingrese el nombre"
+                        error-class="hidden"
                         class="w-full rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
-                    @error('nombreCategoria')
-                    <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                    @enderror
                 </div>
 
                 <x-slot:actions>
@@ -1063,22 +1057,17 @@ new class extends Component
                 <div>
                     <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">Nombre de la marca</label>
                     <x-input type="text" wire:model.defer="nombreMarca" placeholder="Ingrese el nombre"
+                        error-class="hidden"
                         class="w-full rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
-                    @error('nombreMarca')
-                    <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                    @enderror
                 </div>
 
                 <div>
                     <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">Estado</label>
                     <select wire:model.defer="estadoMarca"
-                        class="w-full rounded-xl border-0 bg-[#F0F3F7] px-3 py-2 text-[#1A2B42]">
+                        class="w-full rounded-xl border-0 bg-[#F0F3F7] px-3 py-2 text-[#1A2B42] focus:ring-2 {{ $errors->has('estadoMarca') ? 'ring-2 ring-red-400 focus:ring-red-400' : 'focus:ring-[#2E8BC0]' }}">
                         <option value="1">Activo</option>
                         <option value="0">Inactivo</option>
                     </select>
-                    @error('estadoMarca')
-                    <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                    @enderror
                 </div>
 
                 <x-slot:actions>
@@ -1159,33 +1148,25 @@ new class extends Component
                 <div>
                     <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">Número de serie</label>
                     <x-input type="text" wire:model.defer="numeroSerieExtra" placeholder="Ingrese el número de serie"
+                        error-class="hidden"
                         class="w-full rounded-xl border-[#D7E4F3] bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]" />
-                    @error('numeroSerieExtra')
-                    <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                    @enderror
                 </div>
 
                 <div>
                     <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">Estado</label>
                     <select wire:model.defer="estadoSerieExtra"
-                        class="w-full rounded-xl border-0 bg-[#F0F3F7] px-3 py-2 text-[#1A2B42]">
+                        class="w-full rounded-xl border-0 bg-[#F0F3F7] px-3 py-2 text-[#1A2B42] focus:ring-2 {{ $errors->has('estadoSerieExtra') ? 'ring-2 ring-red-400 focus:ring-red-400' : 'focus:ring-[#2E8BC0]' }}">
                         <option value="DISPONIBLE">Disponible</option>
                         <option value="RESERVADO">Reservado</option>
                         <option value="DAÑADO">Dañado</option>
                     </select>
-                    @error('estadoSerieExtra')
-                    <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                    @enderror
                 </div>
 
                 <div>
                     <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">Observación</label>
                     <textarea wire:model.defer="observacionSerieExtra" rows="3"
-                        class="w-full rounded-xl border-0 bg-[#F0F3F7] px-3 py-2 text-[#1A2B42] placeholder:text-[#7B8794]"
+                        class="w-full rounded-xl border-0 bg-[#F0F3F7] px-3 py-2 text-[#1A2B42] placeholder:text-[#7B8794] focus:ring-2 {{ $errors->has('observacionSerieExtra') ? 'ring-2 ring-red-400 focus:ring-red-400' : 'focus:ring-[#2E8BC0]' }}"
                         placeholder="Opcional"></textarea>
-                    @error('observacionSerieExtra')
-                    <span class="mt-1 block text-xs text-red-600">{{ $message }}</span>
-                    @enderror
                 </div>
 
                 <x-slot:actions>
