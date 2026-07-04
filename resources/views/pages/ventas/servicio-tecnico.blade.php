@@ -3,6 +3,7 @@
 use Livewire\Component;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Mary\Traits\Toast;
 
 use App\Models\Cliente;
@@ -205,10 +206,12 @@ new class extends Component
         $this->cargarPendientes();
     }
 
-    // MODIFICADO: validación reactiva para que las alertas se limpien al corregir el campo.
+    // MODIFICADO: solo limpia el campo al editar; la validación completa ocurre al guardar/agregar.
     public function updated(string $campo): void
     {
-        $this->validarCampoEnTiempoReal($campo);
+        if (in_array($campo, $this->camposConValidacion(), true)) {
+            $this->resetErrorBag($campo);
+        }
     }
 
     // MODIFICADO: permite que las alertas visuales desaparezcan automáticamente luego de unos segundos.
@@ -216,28 +219,6 @@ new class extends Component
     {
         if (in_array($campo, $this->camposConValidacion(), true)) {
             $this->resetErrorBag($campo);
-        }
-    }
-
-    private function validarCampoEnTiempoReal(string $campo): void
-    {
-        if (! in_array($campo, $this->camposConValidacion(), true)) {
-            return;
-        }
-
-        $this->resetErrorBag($campo);
-
-        $reglasServicio = $this->reglasServicio();
-
-        if (array_key_exists($campo, $reglasServicio)) {
-            $this->validateOnly($campo, $reglasServicio, $this->mensajesValidacionServicio());
-            return;
-        }
-
-        $reglasProducto = $this->reglasProducto();
-
-        if (array_key_exists($campo, $reglasProducto)) {
-            $this->validateOnly($campo, $reglasProducto, $this->mensajesValidacionProducto());
         }
     }
 
@@ -261,6 +242,22 @@ new class extends Component
             'productoCantidad',
             'productoPrecio',
         ];
+    }
+
+    private function validarConToast(array $rules, array $messages = []): ?array
+    {
+        try {
+            return $this->validate($rules, $messages);
+        } catch (ValidationException $e) {
+            $this->setErrorBag($e->validator->errors());
+            $this->mostrarMensaje(
+                'error',
+                'Complete todos los campos obligatorios.',
+                'Revise los campos marcados en rojo.'
+            );
+
+            return null;
+        }
     }
 
     private function reglasServicio(): array
@@ -1243,7 +1240,9 @@ new class extends Component
     public function agregarProducto(): void
     {
         // MODIFICADO: reglas centralizadas para que la validación normal y la validación en vivo usen los mismos mensajes.
-        $this->validate($this->reglasProducto(), $this->mensajesValidacionProducto());
+        if ($this->validarConToast($this->reglasProducto(), $this->mensajesValidacionProducto()) === null) {
+            return;
+        }
 
         $producto = Producto::query()
             ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
@@ -1256,6 +1255,7 @@ new class extends Component
 
         if (!$producto || (int) $producto->Estado !== 1 || (int) $producto->Stock_Actual <= 0) {
             $this->addError('productoId', 'El producto no está disponible.');
+            $this->mostrarMensaje('error', 'Producto no disponible', 'Seleccione otro producto con stock.');
             return;
         }
 
@@ -1265,6 +1265,7 @@ new class extends Component
         if ($this->productoTieneSeries) {
             if (!$this->productoSerieId) {
                 $this->addError('productoSerieId', 'Seleccione la serie del producto.');
+                $this->mostrarMensaje('error', 'Complete todos los campos obligatorios.', 'Seleccione una serie disponible.');
                 return;
             }
 
@@ -1276,6 +1277,7 @@ new class extends Component
 
             if (!$serie) {
                 $this->addError('productoSerieId', 'La serie seleccionada ya no está disponible.');
+                $this->mostrarMensaje('error', 'Serie no disponible', 'Seleccione otra serie disponible.');
                 return;
             }
 
@@ -1289,11 +1291,13 @@ new class extends Component
 
         if (!$this->productoTieneSeries && ($cantidadYaAgregada + $cantidad) > (float) $producto->Stock_Actual) {
             $this->addError('productoCantidad', 'La cantidad supera el stock disponible.');
+            $this->mostrarMensaje('error', 'Stock insuficiente', 'La cantidad supera el stock disponible.');
             return;
         }
 
         if ($serie && collect($this->productos)->contains('producto_serie_id', (int) $serie->id_producto_serie)) {
             $this->addError('productoSerieId', 'Esta serie ya fue agregada.');
+            $this->mostrarMensaje('error', 'Serie duplicada', 'Esta serie ya fue agregada al servicio.');
             return;
         }
 
@@ -1385,13 +1389,15 @@ new class extends Component
             $this->limpiarCobroServicio();
         }
 
-        $this->validarCampoEnTiempoReal('estadoServicio');
+        $this->resetErrorBag('estadoServicio');
     }
 
     public function guardar(): void
     {
         // MODIFICADO: reglas centralizadas para permitir alertas dinámicas y limpieza automática.
-        $this->validate($this->reglasServicio(), $this->mensajesValidacionServicio());
+        if ($this->validarConToast($this->reglasServicio(), $this->mensajesValidacionServicio()) === null) {
+            return;
+        }
 
         if (! $this->servicioTecnicoIdSeleccionado && strtoupper((string) $this->estadoServicio) === 'ENTREGADO') {
             $this->estadoServicio = 'RECIBIDO';
@@ -2678,26 +2684,6 @@ new class extends Component
 };
 ?>
 
-@php
-$errorAlert = function (string $campo) use ($errors) {
-if (! $errors->has($campo)) {
-return '';
-}
-
-$message = e($errors->first($campo));
-$key = 'field-error-' . $campo . '-' . md5($message);
-
-return '<div wire:key="' . $key . '" x-data="{ show: true }"
-    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo(\'' . $campo . '\') }, 4500)" x-show="show"
-    x-transition.opacity.duration.200ms
-    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
-    <span
-        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span><span>'
-        . $message . '</span>
-</div>';
-};
-@endphp
-
 <div class="h-[calc(100vh-3rem)] min-h-0 overflow-hidden bg-[#F0F3F7]">
     <div class="flex h-full min-h-0 flex-col gap-4 px-4 py-4 md:px-6">
 
@@ -2756,23 +2742,6 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
         $saldoAntesPago = $this->saldoPendienteAntesDePago();
         @endphp
 
-        {{-- MODIFICADO: resumen visual temporal cuando existen errores de validación en campos. --}}
-        @if ($errors->any())
-        <div wire:key="validation-summary-{{ md5(implode('|', $errors->all())) }}" x-data="{ show: true }"
-            x-init="setTimeout(() => show = false, 3800)" x-show="show" x-transition.opacity.duration.200ms
-            class="shrink-0 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 shadow-sm">
-            <div class="flex items-start gap-3">
-                <span
-                    class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100 text-sm font-black text-red-700">!</span>
-                <div>
-                    <p class="font-black">Revisá los campos marcados.</p>
-                    <p class="text-xs font-semibold text-red-600">Las alertas se ocultan solas; al intentar guardar se
-                        validan nuevamente.</p>
-                </div>
-            </div>
-        </div>
-        @endif
-
         <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-12">
             <div class="min-h-0 overflow-y-auto pr-0 xl:col-span-8 xl:pr-1">
                 <div class="space-y-4">
@@ -2799,7 +2768,7 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                                 </label>
 
                                 <div class="relative">
-                                    <x-input wire:model.live.debounce.300ms="filtroCliente"
+                                    <x-input error-field="clienteId" error-class="hidden" wire:model.live.debounce.300ms="filtroCliente"
                                         wire:focus="abrirBusquedaClientes" wire:keydown.escape="cerrarBusquedaClientes"
                                         icon="o-magnifying-glass"
                                         placeholder="{{ $tipoOperacion === 'CREDITO' ? 'Buscar institución por nombre' : 'Buscar cliente por teléfono o nombre' }}"
@@ -2858,89 +2827,77 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                                     nombre institucional.' : 'En contado se listan clientes normales y podés buscar por
                                     teléfono.' }}
                                 </p>
-                                {!! $errorAlert('clienteId') !!}
                             </div>
 
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Técnico</label>
-                                <x-select wire:model.live="tecnicoId" :options="$tecnicos" option-value="id"
+                                <x-select error-class="hidden" wire:model.live="tecnicoId" :options="$tecnicos" option-value="id"
                                     option-label="name" placeholder="Seleccione técnico"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                {!! $errorAlert('tecnicoId') !!}
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Tipo</label>
-                                <x-select wire:model.live="tipoEquipo" :options="$tiposEquipo" option-value="id"
+                                <x-select error-class="hidden" wire:model.live="tipoEquipo" :options="$tiposEquipo" option-value="id"
                                     option-label="name" placeholder="Seleccione"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                {!! $errorAlert('tipoEquipo') !!}
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Marca</label>
-                                <x-input wire:model.live="marca"
+                                <x-input error-class="hidden" wire:model.live="marca"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                {!! $errorAlert('marca') !!}
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Modelo</label>
-                                <x-input wire:model.live="modelo"
+                                <x-input error-class="hidden" wire:model.live="modelo"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                {!! $errorAlert('modelo') !!}
                             </div>
 
                             <div class="xl:col-span-2">
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Serie del equipo
                                     recibido</label>
-                                <x-input wire:model.live="numeroSerie"
+                                <x-input error-class="hidden" wire:model.live="numeroSerie"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                {!! $errorAlert('numeroSerie') !!}
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Estado</label>
-                                <x-select wire:model.live="estadoServicio"
+                                <x-select error-class="hidden" wire:model.live="estadoServicio"
                                     :options="$this->estadosServicioDisponibles()" option-value="id" option-label="name"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                {!! $errorAlert('estadoServicio') !!}
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Costo estimado</label>
-                                <x-input wire:model.live="costoEstimado" type="number" step="0.01" prefix="C$"
+                                <x-input error-class="hidden" wire:model.live="costoEstimado" type="number" step="0.01" prefix="C$"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                {!! $errorAlert('costoEstimado') !!}
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Fecha estimada</label>
-                                <x-input wire:model.live="fechaEstimadaEntrega" type="date"
+                                <x-input error-class="hidden" wire:model.live="fechaEstimadaEntrega" type="date"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                {!! $errorAlert('fechaEstimadaEntrega') !!}
                             </div>
 
                             <div class="md:col-span-2 xl:col-span-4">
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Problema reportado</label>
-                                <x-textarea wire:model.live="problemaReportado" rows="2"
+                                <x-textarea error-class="hidden" wire:model.live="problemaReportado" rows="2"
                                     class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                {!! $errorAlert('problemaReportado') !!}
                             </div>
 
                             <div class="md:col-span-2 xl:col-span-4">
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Detalle descriptivo</label>
-                                <x-textarea wire:model.live="detalleDescriptivo" rows="2"
+                                <x-textarea error-class="hidden" wire:model.live="detalleDescriptivo" rows="2"
                                     class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                {!! $errorAlert('detalleDescriptivo') !!}
                             </div>
 
                             <div class="md:col-span-2 xl:col-span-4">
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Observación técnica</label>
-                                <x-textarea wire:model.live="observacionTecnica" rows="2"
+                                <x-textarea error-class="hidden" wire:model.live="observacionTecnica" rows="2"
                                     class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                {!! $errorAlert('observacionTecnica') !!}
                             </div>
                         </div>
                     </x-card>
@@ -2965,7 +2922,7 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
 
                         <div class="mt-3">
                             <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Observación del checklist</label>
-                            <x-textarea wire:model="checklist.observacion_checklist" rows="2"
+                            <x-textarea error-class="hidden" wire:model="checklist.observacion_checklist" rows="2"
                                 class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
                         </div>
                     </x-card>
@@ -2992,7 +2949,7 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                             <div class="grid grid-cols-1 gap-3 md:grid-cols-12">
                                 <div class="relative md:col-span-5">
                                     <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Producto</label>
-                                    <x-input wire:model.live.debounce.350ms="filtroProducto"
+                                    <x-input error-field="productoId" error-class="hidden" wire:model.live.debounce.350ms="filtroProducto"
                                         wire:focus="abrirBusquedaProductos"
                                         wire:keydown.escape="cerrarBusquedaProductos" icon="o-magnifying-glass"
                                         placeholder="Buscar producto, marca, modelo, código o serie"
@@ -3046,32 +3003,28 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                                     </div>
                                     @endif
 
-                                    {!! $errorAlert('productoId') !!}
                                 </div>
 
                                 @if($productoTieneSeries)
                                 <div class="md:col-span-3">
                                     <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Serie</label>
-                                    <x-select wire:model.live="productoSerieId" :options="$seriesDisponibles"
+                                    <x-select error-class="hidden" wire:model.live="productoSerieId" :options="$seriesDisponibles"
                                         option-value="id" option-label="name" placeholder="Seleccione serie"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
-                                    {!! $errorAlert('productoSerieId') !!}
                                 </div>
                                 @else
                                 <div class="md:col-span-2">
                                     <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Cantidad</label>
-                                    <x-input wire:model.live="productoCantidad" type="number" step="0.01"
+                                    <x-input error-class="hidden" wire:model.live="productoCantidad" type="number" step="0.01"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
-                                    {!! $errorAlert('productoCantidad') !!}
                                 </div>
                                 @endif
 
                                 <div class="{{ $productoTieneSeries ? 'md:col-span-2' : 'md:col-span-2' }} min-w-0">
                                     <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Precio</label>
-                                    <x-input wire:model.live.debounce.250ms="productoPrecio" type="text"
+                                    <x-input error-class="hidden" wire:model.live.debounce.250ms="productoPrecio" type="text"
                                         inputmode="decimal" placeholder="C$ 0.00"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white px-3 text-right text-sm font-black tabular-nums text-[#1A2B42] placeholder:text-left placeholder:font-semibold placeholder:text-[#7B8794]" />
-                                    {!! $errorAlert('productoPrecio') !!}
                                 </div>
 
                                 <div
@@ -3204,7 +3157,7 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                                 <div>
                                     <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Tipo cambio
                                         actual</label>
-                                    <x-input wire:model.live.debounce.250ms="tipoCambio" type="text" inputmode="decimal"
+                                    <x-input error-class="hidden" wire:model.live.debounce.250ms="tipoCambio" type="text" inputmode="decimal"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
                                 </div>
 
@@ -3221,14 +3174,14 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
 
                                     <div>
                                         <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Pago C$</label>
-                                        <x-input wire:model.live.debounce.250ms="pagoCordobas" type="text"
+                                        <x-input error-class="hidden" wire:model.live.debounce.250ms="pagoCordobas" type="text"
                                             inputmode="numeric"
                                             class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
                                     </div>
                                 </div>
 
                                 @if(in_array($tipoPagoCordobas, ['TRANSFERENCIA', 'TARJETA'], true))
-                                <x-input wire:model.live.debounce.250ms="referenciaCordobas" type="text"
+                                <x-input error-class="hidden" wire:model.live.debounce.250ms="referenciaCordobas" type="text"
                                     placeholder="Referencia C$"
                                     class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
                                 @endif
@@ -3246,14 +3199,14 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
 
                                     <div>
                                         <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Pago US$</label>
-                                        <x-input wire:model.live.debounce.250ms="pagoDolares" type="text"
+                                        <x-input error-class="hidden" wire:model.live.debounce.250ms="pagoDolares" type="text"
                                             inputmode="decimal"
                                             class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
                                     </div>
                                 </div>
 
                                 @if(in_array($tipoPagoDolares, ['TRANSFERENCIA', 'TARJETA'], true))
-                                <x-input wire:model.live.debounce.250ms="referenciaDolares" type="text"
+                                <x-input error-class="hidden" wire:model.live.debounce.250ms="referenciaDolares" type="text"
                                     placeholder="Referencia US$"
                                     class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
                                 @endif
@@ -3356,7 +3309,7 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
                     Página {{ $paginaPendientes }} / {{ $totalPaginasPendientes }}
                 </span>
             </div>
-            <x-input wire:model.live.debounce.350ms="filtroPendientes" icon="o-magnifying-glass"
+            <x-input error-class="hidden" wire:model.live.debounce.350ms="filtroPendientes" icon="o-magnifying-glass"
                 placeholder="Buscar por orden, cliente, equipo, marca o modelo..."
                 class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
 
@@ -3451,7 +3404,7 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
     <x-modal wire:model="modalClientes" title="Listado completo de clientes" separator class="backdrop-blur-sm"
         box-class="w-[95vw] max-w-5xl rounded-3xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
         <div class="space-y-3">
-            <x-input wire:model.live.debounce.350ms="filtroListadoClientes" icon="o-magnifying-glass"
+            <x-input error-class="hidden" wire:model.live.debounce.350ms="filtroListadoClientes" icon="o-magnifying-glass"
                 placeholder="Buscar por nombre, institución, teléfono o código..."
                 class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
 
@@ -3511,7 +3464,7 @@ return '<div wire:key="' . $key . '" x-data="{ show: true }"
         class="backdrop-blur-sm"
         box-class="w-[95vw] max-w-5xl rounded-3xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
         <div class="space-y-3">
-            <x-input wire:model.live.debounce.350ms="filtroListadoProductos" icon="o-magnifying-glass"
+            <x-input error-class="hidden" wire:model.live.debounce.350ms="filtroListadoProductos" icon="o-magnifying-glass"
                 placeholder="Buscar por producto, marca, modelo o código..."
                 class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
 

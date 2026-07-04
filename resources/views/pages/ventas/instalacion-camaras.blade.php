@@ -3,6 +3,7 @@
 use Livewire\Component;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Mary\Traits\Toast;
 
 use App\Models\Cliente;
@@ -159,6 +160,22 @@ new class extends Component
     public function limpiarErrorCampo(string $campo): void
     {
         $this->resetErrorBag($campo);
+    }
+
+    private function validarConToast(array $rules, array $messages = []): ?array
+    {
+        try {
+            return $this->validate($rules, $messages);
+        } catch (ValidationException $e) {
+            $this->setErrorBag($e->validator->errors());
+            $this->mostrarMensaje(
+                'error',
+                'Complete todos los campos obligatorios.',
+                'Revise los campos marcados en rojo.'
+            );
+
+            return null;
+        }
     }
 
     private function reglasContrato(): array
@@ -925,7 +942,9 @@ new class extends Component
     public function agregarProducto(): void
     {
         // MODIFICADO: reglas centralizadas para que la validación normal y la validación en vivo usen los mismos mensajes.
-        $this->validate($this->reglasProducto(), $this->mensajesValidacionProducto());
+        if ($this->validarConToast($this->reglasProducto(), $this->mensajesValidacionProducto()) === null) {
+            return;
+        }
 
         $producto = Producto::query()
             ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
@@ -938,6 +957,7 @@ new class extends Component
 
         if (!$producto || (int) $producto->Estado !== 1 || (int) $producto->Stock_Actual <= 0) {
             $this->addError('productoId', 'El producto no está disponible.');
+            $this->mostrarMensaje('error', 'Producto no disponible', 'Seleccione otro producto con stock.');
             return;
         }
 
@@ -947,6 +967,7 @@ new class extends Component
         if ($this->productoTieneSeries) {
             if (!$this->productoSerieId) {
                 $this->addError('productoSerieId', 'Seleccione la serie del producto.');
+                $this->mostrarMensaje('error', 'Complete todos los campos obligatorios.', 'Seleccione una serie disponible.');
                 return;
             }
 
@@ -958,6 +979,7 @@ new class extends Component
 
             if (!$serie) {
                 $this->addError('productoSerieId', 'La serie seleccionada ya no está disponible.');
+                $this->mostrarMensaje('error', 'Serie no disponible', 'Seleccione otra serie disponible.');
                 return;
             }
 
@@ -970,11 +992,13 @@ new class extends Component
 
         if (!$this->productoTieneSeries && ($cantidadYaAgregada + $cantidad) > (float) $producto->Stock_Actual) {
             $this->addError('productoCantidad', 'La cantidad supera el stock disponible.');
+            $this->mostrarMensaje('error', 'Stock insuficiente', 'La cantidad supera el stock disponible.');
             return;
         }
 
         if ($serie && collect($this->productosUsados)->contains('producto_serie_id', (int) $serie->id_producto_serie)) {
             $this->addError('productoSerieId', 'Esta serie ya fue agregada.');
+            $this->mostrarMensaje('error', 'Serie duplicada', 'Esta serie ya fue agregada al contrato.');
             return;
         }
 
@@ -1037,7 +1061,9 @@ new class extends Component
     public function guardar(): void
     {
         // MODIFICADO: reglas centralizadas para permitir alertas dinámicas y limpieza automática.
-        $this->validate($this->reglasContrato(), $this->mensajesValidacionContrato());
+        if ($this->validarConToast($this->reglasContrato(), $this->mensajesValidacionContrato()) === null) {
+            return;
+        }
 
         if ($this->tipoOperacion === self::TIPO_CREDITO && ! $this->clienteEsInstitucion((int) $this->clienteId)) {
             $this->mostrarMensaje('error', 'Cliente no permitido', 'El crédito solo se puede registrar a clientes institucionales.');
@@ -2227,23 +2253,6 @@ new class extends Component
 
         @endphp
 
-        {{-- MODIFICADO: resumen visual temporal cuando existen errores de validación en campos. --}}
-        @if ($errors->any())
-        <div wire:key="validation-summary-{{ md5(implode('|', $errors->all())) }}" x-data="{ show: true }"
-            x-init="setTimeout(() => show = false, 3800)" x-show="show" x-transition.opacity.duration.200ms
-            class="shrink-0 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 shadow-sm">
-            <div class="flex items-start gap-3">
-                <span
-                    class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100 text-sm font-black text-red-700">!</span>
-                <div>
-                    <p class="font-black">Revisá los campos marcados.</p>
-                    <p class="text-xs font-semibold text-red-600">Las alertas se ocultan solas; al intentar guardar se
-                        validan nuevamente.</p>
-                </div>
-            </div>
-        </div>
-        @endif
-
         <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-12">
             <div class="min-h-0 overflow-y-auto pr-0 xl:col-span-8 xl:pr-1">
                 <div class="space-y-4">
@@ -2272,7 +2281,7 @@ new class extends Component
                                 </label>
 
                                 <div class="relative">
-                                    <x-input wire:model.live.debounce.300ms="filtroCliente"
+                                    <x-input error-field="clienteId" error-class="hidden" wire:model.live.debounce.300ms="filtroCliente"
                                         wire:focus="abrirBusquedaClientes" wire:keydown.escape="cerrarBusquedaClientes"
                                         icon="o-magnifying-glass"
                                         placeholder="{{ $tipoOperacion === 'CREDITO' ? 'Buscar institución por nombre' : 'Buscar cliente por teléfono o nombre' }}"
@@ -2331,155 +2340,64 @@ new class extends Component
                                     nombre institucional.' : 'En contado se listan clientes normales y podés buscar por
                                     teléfono.' }}
                                 </p>
-                                @error('clienteId')
-                                <div wire:key="field-error-clienteId-{{ md5($message) }}" x-data="{ show: true }"
-                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('clienteId') }, 4500)"
-                                    x-show="show" x-transition.opacity.duration.200ms
-                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
-                                    <span
-                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
-                                    <span>{{ $message }}</span>
-                                </div>
-                                @enderror
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Teléfono</label>
-                                <x-input wire:model="telefonoCliente" readonly
+                                <x-input error-class="hidden" wire:model="telefonoCliente" readonly
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Municipio</label>
-                                <x-input wire:model="municipio"
+                                <x-input error-class="hidden" wire:model="municipio"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                @error('municipio')
-                                <div wire:key="field-error-municipio-{{ md5($message) }}" x-data="{ show: true }"
-                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('municipio') }, 4500)"
-                                    x-show="show" x-transition.opacity.duration.200ms
-                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
-                                    <span
-                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
-                                    <span>{{ $message }}</span>
-                                </div>
-                                @enderror
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Cámaras</label>
-                                <x-input wire:model.live="cantidadCamaras" type="number"
+                                <x-input error-class="hidden" wire:model.live="cantidadCamaras" type="number"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                @error('cantidadCamaras')
-                                <div wire:key="field-error-cantidadCamaras-{{ md5($message) }}" x-data="{ show: true }"
-                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('cantidadCamaras') }, 4500)"
-                                    x-show="show" x-transition.opacity.duration.200ms
-                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
-                                    <span
-                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
-                                    <span>{{ $message }}</span>
-                                </div>
-                                @enderror
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Metros cableado</label>
-                                <x-input wire:model.live="metrosCableado" type="number" step="0.01"
+                                <x-input error-class="hidden" wire:model.live="metrosCableado" type="number" step="0.01"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                @error('metrosCableado')
-                                <div wire:key="field-error-metrosCableado-{{ md5($message) }}" x-data="{ show: true }"
-                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('metrosCableado') }, 4500)"
-                                    x-show="show" x-transition.opacity.duration.200ms
-                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
-                                    <span
-                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
-                                    <span>{{ $message }}</span>
-                                </div>
-                                @enderror
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Mano de obra</label>
-                                <x-input wire:model.live="costoManoObra" type="number" step="0.01" prefix="C$"
+                                <x-input error-class="hidden" wire:model.live="costoManoObra" type="number" step="0.01" prefix="C$"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                @error('costoManoObra')
-                                <div wire:key="field-error-costoManoObra-{{ md5($message) }}" x-data="{ show: true }"
-                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('costoManoObra') }, 4500)"
-                                    x-show="show" x-transition.opacity.duration.200ms
-                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
-                                    <span
-                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
-                                    <span>{{ $message }}</span>
-                                </div>
-                                @enderror
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Anticipo</label>
-                                <x-input wire:model.live="porcentajeAnticipo" type="number" step="0.01" suffix="%"
+                                <x-input error-class="hidden" wire:model.live="porcentajeAnticipo" type="number" step="0.01" suffix="%"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                @error('porcentajeAnticipo')
-                                <div wire:key="field-error-porcentajeAnticipo-{{ md5($message) }}"
-                                    x-data="{ show: true }"
-                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('porcentajeAnticipo') }, 4500)"
-                                    x-show="show" x-transition.opacity.duration.200ms
-                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
-                                    <span
-                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
-                                    <span>{{ $message }}</span>
-                                </div>
-                                @enderror
                             </div>
 
                             <div class="xl:col-span-2">
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Técnico asignado</label>
 
-                                <x-select wire:model="tecnicoId" :options="$tecnicos" option-value="id"
+                                <x-select error-class="hidden" wire:model="tecnicoId" :options="$tecnicos" option-value="id"
                                     option-label="name" placeholder="Opcional"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                @error('tecnicoId')
-                                <div wire:key="field-error-tecnicoId-{{ md5($message) }}" x-data="{ show: true }"
-                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('tecnicoId') }, 4500)"
-                                    x-show="show" x-transition.opacity.duration.200ms
-                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
-                                    <span
-                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
-                                    <span>{{ $message }}</span>
-                                </div>
-                                @enderror
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Fecha estimada</label>
-                                <x-input wire:model="fechaEstimada" type="date"
+                                <x-input error-class="hidden" wire:model="fechaEstimada" type="date"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                @error('fechaEstimada')
-                                <div wire:key="field-error-fechaEstimada-{{ md5($message) }}" x-data="{ show: true }"
-                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('fechaEstimada') }, 4500)"
-                                    x-show="show" x-transition.opacity.duration.200ms
-                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
-                                    <span
-                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
-                                    <span>{{ $message }}</span>
-                                </div>
-                                @enderror
                             </div>
 
                             <div>
                                 <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Estado</label>
 
-                                <x-select wire:model="estadoContrato" :options="$estadosContrato" option-value="id"
+                                <x-select error-class="hidden" wire:model="estadoContrato" :options="$estadosContrato" option-value="id"
                                     option-label="name"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                @error('estadoContrato')
-                                <div wire:key="field-error-estadoContrato-{{ md5($message) }}" x-data="{ show: true }"
-                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('estadoContrato') }, 4500)"
-                                    x-show="show" x-transition.opacity.duration.200ms
-                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
-                                    <span
-                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
-                                    <span>{{ $message }}</span>
-                                </div>
-                                @enderror
                             </div>
 
                             <div class="md:col-span-2 xl:col-span-4">
@@ -2487,19 +2405,8 @@ new class extends Component
                                     Dirección de instalación
                                 </label>
 
-                                <x-input wire:model="direccionInstalacion"
+                                <x-input error-class="hidden" wire:model="direccionInstalacion"
                                     class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                @error('direccionInstalacion')
-                                <div wire:key="field-error-direccionInstalacion-{{ md5($message) }}"
-                                    x-data="{ show: true }"
-                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('direccionInstalacion') }, 4500)"
-                                    x-show="show" x-transition.opacity.duration.200ms
-                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
-                                    <span
-                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
-                                    <span>{{ $message }}</span>
-                                </div>
-                                @enderror
                             </div>
 
                             <div class="md:col-span-2 xl:col-span-4">
@@ -2507,18 +2414,8 @@ new class extends Component
                                     Detalle del contrato
                                 </label>
 
-                                <x-textarea wire:model="detalleContrato" rows="2"
+                                <x-textarea error-class="hidden" wire:model="detalleContrato" rows="2"
                                     class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
-                                @error('detalleContrato')
-                                <div wire:key="field-error-detalleContrato-{{ md5($message) }}" x-data="{ show: true }"
-                                    x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('detalleContrato') }, 4500)"
-                                    x-show="show" x-transition.opacity.duration.200ms
-                                    class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
-                                    <span
-                                        class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
-                                    <span>{{ $message }}</span>
-                                </div>
-                                @enderror
                             </div>
                         </div>
                     </x-card>
@@ -2548,7 +2445,7 @@ new class extends Component
                                 Observación del checklist
                             </label>
 
-                            <x-textarea wire:model="checklist.observacion_checklist" rows="2"
+                            <x-textarea error-class="hidden" wire:model="checklist.observacion_checklist" rows="2"
                                 class="w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42]" />
                         </div>
                     </x-card>
@@ -2577,80 +2474,37 @@ new class extends Component
                                 <div class="md:col-span-5">
                                     <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Producto</label>
 
-                                    <x-input wire:model.live.debounce.300ms="filtroProducto" icon="o-magnifying-glass"
+                                    <x-input error-class="hidden" wire:model.live.debounce.300ms="filtroProducto" icon="o-magnifying-glass"
                                         placeholder="Buscar producto por nombre, marca, modelo o código"
                                         class="mb-2 h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
 
-                                    <x-select wire:model.live="productoId" :options="$productosDisponibles"
+                                    <x-select error-class="hidden" wire:model.live="productoId" :options="$productosDisponibles"
                                         option-value="id" option-label="name" placeholder="Seleccione producto"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
-                                    @error('productoId')
-                                    <div wire:key="field-error-productoId-{{ md5($message) }}" x-data="{ show: true }"
-                                        x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('productoId') }, 4500)"
-                                        x-show="show" x-transition.opacity.duration.200ms
-                                        class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
-                                        <span
-                                            class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
-                                        <span>{{ $message }}</span>
-                                    </div>
-                                    @enderror
                                 </div>
 
                                 @if($productoTieneSeries)
                                 <div class="md:col-span-3">
                                     <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Serie</label>
 
-                                    <x-select wire:model="productoSerieId" :options="$seriesDisponibles"
+                                    <x-select error-class="hidden" wire:model="productoSerieId" :options="$seriesDisponibles"
                                         option-value="id" option-label="name" placeholder="Seleccione serie"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
-                                    @error('productoSerieId')
-                                    <div wire:key="field-error-productoSerieId-{{ md5($message) }}"
-                                        x-data="{ show: true }"
-                                        x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('productoSerieId') }, 4500)"
-                                        x-show="show" x-transition.opacity.duration.200ms
-                                        class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
-                                        <span
-                                            class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
-                                        <span>{{ $message }}</span>
-                                    </div>
-                                    @enderror
                                 </div>
                                 @else
                                 <div class="md:col-span-2">
                                     <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Cantidad</label>
 
-                                    <x-input wire:model="productoCantidad" type="number" step="0.01"
+                                    <x-input error-class="hidden" wire:model="productoCantidad" type="number" step="0.01"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
-                                    @error('productoCantidad')
-                                    <div wire:key="field-error-productoCantidad-{{ md5($message) }}"
-                                        x-data="{ show: true }"
-                                        x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('productoCantidad') }, 4500)"
-                                        x-show="show" x-transition.opacity.duration.200ms
-                                        class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
-                                        <span
-                                            class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
-                                        <span>{{ $message }}</span>
-                                    </div>
-                                    @enderror
                                 </div>
                                 @endif
 
                                 <div class="{{ $productoTieneSeries ? 'md:col-span-2' : 'md:col-span-2' }}">
                                     <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Precio</label>
 
-                                    <x-input wire:model="productoPrecio" type="number" step="0.01" prefix="C$"
+                                    <x-input error-class="hidden" wire:model="productoPrecio" type="number" step="0.01" prefix="C$"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
-                                    @error('productoPrecio')
-                                    <div wire:key="field-error-productoPrecio-{{ md5($message) }}"
-                                        x-data="{ show: true }"
-                                        x-init="setTimeout(() => { show = false; $wire.limpiarErrorCampo('productoPrecio') }, 4500)"
-                                        x-show="show" x-transition.opacity.duration.200ms
-                                        class="mt-1.5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-snug text-red-700 shadow-sm">
-                                        <span
-                                            class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-black text-red-700">!</span>
-                                        <span>{{ $message }}</span>
-                                    </div>
-                                    @enderror
                                 </div>
 
                                 <div
@@ -2751,7 +2605,7 @@ new class extends Component
                             <div class="grid grid-cols-1 gap-2">
                                 <div>
                                     <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Tipo cambio</label>
-                                    <x-input wire:model.live.debounce.250ms="tipoCambio" type="text" inputmode="decimal"
+                                    <x-input error-class="hidden" wire:model.live.debounce.250ms="tipoCambio" type="text" inputmode="decimal"
                                         class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
                                 </div>
 
@@ -2768,14 +2622,14 @@ new class extends Component
 
                                     <div>
                                         <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Pago C$</label>
-                                        <x-input wire:model.live.debounce.250ms="pagoCordobas" type="text"
+                                        <x-input error-class="hidden" wire:model.live.debounce.250ms="pagoCordobas" type="text"
                                             inputmode="numeric"
                                             class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
                                     </div>
                                 </div>
 
                                 @if(in_array($tipoPagoCordobas, ['TRANSFERENCIA', 'TARJETA'], true))
-                                <x-input wire:model.live.debounce.250ms="referenciaCordobas" type="text"
+                                <x-input error-class="hidden" wire:model.live.debounce.250ms="referenciaCordobas" type="text"
                                     placeholder="Referencia C$"
                                     class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
                                 @endif
@@ -2793,14 +2647,14 @@ new class extends Component
 
                                     <div>
                                         <label class="mb-1 block text-xs font-bold text-[#1A2B42]">Pago US$</label>
-                                        <x-input wire:model.live.debounce.250ms="pagoDolares" type="text"
+                                        <x-input error-class="hidden" wire:model.live.debounce.250ms="pagoDolares" type="text"
                                             inputmode="decimal"
                                             class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
                                     </div>
                                 </div>
 
                                 @if(in_array($tipoPagoDolares, ['TRANSFERENCIA', 'TARJETA'], true))
-                                <x-input wire:model.live.debounce.250ms="referenciaDolares" type="text"
+                                <x-input error-class="hidden" wire:model.live.debounce.250ms="referenciaDolares" type="text"
                                     placeholder="Referencia US$"
                                     class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
                                 @endif
@@ -2923,7 +2777,7 @@ new class extends Component
     <x-modal wire:model="modalPendientes" title="Contratos de instalación pendientes" separator class="backdrop-blur-sm"
         box-class="w-[96vw] max-w-6xl rounded-3xl border border-[#D7E4F3] bg-white text-[#1A2B42] shadow-xl">
         <div class="space-y-3">
-            <x-input wire:model.live.debounce.350ms="filtroPendientes" icon="o-magnifying-glass"
+            <x-input error-class="hidden" wire:model.live.debounce.350ms="filtroPendientes" icon="o-magnifying-glass"
                 placeholder="Buscar por contrato, cliente, municipio o dirección..."
                 class="h-10 min-h-10 w-full rounded-xl bg-[#F7F9FC] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
 
