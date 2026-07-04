@@ -1,6 +1,5 @@
 <?php
 
-use App\Models\AbonoCredito;
 use App\Models\AperturaCaja;
 use App\Models\ArqueoCaja;
 use App\Models\DetalleArqueo;
@@ -35,9 +34,6 @@ new class extends Component
     public string $montoEgresoDolares = '';
     public string $motivoEgreso = '';
     public string $descripcionEgreso = '';
-
-    public float $totalAbonoCordobas = 0;
-    public float $totalAbonoDolares = 0;
 
     public float $totalVentaCordobas = 0;
     public float $totalVentaDolares = 0;
@@ -119,7 +115,6 @@ new class extends Component
 
         $this->cargarTasaCambio();
         $this->cargarAperturaAbierta();
-        $this->cargarAbonosCreditoHoy();
         $this->cargarPagosVentaHoy();
         $this->cargarEgresosCaja();
     }
@@ -288,18 +283,6 @@ new class extends Component
 
         $ventasCordobas = round($ventasCordobas - $cambioEntregadoCordobas, 2);
 
-        $baseAbonos = AbonoCredito::query()
-            ->where('Id_Usuario', $usuarioId)
-            ->whereBetween('Fecha_Abono', [$inicioCaja, $finCaja]);
-
-        $abonosCordobas = round((float) (clone $baseAbonos)
-            ->where('Moneda', AbonoCredito::MONEDA_CORDOBA)
-            ->sum('Monto'), 2);
-
-        $abonosDolares = round((float) (clone $baseAbonos)
-            ->where('Moneda', AbonoCredito::MONEDA_DOLAR)
-            ->sum('Monto'), 2);
-
         $baseEgresos = Egresos::query()
             ->deApertura($aperturaId)
             ->deUsuario($usuarioId);
@@ -313,14 +296,12 @@ new class extends Component
         $esperadoCordobas = round(
             $montoApertura
             + $ventasCordobas
-            + $abonosCordobas
             - $egresosCordobas,
             2
         );
 
         $esperadoDolares = round(
             $ventasDolares
-            + $abonosDolares
             - $egresosDolares,
             2
         );
@@ -328,8 +309,6 @@ new class extends Component
         return [
             'venta_cordoba' => max(0, $ventasCordobas),
             'venta_dolar' => max(0, $ventasDolares),
-            'abono_cordoba' => max(0, $abonosCordobas),
-            'abono_dolar' => max(0, $abonosDolares),
             'egreso_cordoba' => max(0, $egresosCordobas),
             'egreso_dolar' => max(0, $egresosDolares),
             'esperado_cordoba' => max(0, $esperadoCordobas),
@@ -561,33 +540,6 @@ new class extends Component
         $this->nuevaTasaOficial = $this->tasaOficial;
     }
 
-    public function cargarAbonosCreditoHoy(): void
-    {
-        $usuarioId = $this->usuarioActualId();
-        $rangoCaja = $this->rangoCajaActual();
-
-        if (! $usuarioId || ! $rangoCaja) {
-            $this->totalAbonoCordobas = 0;
-            $this->totalAbonoDolares = 0;
-            return;
-        }
-
-        [$inicioCaja, $finCaja] = $rangoCaja;
-
-        $baseAbonos = AbonoCredito::query()
-            ->where('Id_Usuario', $usuarioId)
-            ->whereDate('Fecha_Abono', now()->toDateString())
-            ->whereBetween('Fecha_Abono', [$inicioCaja, $finCaja]);
-
-        $this->totalAbonoCordobas = round((float) (clone $baseAbonos)
-            ->where('Moneda', AbonoCredito::MONEDA_CORDOBA)
-            ->sum('Monto'), 2);
-
-        $this->totalAbonoDolares = round((float) (clone $baseAbonos)
-            ->where('Moneda', AbonoCredito::MONEDA_DOLAR)
-            ->sum('Monto'), 2);
-    }
-
     public function cargarPagosVentaHoy(): void
     {
         $usuarioId = $this->usuarioActualId();
@@ -691,7 +643,6 @@ new class extends Component
         $this->resetValidation();
 
         $this->cargarAperturaAbierta();
-        $this->cargarAbonosCreditoHoy();
         $this->cargarPagosVentaHoy();
         $this->cargarEgresosCaja();
 
@@ -798,7 +749,6 @@ new class extends Component
             $this->limpiarFormularioApertura(false);
 
             $this->cargarTasaCambio();
-            $this->cargarAbonosCreditoHoy();
             $this->cargarPagosVentaHoy();
             $this->cargarEgresosCaja();
 
@@ -980,7 +930,6 @@ new class extends Component
         }
 
         $this->cargarAperturaAbierta();
-        $this->cargarAbonosCreditoHoy();
         $this->cargarPagosVentaHoy();
         $this->cargarEgresosCaja();
 
@@ -1067,9 +1016,7 @@ new class extends Component
             $this->limpiarTotalesVenta();
             $this->limpiarTotalesEgreso();
             $this->reiniciarConteos();
-
-            $this->totalAbonoCordobas = 0;
-            $this->totalAbonoDolares = 0;
+          
 
             $this->notificar('Caja cerrada correctamente.', 'success');
         } catch (RuntimeException $e) {
@@ -1121,14 +1068,12 @@ new class extends Component
     public function totalIngresosCordobas(): float
     {
         return (float) $this->montoApertura
-            + (float) $this->totalVentaCordobas
-            + (float) $this->totalAbonoCordobas;
+            + (float) $this->totalVentaCordobas;
     }
 
     public function totalIngresosDolares(): float
     {
-        return (float) $this->totalVentaDolares
-            + (float) $this->totalAbonoDolares;
+        return (float) $this->totalVentaDolares;
     }
 
     public function totalEsperadoCordobas(): float
@@ -1254,9 +1199,6 @@ new class extends Component
 
             ['label' => 'Total ventas C$', 'valor' => 'C$ ' . $this->formatear($this->totalVentaCordobas)],
             ['label' => 'Total ventas $', 'valor' => '$ ' . $this->formatear($this->totalVentaDolares)],
-
-            ['label' => 'Total abono C$', 'valor' => 'C$ ' . $this->formatear($this->totalAbonoCordobas)],
-            ['label' => 'Total abono $', 'valor' => '$ ' . $this->formatear($this->totalAbonoDolares)],
 
             ['label' => 'Total egresos C$', 'valor' => 'C$ ' . $this->formatear($this->totalEgresoCordobas)],
             ['label' => 'Total egresos $', 'valor' => '$ ' . $this->formatear($this->totalEgresoDolares)],
@@ -1478,27 +1420,7 @@ new class extends Component
                                     <span class="shrink-0 whitespace-nowrap text-right text-xs font-extrabold text-[#1A2B42] tabular-nums">
                                         $ {{ $this->formatear($this->totalVentaDolares) }}
                                     </span>
-                                </div>
-
-                                <div class="flex min-w-0 items-center justify-between gap-2">
-                                    <span class="min-w-0 truncate text-sm font-medium text-[#5F6B7A]">
-                                        Abonos C$
-                                    </span>
-
-                                    <span class="shrink-0 whitespace-nowrap text-right text-xs font-extrabold text-[#1A2B42] tabular-nums">
-                                        C$ {{ $this->formatear($this->totalAbonoCordobas) }}
-                                    </span>
-                                </div>
-
-                                <div class="flex min-w-0 items-center justify-between gap-2">
-                                    <span class="min-w-0 truncate text-sm font-medium text-[#5F6B7A]">
-                                        Abonos $
-                                    </span>
-
-                                    <span class="shrink-0 whitespace-nowrap text-right text-xs font-extrabold text-[#1A2B42] tabular-nums">
-                                        $ {{ $this->formatear($this->totalAbonoDolares) }}
-                                    </span>
-                                </div>
+                                </div>                                
                             </div>
                         </div>
 
