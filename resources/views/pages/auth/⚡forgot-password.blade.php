@@ -22,21 +22,16 @@ new #[Layout('layouts.blank')] class extends Component
                 'correo.email' => 'Ingrese un correo electrónico válido.',
             ]
         );
-        
+
         try {
             $correo = trim($this->correo);
 
-                $usuarioData = Usuario::with('trabajador.persona')
-                    ->whereHas('trabajador.persona', function ($query) use ($correo) {
-                     $query->where('Correo', $correo);
-             })
-            ->first();
+            $usuarioData = Usuario::with('persona')
+                ->whereHas('persona', function ($query) use ($correo) {
+                    $query->where('Correo', $correo);
+                })
+                ->first();
 
-            /*
-             * Mensaje genérico:
-             * No conviene decir si el correo existe o no,
-             * para no revelar información de usuarios.
-             */
             if (! $usuarioData) {
                 $this->mostrarMensaje(
                     'Si el correo está registrado, se enviará un enlace de recuperación.',
@@ -74,10 +69,9 @@ new #[Layout('layouts.blank')] class extends Component
             $this->correo = '';
 
             $this->mostrarMensaje(
-                'Revisar correo electronico.',
+                'Revise su correo electrónico.',
                 'exito'
             );
-
         } catch (\Throwable $e) {
             logger()->error('Error al enviar recuperación de contraseña: ' . $e->getMessage());
 
@@ -102,11 +96,7 @@ new #[Layout('layouts.blank')] class extends Component
             <div class="mb-6 text-center">
                 <div class="mb-4 flex justify-center">
                     <div class="flex h-20 w-20 items-center justify-center rounded-2xl bg-[#EAF2FB]">
-                        <img
-                            src="{{ asset('img/gnetlogo.png') }}"
-                            alt="Logo GNET"
-                            class="h-14 w-14 object-contain"
-                        />
+                        <img src="{{ asset('img/gnetlogo.png') }}" alt="Logo GNET" class="h-14 w-14 object-contain" />
                     </div>
                 </div>
 
@@ -118,14 +108,12 @@ new #[Layout('layouts.blank')] class extends Component
             </div>
 
             @if ($mensaje)
-                <div
-                    class="mb-5 rounded-xl border px-4 py-3 text-sm font-medium
+            <div class="mb-5 rounded-xl border px-4 py-3 text-sm font-medium
                     {{ $tipoMensaje === 'exito'
                         ? 'border-green-200 bg-green-50 text-green-700'
-                        : 'border-red-200 bg-red-50 text-red-700' }}"
-                >
-                    {{ $mensaje }}
-                </div>
+                        : 'border-red-200 bg-red-50 text-red-700' }}">
+                {{ $mensaje }}
+            </div>
             @endif
 
             <form wire:submit="enviarEnlaceRecuperacion" class="space-y-5">
@@ -134,32 +122,21 @@ new #[Layout('layouts.blank')] class extends Component
                         Correo electrónico
                     </label>
 
-                    <x-input
-                        type="email"
-                        wire:model="correo"
-                        placeholder="Ingrese su correo"
-                        class="h-11 min-h-11 w-full rounded-xl bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]"
-                    />
+                    <x-input type="email" wire:model="correo" placeholder="Ingrese su correo"
+                        class="h-11 min-h-11 w-full rounded-xl bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
 
                     @error('correo')
-                        <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
+                    <p class="mt-1 text-sm font-medium text-red-600">{{ $message }}</p>
                     @enderror
                 </div>
 
                 <div class="mt-6 flex flex-col gap-3">
-                    <x-button
-                        type="submit"
-                        label="Enviar enlace"
-                        wire:loading.attr="disabled"
+                    <x-button type="submit" label="Enviar enlace" wire:loading.attr="disabled"
                         wire:target="enviarEnlaceRecuperacion"
-                        class="h-11 min-h-11 w-full border-0 bg-[#2E8BC0] text-sm font-semibold text-white hover:bg-[#0B6FE4] disabled:cursor-not-allowed disabled:opacity-70"
-                    />
+                        class="h-11 min-h-11 w-full border-0 bg-[#2E8BC0] text-sm font-semibold text-white hover:bg-[#0B6FE4] disabled:cursor-not-allowed disabled:opacity-70" />
 
-                    <x-button
-                        label="Volver al login"
-                        :link="route('login')"
-                        class="h-11 min-h-11 w-full border border-[#D7E4F3] bg-white text-sm font-semibold text-[#1A2B42] hover:bg-[#F0F3F7]"
-                    />
+                    <x-button label="Volver al login" :link="route('login')"
+                        class="h-11 min-h-11 w-full border border-[#D7E4F3] bg-white text-sm font-semibold text-[#1A2B42] hover:bg-[#F0F3F7]" />
                 </div>
             </form>
         </x-card>
