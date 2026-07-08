@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AperturaCaja;
 use App\Models\Cliente;
 use App\Models\CotizacionVenta;
 use App\Models\Producto;
@@ -39,6 +40,7 @@ new class extends Component
     private const PAGO_TARJETA = 'TARJETA';
 
     private const ESTADO_CREDITO_PENDIENTE = 'PENDIENTE';
+    private const MENSAJE_CAJA_CERRADA_CONTADO = 'Debe abrir una caja antes de registrar ventas de contado.';
 
     public bool $modalCobro = false;
     public bool $modalNuevaCopiaRapida = false;
@@ -900,6 +902,14 @@ new class extends Component
             return;
         }
 
+        try {
+            $this->validarCajaAbiertaParaVentaContado();
+        } catch (ValidationException $e) {
+            $mensaje = collect($e->errors())->flatten()->first() ?: self::MENSAJE_CAJA_CERRADA_CONTADO;
+            $this->mostrarToast($mensaje, 'error');
+            return;
+        }
+
         if (count($this->detalleVenta) === 0) {
             $this->mostrarToast('Agregue al menos un item a la venta.', 'error');
             return;
@@ -1128,6 +1138,14 @@ new class extends Component
             return null;
         }
 
+        try {
+            $this->validarCajaAbiertaParaVentaContado();
+        } catch (ValidationException $e) {
+            $mensaje = collect($e->errors())->flatten()->first() ?: self::MENSAJE_CAJA_CERRADA_CONTADO;
+            $this->mostrarToast($mensaje, 'error');
+            return null;
+        }
+
         $total = $this->totalVenta();
         $descuento = $this->descuentoVenta();
 
@@ -1184,6 +1202,13 @@ new class extends Component
                 $cambioEntregadoCordobas
             ) {
                 $idUsuario = $this->obtenerUsuarioId();
+
+                if ($this->tipoVenta === self::TIPO_CONTADO && ! $this->cajaAbiertaHoyParaUsuario($idUsuario, true)) {
+                    throw ValidationException::withMessages([
+                        'caja' => self::MENSAJE_CAJA_CERRADA_CONTADO,
+                    ]);
+                }
+
                 $numeroFactura = $this->generarNumeroFactura();
 
                 $cotizacionCargada = null;
@@ -1841,6 +1866,32 @@ new class extends Component
         }
 
         return (int) $idUsuario;
+    }
+
+    protected function validarCajaAbiertaParaVentaContado(bool $bloquear = false): void
+    {
+        if ($this->tipoVenta !== self::TIPO_CONTADO) {
+            return;
+        }
+
+        $usuarioId = $this->obtenerUsuarioId();
+
+        if (! $this->cajaAbiertaHoyParaUsuario($usuarioId, $bloquear)) {
+            throw ValidationException::withMessages([
+                'caja' => self::MENSAJE_CAJA_CERRADA_CONTADO,
+            ]);
+        }
+    }
+
+    protected function cajaAbiertaHoyParaUsuario(int $usuarioId, bool $bloquear = false): ?AperturaCaja
+    {
+        return AperturaCaja::query()
+            ->abierta()
+            ->deHoy()
+            ->where('Id_Usuario', $usuarioId)
+            ->when($bloquear, fn ($query) => $query->lockForUpdate())
+            ->orderByDesc('Id_Apertura_Caja')
+            ->first();
     }
 
     protected function generarNumeroFactura(): string
