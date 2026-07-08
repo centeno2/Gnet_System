@@ -36,11 +36,11 @@ new #[Layout('layouts.blank')] class extends Component {
             'password.confirmed' => 'Las contraseñas no coinciden.',
         ]);
 
-        $usuario = Usuario::with('trabajador')
-         ->whereHas('trabajador', function ($query) {
-            $query->where('Correo', $this->correo);
-         })
-         ->first();
+        $correo = trim($this->correo);
+
+        $usuario = Usuario::query()
+            ->where('Correo', $correo)
+            ->first();
 
         if (!$usuario) {
             $this->mostrarMensaje('Usuario no válido.');
