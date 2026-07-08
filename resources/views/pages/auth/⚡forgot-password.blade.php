@@ -23,8 +23,25 @@ new #[Layout('layouts.blank')] class extends Component
             ]
         );
 
+        $usuarioData = null;
+
         try {
             $correo = trim($this->correo);
+
+            if (! $this->configuracionCorreoLista()) {
+                logger()->error('Configuración de correo incompleta para recuperación de contraseña.', [
+                    'mail_default' => config('mail.default'),
+                    'mail_host' => config('mail.mailers.smtp.host'),
+                    'mail_from' => config('mail.from.address'),
+                ]);
+
+                $this->mostrarMensaje(
+                    'No se pudo enviar el correo de recuperación. Revise la configuración de correo.',
+                    'error'
+                );
+
+                return;
+            }
 
             $usuarioData = Usuario::query()
                 ->where('Correo', $correo)
@@ -71,13 +88,30 @@ new #[Layout('layouts.blank')] class extends Component
                 'exito'
             );
         } catch (\Throwable $e) {
-            logger()->error('Error al enviar recuperación de contraseña: ' . $e->getMessage());
+            if ($usuarioData instanceof Usuario) {
+                $usuarioData->limpiarRecuperacion();
+            }
+
+            logger()->error('Error al enviar recuperación de contraseña: ' . $e->getMessage(), [
+                'exception' => $e::class,
+            ]);
 
             $this->mostrarMensaje(
                 'No se pudo enviar el correo de recuperación. Revise la configuración de correo.',
                 'error'
             );
         }
+    }
+
+    private function configuracionCorreoLista(): bool
+    {
+        $smtp = config('mail.mailers.smtp', []);
+
+        return config('mail.default') === 'smtp'
+            && filled($smtp['host'] ?? null)
+            && filled($smtp['username'] ?? null)
+            && filled($smtp['password'] ?? null)
+            && filled(config('mail.from.address'));
     }
 
     private function mostrarMensaje(string $mensaje, string $tipo = 'error'): void
