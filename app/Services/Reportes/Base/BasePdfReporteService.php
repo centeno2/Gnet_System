@@ -137,13 +137,13 @@ class BasePdfReporteService
             $fill = $numeroFila % 2 === 0;
 
             if ($esTotalGeneral) {
-                $pdf->SetFillColor(217, 235, 248);
+                $pdf->SetFillColor(191, 217, 246);
+                $pdf->SetTextColor(26, 43, 66);
+                $pdf->SetFont('helvetica', 'B', 7);
+            } elseif ($esTotal) {
+                $pdf->SetFillColor(234, 242, 251);
                 $pdf->SetTextColor(26, 43, 66);
                 $pdf->SetFont('helvetica', 'B', 6.8);
-            } elseif ($esTotal) {
-                $pdf->SetFillColor(232, 244, 252);
-                $pdf->SetTextColor(26, 43, 66);
-                $pdf->SetFont('helvetica', 'B', 6.6);
             } else {
                 $pdf->SetFillColor($fill ? 247 : 255, $fill ? 249 : 255, $fill ? 252 : 255);
                 $pdf->SetTextColor(26, 43, 66);
@@ -177,7 +177,15 @@ class BasePdfReporteService
                     $texto = $this->cortar($texto, $columna['limit'] ?? 28);
                 }
 
+                if ($esTotal && in_array($key, ['cantidad', 'monto'], true) && trim((string) $valor) !== '') {
+                    $pdf->SetTextColor(22, 101, 52);
+                }
+
                 $pdf->Cell($ancho, 6, $texto, 0, 0, $align, true);
+
+                if ($esTotal) {
+                    $pdf->SetTextColor(26, 43, 66);
+                }
             }
 
             $pdf->Ln();
@@ -207,9 +215,9 @@ class BasePdfReporteService
 
     private function separadorTotales(\TCPDF $pdf, float $anchoTabla): void
     {
-        $pdf->SetFillColor(240, 247, 252);
-        $pdf->SetTextColor(26, 43, 66);
-        $pdf->SetFont('helvetica', 'B', 7);
+        $pdf->SetFillColor(234, 242, 251);
+        $pdf->SetTextColor(14, 72, 161);
+        $pdf->SetFont('helvetica', 'B', 7.5);
         $pdf->Cell($anchoTabla, 6.5, 'RESUMEN DE TOTALES', 0, 1, 'C', true);
     }
 

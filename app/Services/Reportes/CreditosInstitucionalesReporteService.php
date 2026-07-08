@@ -236,6 +236,23 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
         return $filas->concat($totales);
     }
 
+    public function filaEsTotal(mixed $fila): bool
+    {
+        return str_starts_with((string) data_get($fila, 'item', ''), 'TOTAL ');
+    }
+
+    public function filaEsTotalGeneral(mixed $fila): bool
+    {
+        return (string) data_get($fila, 'item', '') === 'TOTAL GENERAL';
+    }
+
+    public function firmaReporte(): ?array
+    {
+        return [
+            'nombre' => 'Luis Alvarado',
+        ];
+    }
+
     private function filaTotal(string $label, string $tamano, string $cantidad, string $monto): array
     {
         return [

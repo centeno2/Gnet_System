@@ -51,6 +51,7 @@ class BaseWordReporteService
         $this->encabezado($section, $reporte);
         $this->resumen($section, $resumen);
         $this->tabla($section, $reporte, $filas, $columnas);
+        $this->firmaReporte($section, $reporte);
         $this->footer($section, $reporte);
 
         return new Word2007($phpWord);
@@ -158,10 +159,38 @@ class BaseWordReporteService
         }
 
         $numeroFila = 0;
+        $enBloqueTotales = false;
 
         foreach ($filas as $fila) {
             $numeroFila++;
+            $esTotal = $reporte->filaEsTotal($fila);
+            $esTotalGeneral = $reporte->filaEsTotalGeneral($fila);
+
+            if ($esTotal && ! $enBloqueTotales) {
+                $tabla->addRow(430);
+                $tabla->addCell(15000, [
+                    'bgColor' => 'EAF2FB',
+                    'gridSpan' => count($columnas),
+                    'valign' => 'center',
+                ])->addText(
+                    'RESUMEN DE TOTALES',
+                    ['bold' => true, 'color' => '0E48A1', 'size' => 8],
+                    ['alignment' => 'center']
+                );
+
+                $enBloqueTotales = true;
+            }
+
             $bg = $numeroFila % 2 === 0 ? 'F7F9FC' : 'FFFFFF';
+            $font = ['size' => 8, 'color' => '1A2B42'];
+
+            if ($esTotalGeneral) {
+                $bg = 'BFD9F6';
+                $font = ['bold' => true, 'size' => 8, 'color' => '1A2B42'];
+            } elseif ($esTotal) {
+                $bg = 'EAF2FB';
+                $font = ['bold' => true, 'size' => 8, 'color' => '1A2B42'];
+            }
 
             $tabla->addRow(390);
 
@@ -190,13 +219,18 @@ class BaseWordReporteService
                 }
 
                 $texto = $reporte->valorFormateado($valor, $tipo);
+                $cellFont = $font;
+
+                if ($esTotal && in_array($key, ['cantidad', 'monto'], true) && trim((string) $valor) !== '') {
+                    $cellFont = ['bold' => true, 'size' => 8, 'color' => '166534'];
+                }
 
                 $tabla->addCell($columna['word'] ?? 1200, [
                     'bgColor' => $bg,
                     'valign' => 'center',
                 ])->addText(
                     $texto,
-                    ['size' => 8, 'color' => '1A2B42'],
+                    $cellFont,
                     [
                         'alignment' => $columna['align_word']
                             ?? (in_array($tipo, ['money', 'number'], true) ? 'right' : 'left'),
@@ -218,6 +252,50 @@ class BaseWordReporteService
                 ['alignment' => 'center']
             );
         }
+    }
+
+    private function firmaReporte(Section $section, BaseReporteService $reporte): void
+    {
+        $firma = $reporte->firmaReporte();
+
+        if (! $firma) {
+            return;
+        }
+
+        $nombre = trim((string) ($firma['nombre'] ?? ''));
+        $cargo = trim((string) ($firma['cargo'] ?? ''));
+
+        $section->addTextBreak(3);
+
+        $tabla = $section->addTable([
+            'borderSize' => 0,
+            'cellMargin' => 40,
+            'alignment' => 'center',
+        ]);
+
+        $tabla->addRow(300);
+        $tabla->addCell(4200, [
+            'borderBottomSize' => 8,
+            'borderBottomColor' => '1A2B42',
+        ])->addText('', [], ['alignment' => 'center']);
+
+        $tabla->addRow(300);
+        $tabla->addCell(4200)->addText(
+            $nombre,
+            ['bold' => true, 'size' => 9, 'color' => '1A2B42'],
+            ['alignment' => 'center']
+        );
+
+        if ($cargo === '') {
+            return;
+        }
+
+        $tabla->addRow(260);
+        $tabla->addCell(4200)->addText(
+            $cargo,
+            ['size' => 8, 'color' => '5F6B7A'],
+            ['alignment' => 'center']
+        );
     }
 
     private function footer(Section $section, BaseReporteService $reporte): void

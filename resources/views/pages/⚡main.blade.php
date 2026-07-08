@@ -9,6 +9,13 @@ new class extends Component
 {
     public string $rangoVentas = 'mes';
 
+    private const PERIODOS_DASHBOARD = [
+        ['id' => 'hoy', 'name' => 'Hoy'],
+        ['id' => 'semana', 'name' => 'Semana actual'],
+        ['id' => 'mes', 'name' => 'Mes actual'],
+        ['id' => 'anio', 'name' => 'Año actual'],
+    ];
+
     public array $periodosOpciones = [
         ['id' => 'hoy', 'name' => 'Hoy'],
         ['id' => 'semana', 'name' => 'Semana actual'],
@@ -27,6 +34,8 @@ new class extends Component
     public array $stockCategoriaChart = [];
 
     public string $ultimaActualizacion = '';
+    public bool $esCajero = false;
+    public bool $dashboardCompleto = true;
 
     public function mount(): void
     {
@@ -35,6 +44,13 @@ new class extends Component
 
     public function updatedRangoVentas(): void
     {
+        if ($this->esCajero) {
+            $this->rangoVentas = 'hoy';
+            $this->refrescarDashboard();
+
+            return;
+        }
+
         if (! in_array($this->rangoVentas, ['hoy', 'semana', 'mes', 'anio'], true)) {
             $this->rangoVentas = 'mes';
         }
@@ -45,6 +61,7 @@ new class extends Component
     public function refrescarDashboard(): void
     {
         $this->cargarUsuarioActual();
+        $this->configurarAlcancePorCargo();
         $this->cargarMetricas();
         $this->cargarGraficos();
         $this->cargarTablas();
@@ -81,6 +98,21 @@ new class extends Component
         ];
     }
 
+    private function configurarAlcancePorCargo(): void
+    {
+        $cargo = strtolower(trim($this->usuarioActual['cargo'] ?? ''));
+
+        $this->esCajero = str_starts_with($cargo, 'cajer');
+        $this->dashboardCompleto = ! $this->esCajero;
+        $this->periodosOpciones = $this->esCajero
+            ? [['id' => 'hoy', 'name' => 'Hoy']]
+            : self::PERIODOS_DASHBOARD;
+
+        if ($this->esCajero) {
+            $this->rangoVentas = 'hoy';
+        }
+    }
+
     private function cargarMetricas(): void
     {
         [$inicio, $fin] = $this->periodoVentas();
@@ -92,27 +124,10 @@ new class extends Component
             ->whereBetween('Fecha_venta', [$inicio->toDateTimeString(), $fin->toDateTimeString()])
             ->sum('Total');
 
-        $facturas = (int) DB::table('venta')
-            ->where('Estado', 1)
-            ->whereBetween('Fecha_venta', [$inicio->toDateTimeString(), $fin->toDateTimeString()])
-            ->count();
-
         $tasaCambio = DB::table('tasa_cambio')
             ->orderByDesc('Fecha_Modificacion')
             ->orderByDesc('Id_Tasa_Cambio')
             ->value('Valor_Cambio');
-
-        $creditoPendiente = (float) DB::table('credito')
-            ->whereIn('Estado', ['PENDIENTE', 'PARCIAL', 'VENCIDO'])
-            ->sum('Saldo_Actual');
-
-        $serviciosActivos = (int) DB::table('servicio_tecnico')
-            ->whereNotIn('Estado_Servicio', ['ENTREGADO', 'CANCELADO'])
-            ->count();
-
-        $instalacionesActivas = (int) DB::table('contrato_instalacion_camara')
-            ->whereNotIn('Estado_Contrato', ['FINALIZADO', 'CANCELADO'])
-            ->count();
 
         $stockBajo = (int) DB::table('producto')
             ->where('Estado', 1)
@@ -134,13 +149,6 @@ new class extends Component
                 'color' => 'azul',
             ],
             [
-                'titulo' => 'Facturas',
-                'valor' => number_format($facturas),
-                'detalle' => 'Emitidas en el periodo',
-                'icono' => 'o-receipt-percent',
-                'color' => 'azul',
-            ],
-            [
                 'titulo' => 'Tasa cambio',
                 'valor' => $tasaCambio ? 'C$ ' . number_format((float) $tasaCambio, 2) : 'Sin tasa',
                 'detalle' => 'Última tasa activa',
@@ -156,6 +164,47 @@ new class extends Component
                 'icono' => 'o-building-storefront',
                 'color' => $cajaAbierta ? 'verde' : 'ambar',
             ],
+            [
+                'titulo' => 'Stock bajo',
+                'valor' => number_format($stockBajo),
+                'detalle' => 'Productos bajo mínimo',
+                'icono' => 'o-exclamation-triangle',
+                'color' => $stockBajo > 0 ? 'rojo' : 'verde',
+            ],
+        ];
+
+        if ($this->esCajero) {
+            return;
+        }
+
+        $facturas = (int) DB::table('venta')
+            ->where('Estado', 1)
+            ->whereBetween('Fecha_venta', [$inicio->toDateTimeString(), $fin->toDateTimeString()])
+            ->count();
+
+        $creditoPendiente = (float) DB::table('credito')
+            ->whereIn('Estado', ['PENDIENTE', 'PARCIAL', 'VENCIDO'])
+            ->sum('Saldo_Actual');
+
+        $serviciosActivos = (int) DB::table('servicio_tecnico')
+            ->whereNotIn('Estado_Servicio', ['ENTREGADO', 'CANCELADO'])
+            ->count();
+
+        $instalacionesActivas = (int) DB::table('contrato_instalacion_camara')
+            ->whereNotIn('Estado_Contrato', ['FINALIZADO', 'CANCELADO'])
+            ->count();
+
+        array_splice($this->metricas, 1, 0, [
+            [
+                'titulo' => 'Facturas',
+                'valor' => number_format($facturas),
+                'detalle' => 'Emitidas en el periodo',
+                'icono' => 'o-receipt-percent',
+                'color' => 'azul',
+            ],
+        ]);
+
+        array_splice($this->metricas, 4, 0, [
             [
                 'titulo' => 'Crédito',
                 'valor' => $this->dinero($creditoPendiente),
@@ -177,14 +226,7 @@ new class extends Component
                 'icono' => 'o-video-camera',
                 'color' => 'azul',
             ],
-            [
-                'titulo' => 'Stock bajo',
-                'valor' => number_format($stockBajo),
-                'detalle' => 'Productos bajo mínimo',
-                'icono' => 'o-exclamation-triangle',
-                'color' => $stockBajo > 0 ? 'rojo' : 'verde',
-            ],
-        ];
+        ]);
     }
 
     private function cargarGraficos(): void
@@ -256,6 +298,14 @@ new class extends Component
                 ],
             ],
         ];
+
+        if (! $this->dashboardCompleto) {
+            $this->tipoVentaChart = [];
+            $this->operacionesChart = [];
+            $this->stockCategoriaChart = [];
+
+            return;
+        }
 
         $contado = (float) $ventas->where('Tipo_Venta', 'CONTADO')->sum('Total');
         $credito = (float) $ventas->where('Tipo_Venta', 'CREDITO')->sum('Total');
@@ -371,6 +421,13 @@ new class extends Component
 
     private function cargarTablas(): void
     {
+        if (! $this->dashboardCompleto) {
+            $this->ultimasVentas = [];
+            $this->topProductos = [];
+
+            return;
+        }
+
         $this->ultimasVentas = DB::table('venta as v')
             ->leftJoin('cliente as c', 'c.Id_Cliente', '=', 'v.Id_Cliente')
             ->leftJoin('persona as p', 'p.Id_Persona', '=', 'c.Id_Persona')
@@ -431,6 +488,10 @@ new class extends Component
     {
         $hoy = now();
 
+        if ($this->esCajero) {
+            return [$hoy->copy()->startOfDay(), $hoy->copy()->endOfDay()];
+        }
+
         return match ($this->rangoVentas) {
             'hoy' => [$hoy->copy()->startOfDay(), $hoy->copy()->endOfDay()],
             'semana' => [$hoy->copy()->startOfWeek(), $hoy->copy()->endOfWeek()],
@@ -441,6 +502,10 @@ new class extends Component
 
     private function nombrePeriodoVentas(): string
     {
+        if ($this->esCajero) {
+            return 'Hoy';
+        }
+
         return match ($this->rangoVentas) {
             'hoy' => 'Hoy',
             'semana' => 'Semana actual',
@@ -547,7 +612,9 @@ new class extends Component
                         </h1>
 
                         <p class="mt-3 max-w-3xl text-sm font-semibold leading-6 text-[#5F6B7A] md:text-base">
-                            Resumen general de ventas, inventario, crédito, caja y operaciones activas del sistema.
+                            {{ $dashboardCompleto
+                                ? 'Resumen general de ventas, inventario, crédito, caja y operaciones activas del sistema.'
+                                : 'Resumen diario de ventas, tasa de cambio, caja activa y productos con stock bajo.' }}
                         </p>
                     </div>
 
@@ -600,7 +667,9 @@ new class extends Component
                     </h2>
 
                     <p class="mt-2 text-xs font-semibold leading-5 text-[#7B8794]">
-                        Cambiá el periodo para actualizar ventas, productos más vendidos y gráficos principales.
+                        {{ $dashboardCompleto
+                            ? 'Cambiá el periodo para actualizar ventas, productos más vendidos y gráficos principales.'
+                            : 'El análisis para cajero se mantiene únicamente con los datos del día.' }}
                     </p>
 
                     <div class="mt-4">
@@ -666,8 +735,8 @@ new class extends Component
             @endforeach
         </section>
 
-        <section class="grid gap-4 xl:grid-cols-3">
-            <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm xl:col-span-2">
+        <section class="grid gap-4 {{ $dashboardCompleto ? 'xl:grid-cols-3' : 'xl:grid-cols-1' }}">
+            <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm {{ $dashboardCompleto ? 'xl:col-span-2' : '' }}">
                 <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <h2 class="text-lg font-black text-[#1A2B42]">
@@ -689,170 +758,174 @@ new class extends Component
                 </div>
             </x-card>
 
-            <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
-                <div class="mb-4">
-                    <h2 class="text-lg font-black text-[#1A2B42]">
-                        Tipo de venta
-                    </h2>
-
-                    <p class="text-xs font-semibold text-[#5F6B7A]">
-                        Comparativa entre contado y crédito.
-                    </p>
-                </div>
-
-                <div class="h-80">
-                    <x-chart wire:model="tipoVentaChart" class="h-full" />
-                </div>
-            </x-card>
-        </section>
-
-        <section class="grid gap-4 xl:grid-cols-2">
-            <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
-                <div class="mb-4">
-                    <h2 class="text-lg font-black text-[#1A2B42]">
-                        Seguimiento operativo
-                    </h2>
-
-                    <p class="text-xs font-semibold text-[#5F6B7A]">
-                        Registros activos que requieren atención.
-                    </p>
-                </div>
-
-                <div class="h-80">
-                    <x-chart wire:model="operacionesChart" class="h-full" />
-                </div>
-            </x-card>
-
-            <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
-                <div class="mb-4">
-                    <h2 class="text-lg font-black text-[#1A2B42]">
-                        Inventario por categoría
-                    </h2>
-
-                    <p class="text-xs font-semibold text-[#5F6B7A]">
-                        Categorías con mayor stock actual.
-                    </p>
-                </div>
-
-                <div class="h-80">
-                    <x-chart wire:model="stockCategoriaChart" class="h-full" />
-                </div>
-            </x-card>
-        </section>
-
-        <section class="grid gap-4 xl:grid-cols-2">
-            <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
-                <div class="mb-4 flex items-center justify-between gap-3">
-                    <div>
+            @if ($dashboardCompleto)
+                <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                    <div class="mb-4">
                         <h2 class="text-lg font-black text-[#1A2B42]">
-                            Últimas ventas
+                            Tipo de venta
                         </h2>
 
                         <p class="text-xs font-semibold text-[#5F6B7A]">
-                            Facturas recientes del sistema.
+                            Comparativa entre contado y crédito.
                         </p>
                     </div>
 
-                    <x-icon name="o-receipt-refund" class="h-6 w-6 text-[#2E8BC0]" />
-                </div>
+                    <div class="h-80">
+                        <x-chart wire:model="tipoVentaChart" class="h-full" />
+                    </div>
+                </x-card>
+            @endif
+        </section>
 
-                <div class="overflow-hidden rounded-2xl border border-[#D7E4F3]">
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full text-left text-xs">
-                            <thead class="bg-[#2E8BC0] text-white">
-                                <tr>
-                                    <th class="px-3 py-3 font-black">Factura</th>
-                                    <th class="px-3 py-3 font-black">Cliente</th>
-                                    <th class="px-3 py-3 font-black">Tipo</th>
-                                    <th class="px-3 py-3 text-right font-black">Total</th>
-                                </tr>
-                            </thead>
+        @if ($dashboardCompleto)
+            <section class="grid gap-4 xl:grid-cols-2">
+                <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                    <div class="mb-4">
+                        <h2 class="text-lg font-black text-[#1A2B42]">
+                            Seguimiento operativo
+                        </h2>
 
-                            <tbody class="divide-y divide-[#EEF3F8] bg-white">
-                                @forelse ($ultimasVentas as $venta)
-                                    <tr class="hover:bg-[#F7F9FC]">
-                                        <td class="px-3 py-3">
-                                            <p class="font-black text-[#1A2B42]">{{ $venta['factura'] }}</p>
-                                            <p class="text-[11px] font-semibold text-[#7B8794]">{{ $venta['fecha'] }}</p>
-                                        </td>
+                        <p class="text-xs font-semibold text-[#5F6B7A]">
+                            Registros activos que requieren atención.
+                        </p>
+                    </div>
 
-                                        <td class="max-w-48 px-3 py-3">
-                                            <p class="truncate font-bold text-[#1A2B42]">{{ $venta['cliente'] }}</p>
-                                            <p class="truncate text-[11px] font-semibold text-[#7B8794]">{{ $venta['usuario'] }}</p>
-                                        </td>
+                    <div class="h-80">
+                        <x-chart wire:model="operacionesChart" class="h-full" />
+                    </div>
+                </x-card>
 
-                                        <td class="px-3 py-3">
-                                            <span class="rounded-full bg-[#EAF2FB] px-2 py-1 text-[11px] font-black text-[#0B6FE4]">
-                                                {{ $venta['tipo'] }}
-                                            </span>
-                                        </td>
+                <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                    <div class="mb-4">
+                        <h2 class="text-lg font-black text-[#1A2B42]">
+                            Inventario por categoría
+                        </h2>
 
-                                        <td class="px-3 py-3 text-right font-black text-[#1A2B42]">
-                                            {{ $venta['total'] }}
-                                        </td>
-                                    </tr>
-                                @empty
+                        <p class="text-xs font-semibold text-[#5F6B7A]">
+                            Categorías con mayor stock actual.
+                        </p>
+                    </div>
+
+                    <div class="h-80">
+                        <x-chart wire:model="stockCategoriaChart" class="h-full" />
+                    </div>
+                </x-card>
+            </section>
+
+            <section class="grid gap-4 xl:grid-cols-2">
+                <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                    <div class="mb-4 flex items-center justify-between gap-3">
+                        <div>
+                            <h2 class="text-lg font-black text-[#1A2B42]">
+                                Últimas ventas
+                            </h2>
+
+                            <p class="text-xs font-semibold text-[#5F6B7A]">
+                                Facturas recientes del sistema.
+                            </p>
+                        </div>
+
+                        <x-icon name="o-receipt-refund" class="h-6 w-6 text-[#2E8BC0]" />
+                    </div>
+
+                    <div class="overflow-hidden rounded-2xl border border-[#D7E4F3]">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full text-left text-xs">
+                                <thead class="bg-[#2E8BC0] text-white">
                                     <tr>
-                                        <td colspan="4" class="px-3 py-6 text-center text-xs font-bold text-[#7B8794]">
-                                            No hay ventas registradas.
-                                        </td>
+                                        <th class="px-3 py-3 font-black">Factura</th>
+                                        <th class="px-3 py-3 font-black">Cliente</th>
+                                        <th class="px-3 py-3 font-black">Tipo</th>
+                                        <th class="px-3 py-3 text-right font-black">Total</th>
                                     </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
+                                </thead>
+
+                                <tbody class="divide-y divide-[#EEF3F8] bg-white">
+                                    @forelse ($ultimasVentas as $venta)
+                                        <tr class="hover:bg-[#F7F9FC]">
+                                            <td class="px-3 py-3">
+                                                <p class="font-black text-[#1A2B42]">{{ $venta['factura'] }}</p>
+                                                <p class="text-[11px] font-semibold text-[#7B8794]">{{ $venta['fecha'] }}</p>
+                                            </td>
+
+                                            <td class="max-w-48 px-3 py-3">
+                                                <p class="truncate font-bold text-[#1A2B42]">{{ $venta['cliente'] }}</p>
+                                                <p class="truncate text-[11px] font-semibold text-[#7B8794]">{{ $venta['usuario'] }}</p>
+                                            </td>
+
+                                            <td class="px-3 py-3">
+                                                <span class="rounded-full bg-[#EAF2FB] px-2 py-1 text-[11px] font-black text-[#0B6FE4]">
+                                                    {{ $venta['tipo'] }}
+                                                </span>
+                                            </td>
+
+                                            <td class="px-3 py-3 text-right font-black text-[#1A2B42]">
+                                                {{ $venta['total'] }}
+                                            </td>
+                                        </tr>
+                                    @empty
+                                        <tr>
+                                            <td colspan="4" class="px-3 py-6 text-center text-xs font-bold text-[#7B8794]">
+                                                No hay ventas registradas.
+                                            </td>
+                                        </tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                </div>
-            </x-card>
+                </x-card>
 
-            <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
-                <div class="mb-4 flex items-center justify-between gap-3">
-                    <div>
-                        <h2 class="text-lg font-black text-[#1A2B42]">
-                            Productos más vendidos
-                        </h2>
+                <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
+                    <div class="mb-4 flex items-center justify-between gap-3">
+                        <div>
+                            <h2 class="text-lg font-black text-[#1A2B42]">
+                                Productos más vendidos
+                            </h2>
 
-                        <p class="text-xs font-semibold text-[#5F6B7A]">
-                            Según el periodo seleccionado.
-                        </p>
+                            <p class="text-xs font-semibold text-[#5F6B7A]">
+                                Según el periodo seleccionado.
+                            </p>
+                        </div>
+
+                        <x-icon name="o-cube" class="h-6 w-6 text-[#2E8BC0]" />
                     </div>
 
-                    <x-icon name="o-cube" class="h-6 w-6 text-[#2E8BC0]" />
-                </div>
+                    <div class="space-y-3">
+                        @forelse ($topProductos as $index => $producto)
+                            <div class="rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3 transition hover:bg-white hover:shadow-sm">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="min-w-0">
+                                        <p class="truncate text-sm font-black text-[#1A2B42]">
+                                            #{{ $index + 1 }} · {{ $producto['producto'] }}
+                                        </p>
 
-                <div class="space-y-3">
-                    @forelse ($topProductos as $index => $producto)
-                        <div class="rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3 transition hover:bg-white hover:shadow-sm">
-                            <div class="flex items-center justify-between gap-3">
-                                <div class="min-w-0">
-                                    <p class="truncate text-sm font-black text-[#1A2B42]">
-                                        #{{ $index + 1 }} · {{ $producto['producto'] }}
-                                    </p>
+                                        <p class="mt-1 text-xs font-semibold text-[#5F6B7A]">
+                                            Cantidad vendida: {{ $producto['cantidad'] }}
+                                        </p>
+                                    </div>
 
-                                    <p class="mt-1 text-xs font-semibold text-[#5F6B7A]">
-                                        Cantidad vendida: {{ $producto['cantidad'] }}
-                                    </p>
-                                </div>
-
-                                <div class="shrink-0 rounded-xl bg-white px-3 py-2 text-right shadow-sm">
-                                    <p class="text-xs font-black text-[#0B6FE4]">
-                                        {{ $producto['total'] }}
-                                    </p>
+                                    <div class="shrink-0 rounded-xl bg-white px-3 py-2 text-right shadow-sm">
+                                        <p class="text-xs font-black text-[#0B6FE4]">
+                                            {{ $producto['total'] }}
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    @empty
-                        <div class="rounded-2xl border border-dashed border-[#D7E4F3] bg-[#F7F9FC] px-4 py-8 text-center">
-                            <p class="text-sm font-black text-[#1A2B42]">
-                                No hay productos vendidos en este periodo.
-                            </p>
+                        @empty
+                            <div class="rounded-2xl border border-dashed border-[#D7E4F3] bg-[#F7F9FC] px-4 py-8 text-center">
+                                <p class="text-sm font-black text-[#1A2B42]">
+                                    No hay productos vendidos en este periodo.
+                                </p>
 
-                            <p class="mt-1 text-xs font-semibold text-[#7B8794]">
-                                Cambiá el filtro de periodo para revisar más datos.
-                            </p>
-                        </div>
-                    @endforelse
-                </div>
-            </x-card>
-        </section>
+                                <p class="mt-1 text-xs font-semibold text-[#7B8794]">
+                                    Cambiá el filtro de periodo para revisar más datos.
+                                </p>
+                            </div>
+                        @endforelse
+                    </div>
+                </x-card>
+            </section>
+        @endif
     </div>
 </div>

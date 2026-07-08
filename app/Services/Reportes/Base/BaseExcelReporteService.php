@@ -28,7 +28,8 @@ class BaseExcelReporteService
         $sheet->getDefaultRowDimension()->setRowHeight(22);
 
         $this->encabezado($sheet, $reporte, $resumen, $columnas);
-        $this->tabla($sheet, $reporte, $filas, $columnas);
+        $ultimaFila = $this->tabla($sheet, $reporte, $filas, $columnas);
+        $this->firmaReporte($sheet, $reporte, $columnas, $ultimaFila);
 
         $spreadsheet->getProperties()
             ->setCreator('Gnet System')
@@ -167,7 +168,7 @@ class BaseExcelReporteService
         BaseReporteService $reporte,
         $filas,
         array $columnas
-    ): void {
+    ): int {
         $encabezados = collect($columnas)
             ->pluck('label')
             ->values()
@@ -201,8 +202,37 @@ class BaseExcelReporteService
         ]);
 
         $filaExcel = 9;
+        $enBloqueTotales = false;
 
         foreach ($filas as $fila) {
+            $esTotal = $reporte->filaEsTotal($fila);
+            $esTotalGeneral = $reporte->filaEsTotalGeneral($fila);
+
+            if ($esTotal && ! $enBloqueTotales) {
+                $sheet->mergeCells("A{$filaExcel}:{$ultimaColumna}{$filaExcel}");
+                $sheet->setCellValue("A{$filaExcel}", 'RESUMEN DE TOTALES');
+
+                $sheet->getStyle("A{$filaExcel}:{$ultimaColumna}{$filaExcel}")->applyFromArray([
+                    'fill' => [
+                        'fillType' => Fill::FILL_SOLID,
+                        'color' => ['rgb' => 'EAF2FB'],
+                    ],
+                    'font' => [
+                        'bold' => true,
+                        'color' => ['rgb' => '0E48A1'],
+                        'size' => 10,
+                    ],
+                    'alignment' => [
+                        'horizontal' => Alignment::HORIZONTAL_CENTER,
+                        'vertical' => Alignment::VERTICAL_CENTER,
+                    ],
+                ]);
+
+                $sheet->getRowDimension($filaExcel)->setRowHeight(24);
+                $filaExcel++;
+                $enBloqueTotales = true;
+            }
+
             $valores = [];
 
             foreach ($columnas as $columna) {
@@ -219,10 +249,22 @@ class BaseExcelReporteService
             $sheet->fromArray($valores, null, 'A' . $filaExcel);
 
             $fillColor = $filaExcel % 2 === 0 ? 'F7F9FC' : 'FFFFFF';
+            $fontColor = '1A2B42';
+            $bold = false;
+
+            if ($esTotalGeneral) {
+                $fillColor = 'BFD9F6';
+                $fontColor = '1A2B42';
+                $bold = true;
+            } elseif ($esTotal) {
+                $fillColor = 'EAF2FB';
+                $bold = true;
+            }
 
             $sheet->getStyle("A{$filaExcel}:{$ultimaColumna}{$filaExcel}")->applyFromArray([
                 'font' => [
-                    'color' => ['rgb' => '1A2B42'],
+                    'bold' => $bold,
+                    'color' => ['rgb' => $fontColor],
                     'size' => 9,
                 ],
                 'fill' => [
@@ -242,6 +284,7 @@ class BaseExcelReporteService
             ]);
 
             $this->aplicarFormatoFila($sheet, $reporte, $fila, $columnas, $filaExcel);
+            $this->aplicarFormatoNumerosTotal($sheet, $reporte, $fila, $columnas, $filaExcel);
 
             $filaExcel++;
         }
@@ -294,6 +337,70 @@ class BaseExcelReporteService
 
         $sheet->freezePane('A9');
         $sheet->setAutoFilter("A8:{$ultimaColumna}{$ultimaFila}");
+
+        return $ultimaFila;
+    }
+
+    private function firmaReporte(
+        Worksheet $sheet,
+        BaseReporteService $reporte,
+        array $columnas,
+        int $ultimaFila
+    ): void {
+        $firma = $reporte->firmaReporte();
+
+        if (! $firma) {
+            return;
+        }
+
+        $totalColumnas = count($columnas);
+        $inicio = max(1, (int) floor(($totalColumnas - 3) / 2) + 1);
+        $fin = min($totalColumnas, $inicio + 3);
+        $colInicio = Coordinate::stringFromColumnIndex($inicio);
+        $colFin = Coordinate::stringFromColumnIndex($fin);
+        $filaLinea = $ultimaFila + 4;
+        $filaNombre = $filaLinea + 1;
+        $nombre = trim((string) ($firma['nombre'] ?? ''));
+        $cargo = trim((string) ($firma['cargo'] ?? ''));
+
+        $sheet->mergeCells("{$colInicio}{$filaLinea}:{$colFin}{$filaLinea}");
+        $sheet->mergeCells("{$colInicio}{$filaNombre}:{$colFin}{$filaNombre}");
+
+        $sheet->getStyle("{$colInicio}{$filaLinea}:{$colFin}{$filaLinea}")
+            ->getBorders()
+            ->getBottom()
+            ->setBorderStyle(Border::BORDER_THIN)
+            ->getColor()
+            ->setRGB('1A2B42');
+
+        $sheet->setCellValue("{$colInicio}{$filaNombre}", $nombre);
+        $sheet->getStyle("{$colInicio}{$filaNombre}:{$colFin}{$filaNombre}")->applyFromArray([
+            'font' => [
+                'bold' => true,
+                'color' => ['rgb' => '1A2B42'],
+                'size' => 10,
+            ],
+            'alignment' => [
+                'horizontal' => Alignment::HORIZONTAL_CENTER,
+            ],
+        ]);
+
+        if ($cargo === '') {
+            return;
+        }
+
+        $filaCargo = $filaNombre + 1;
+        $sheet->mergeCells("{$colInicio}{$filaCargo}:{$colFin}{$filaCargo}");
+        $sheet->setCellValue("{$colInicio}{$filaCargo}", $cargo);
+        $sheet->getStyle("{$colInicio}{$filaCargo}:{$colFin}{$filaCargo}")->applyFromArray([
+            'font' => [
+                'color' => ['rgb' => '5F6B7A'],
+                'size' => 9,
+            ],
+            'alignment' => [
+                'horizontal' => Alignment::HORIZONTAL_CENTER,
+            ],
+        ]);
     }
 
     private function aplicarFormatoFila(
@@ -327,6 +434,39 @@ class BaseExcelReporteService
                 ],
                 'alignment' => [
                     'horizontal' => Alignment::HORIZONTAL_CENTER,
+                ],
+            ]);
+        }
+    }
+
+    private function aplicarFormatoNumerosTotal(
+        Worksheet $sheet,
+        BaseReporteService $reporte,
+        mixed $fila,
+        array $columnas,
+        int $filaExcel
+    ): void {
+        if (! $reporte->filaEsTotal($fila)) {
+            return;
+        }
+
+        foreach ($columnas as $index => $columna) {
+            $key = $columna['key'];
+
+            if (! in_array($key, ['cantidad', 'monto'], true)) {
+                continue;
+            }
+
+            if (trim((string) data_get($fila, $key, '')) === '') {
+                continue;
+            }
+
+            $letra = Coordinate::stringFromColumnIndex($index + 1);
+
+            $sheet->getStyle("{$letra}{$filaExcel}")->applyFromArray([
+                'font' => [
+                    'bold' => true,
+                    'color' => ['rgb' => '166534'],
                 ],
             ]);
         }
