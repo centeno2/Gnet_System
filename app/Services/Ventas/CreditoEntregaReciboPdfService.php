@@ -24,7 +24,7 @@ class CreditoEntregaReciboPdfService
         $detalles = $this->obtenerDetalles($entregaCreditoId);
         abort_if($detalles->isEmpty(), 404);
 
-        $nombreArchivo = 'recibo-entrega-' . preg_replace('/[^A-Za-z0-9_-]/', '-', (string) $data->Numero_Recibo) . '.pdf';
+        $nombreArchivo = 'voucher-entrega-' . preg_replace('/[^A-Za-z0-9_-]/', '-', (string) $data->Numero_Recibo) . '.pdf';
 
         $pdf = new class('P', 'mm', 'LETTER', true, 'UTF-8', false) extends TCPDF {
             public function Footer(): void
@@ -38,8 +38,8 @@ class CreditoEntregaReciboPdfService
 
         $pdf->SetCreator('Gnet System');
         $pdf->SetAuthor('Gnet System');
-        $pdf->SetTitle('Recibo de entrega de credito');
-        $pdf->SetSubject('Recibo de entrega de credito');
+        $pdf->SetTitle('Voucher de entrega de credito');
+        $pdf->SetSubject('Comprobante de entrega de credito');
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(true);
         $pdf->SetCompression(true);
@@ -120,12 +120,12 @@ class CreditoEntregaReciboPdfService
         $pdf->SetX($logo ? 38 : 14);
         $pdf->SetTextColor(95, 107, 122);
         $pdf->SetFont('helvetica', '', 7.5);
-        $pdf->Cell(88, 5, 'Comprobante de entrega de credito', 0, 1, 'L');
+        $pdf->Cell(88, 5, 'Comprobante de cantidades entregadas', 0, 1, 'L');
 
         $pdf->SetXY(122, 13);
         $pdf->SetTextColor($pr, $pg, $pb);
         $pdf->SetFont('helvetica', 'B', 14);
-        $pdf->Cell(76, 7, 'RECIBO DE ENTREGA', 0, 1, 'R');
+        $pdf->Cell(76, 7, 'VOUCHER DE ENTREGA', 0, 1, 'R');
 
         $pdf->SetXY(122, 23);
         $pdf->SetTextColor($tr, $tg, $tb);
@@ -152,14 +152,14 @@ class CreditoEntregaReciboPdfService
         $pdf->SetXY(14, 49);
         $pdf->SetTextColor($tr, $tg, $tb);
         $pdf->SetFont('helvetica', 'B', 10);
-        $pdf->Cell(188, 5, 'Recibimos conforme la entrega detallada en este comprobante.', 0, 1, 'L');
+        $pdf->Cell(188, 5, 'Comprobante de las cantidades que se llevaron en esta entrega.', 0, 1, 'L');
 
         $this->dato($pdf, 14, 58, 'Cliente', $cliente, 86);
         $this->dato($pdf, 110, 58, 'Fecha', $fecha, 86);
         $this->dato($pdf, 14, 66, 'Factura', (string) $data->Numero_Factura, 86);
         $this->dato($pdf, 110, 66, 'Credito', '#' . (string) $data->Id_Credito, 86);
         $this->dato($pdf, 14, 74, 'Recibido por', (string) $data->Recibido_Por, 86);
-        $this->dato($pdf, 110, 74, 'Registrado por', (string) $data->Usuario_Entrega, 86);
+        $this->dato($pdf, 110, 74, 'Entregado por', (string) $data->Usuario_Entrega, 86);
 
         $pdf->SetY(94);
     }
@@ -415,8 +415,6 @@ class CreditoEntregaReciboPdfService
 
         imagecopyresampled($lienzo, $imagen, 0, 0, 0, 0, $nuevoAncho, $nuevoAlto, $anchoOriginal, $altoOriginal);
         imagejpeg($lienzo, $optimizado, 78);
-        imagedestroy($imagen);
-        imagedestroy($lienzo);
 
         return $optimizado;
     }

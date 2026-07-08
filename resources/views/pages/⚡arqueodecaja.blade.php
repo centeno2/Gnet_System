@@ -18,8 +18,11 @@ new class extends Component
     public bool $abrirCajaModal = false;
     public bool $registrarEgresoModal = false;
     public bool $modificarTasaModal = false;
+    public bool $modalReporteCierreCaja = false;
 
     public string $caja = '1';
+    public string $reporteCierreCajaUrl = '';
+    public ?int $ultimoArqueoCajaId = null;
 
     public bool $cajaAbierta = false;
     public ?int $aperturaCajaId = null;
@@ -961,6 +964,9 @@ new class extends Component
     public function cerrarCaja(): void
     {
         $this->resetValidation();
+        $this->modalReporteCierreCaja = false;
+        $this->reporteCierreCajaUrl = '';
+        $this->ultimoArqueoCajaId = null;
 
         $usuarioId = $this->usuarioActualId();
 
@@ -990,7 +996,7 @@ new class extends Component
         }
 
         try {
-            $this->transaccion(function () use ($usuarioId) {
+            $resultado = $this->transaccion(function () use ($usuarioId) {
                 $apertura = AperturaCaja::query()
                     ->where('Id_Apertura_Caja', $this->aperturaCajaId)
                     ->where('Id_Usuario', $usuarioId)
@@ -1057,7 +1063,17 @@ new class extends Component
                     ->update([
                         'Estado_Apertura' => AperturaCaja::CERRADO,
                     ]);
+
+                return [
+                    'arqueo_id' => (int) $arqueo->Id_Arqueo,
+                ];
             });
+
+            $this->ultimoArqueoCajaId = (int) ($resultado['arqueo_id'] ?? 0);
+            $this->reporteCierreCajaUrl = $this->ultimoArqueoCajaId > 0
+                ? route('reportes.cierre-caja.pdf', ['arqueo' => $this->ultimoArqueoCajaId])
+                : '';
+            $this->modalReporteCierreCaja = $this->reporteCierreCajaUrl !== '';
 
             $this->cajaAbierta = false;
             $this->aperturaCajaId = null;
@@ -1071,7 +1087,7 @@ new class extends Component
             $this->totalAbonoCordobas = 0;
             $this->totalAbonoDolares = 0;
 
-            $this->notificar('Caja cerrada correctamente.', 'success');
+            $this->notificar('Caja cerrada correctamente. Reporte PDF listo.', 'success');
         } catch (RuntimeException $e) {
             $this->notificar($e->getMessage(), 'warning');
         } catch (Throwable $e) {
@@ -1079,6 +1095,11 @@ new class extends Component
 
             $this->notificar('Ocurrió un error al cerrar la caja.', 'error');
         }
+    }
+
+    public function cerrarModalReporteCierreCaja(): void
+    {
+        $this->modalReporteCierreCaja = false;
     }
 
     public function subtotalCordoba(string|int $denominacion): float
@@ -1578,6 +1599,15 @@ new class extends Component
                                 wire:click="cerrarCaja"
                                 class="min-h-0 rounded-xl border-0 bg-[#0B6FE4] px-3 py-2 text-white shadow-sm hover:opacity-95"
                             />
+
+                            @if ($reporteCierreCajaUrl !== '')
+                                <x-button
+                                    label="Ver cierre PDF"
+                                    type="button"
+                                    wire:click="$set('modalReporteCierreCaja', true)"
+                                    class="min-h-0 rounded-xl border border-[#D7E4F3] bg-white px-3 py-2 text-[#1A2B42] shadow-sm hover:bg-[#F8FAFC]"
+                                />
+                            @endif
                         </div>
                     </div>
                 </div>
@@ -2038,6 +2068,55 @@ new class extends Component
                     </x-slot:actions>
                 </x-form>
             </div>
+        </x-modal>
+
+        <x-modal
+            wire:model="modalReporteCierreCaja"
+            class="backdrop-blur-sm"
+            box-class="w-[96vw] max-w-6xl max-h-[92vh] overflow-hidden rounded-2xl border border-[#D7E4F3] bg-white p-0 shadow-2xl"
+        >
+            <div class="flex max-h-[88vh] flex-col bg-white">
+                <div class="flex flex-col gap-3 border-b border-[#D7E4F3] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="min-w-0">
+                        <h2 class="text-lg font-bold text-[#1A2B42]">Reporte de cierre de caja</h2>
+                        <p class="text-sm text-[#5F6B7A]">
+                            {{ $ultimoArqueoCajaId ? 'Arqueo #' . str_pad((string) $ultimoArqueoCajaId, 6, '0', STR_PAD_LEFT) : 'Cierre de caja' }}
+                        </p>
+                    </div>
+
+                    @if ($reporteCierreCajaUrl !== '')
+                        <a
+                            href="{{ $reporteCierreCajaUrl }}"
+                            target="_blank"
+                            rel="noopener"
+                            class="rounded-xl bg-[#0B6FE4] px-4 py-2 text-center text-sm font-bold text-white shadow-sm hover:bg-[#2E8BC0]"
+                        >
+                            Abrir PDF
+                        </a>
+                    @endif
+                </div>
+
+                @if ($reporteCierreCajaUrl !== '')
+                    <iframe
+                        src="{{ $reporteCierreCajaUrl }}#toolbar=0&navpanes=0&scrollbar=1&view=FitH"
+                        loading="eager"
+                        class="min-h-[70vh] w-full flex-1 bg-[#F8FAFC]"
+                    ></iframe>
+                @else
+                    <div class="px-4 py-16 text-center text-sm text-[#7B8794]">
+                        No hay reporte de cierre para mostrar.
+                    </div>
+                @endif
+            </div>
+
+            <x-slot:actions>
+                <x-button
+                    label="Cerrar"
+                    type="button"
+                    wire:click="cerrarModalReporteCierreCaja"
+                    class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]"
+                />
+            </x-slot:actions>
         </x-modal>
     </div>
 </div>

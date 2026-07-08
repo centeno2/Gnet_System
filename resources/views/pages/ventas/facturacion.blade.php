@@ -144,6 +144,7 @@ new class extends Component
     public array $recibidosPendientes = [];
     public array $cantidadesEntregaPendientes = [];
     public array $observacionesEntregaPendientes = [];
+    public array $seleccionEntregaPendientes = [];
     public string $recibidoEntregaGeneral = '';
     public string $observacionEntregaGeneral = '';
 
@@ -269,6 +270,7 @@ new class extends Component
         $this->recibidosPendientes = [];
         $this->cantidadesEntregaPendientes = [];
         $this->observacionesEntregaPendientes = [];
+        $this->seleccionEntregaPendientes = [];
         $this->cargarInstitucionesEntregaCredito();
     }
 
@@ -278,6 +280,7 @@ new class extends Component
         $this->recibidosPendientes = [];
         $this->cantidadesEntregaPendientes = [];
         $this->observacionesEntregaPendientes = [];
+        $this->seleccionEntregaPendientes = [];
     }
 
     protected function buscarClientes(): void
@@ -1948,6 +1951,7 @@ new class extends Component
         $this->recibidosPendientes = [];
         $this->cantidadesEntregaPendientes = [];
         $this->observacionesEntregaPendientes = [];
+        $this->seleccionEntregaPendientes = [];
         $this->cargarMunicipiosEntregaCredito();
         $this->cargarInstitucionesEntregaCredito();
     }
@@ -1961,6 +1965,7 @@ new class extends Component
         $this->recibidosPendientes = [];
         $this->cantidadesEntregaPendientes = [];
         $this->observacionesEntregaPendientes = [];
+        $this->seleccionEntregaPendientes = [];
     }
 
     private function cargarMunicipiosEntregaCredito(): void
@@ -2028,6 +2033,9 @@ new class extends Component
             return;
         }
 
+        $this->seleccionEntregaPendientes = [];
+        $this->cantidadesEntregaPendientes = [];
+
         $pendientes = DB::table('detalle_venta as dv')
             ->join('venta as v', 'v.Id_Venta', '=', 'dv.Id_Venta')
             ->join('credito as cr', 'cr.Id_Venta', '=', 'v.Id_Venta')
@@ -2080,7 +2088,8 @@ new class extends Component
                 $entregada = (float) ($fila->Cantidad_Entregada ?? 0);
                 $pendiente = max($cantidad - $entregada, 0);
 
-                $this->cantidadesEntregaPendientes[$id] = $this->cantidadesEntregaPendientes[$id] ?? $this->cantidadParaInput($pendiente);
+                $this->cantidadesEntregaPendientes[$id] = $this->cantidadParaInput($pendiente);
+                $this->seleccionEntregaPendientes[$id] = false;
 
                 return [
                     'id' => $id,
@@ -2150,23 +2159,34 @@ new class extends Component
             return;
         }
 
-        $lineas = collect($this->cantidadesEntregaPendientes)
-            ->map(fn ($cantidad, $detalleId) => [
+        $idsSeleccionados = collect($this->seleccionEntregaPendientes)
+            ->filter(fn ($seleccion) => $this->seleccionEntregaActiva($seleccion))
+            ->keys()
+            ->map(fn ($detalleId) => (int) $detalleId)
+            ->filter(fn ($detalleId) => $detalleId > 0)
+            ->values();
+
+        if ($idsSeleccionados->isEmpty()) {
+            $this->mostrarToast('Marque al menos un pendiente para incluirlo en el recibo.', 'error');
+            return;
+        }
+
+        $lineas = $idsSeleccionados
+            ->map(fn ($detalleId) => [
                 'detalle_id' => (int) $detalleId,
-                'cantidad' => $this->limpiarDecimal((string) $cantidad),
+                'cantidad' => $this->limpiarDecimal((string) ($this->cantidadesEntregaPendientes[$detalleId] ?? '')),
             ])
             ->filter(fn ($linea) => $linea['detalle_id'] > 0 && $linea['cantidad'] > 0)
             ->values();
 
-        if ($lineas->isEmpty()) {
-            $this->mostrarToast('Ingrese al menos una cantidad entregada.', 'error');
+        if ($lineas->count() !== $idsSeleccionados->count()) {
+            $this->mostrarToast('Ingrese una cantidad mayor a cero para cada pendiente marcado.', 'error');
             return;
         }
 
         try {
             $resultado = DB::transaction(function () use ($lineas, $recibidoPor, $observacion) {
                 $ids = $lineas->pluck('detalle_id')->all();
-                $cantidadesPorDetalle = $lineas->pluck('cantidad', 'detalle_id');
 
                 $detalles = DB::table('detalle_venta as dv')
                     ->join('venta as v', 'v.Id_Venta', '=', 'dv.Id_Venta')
@@ -2266,6 +2286,7 @@ new class extends Component
 
             foreach ($lineas as $linea) {
                 unset($this->cantidadesEntregaPendientes[$linea['detalle_id']]);
+                unset($this->seleccionEntregaPendientes[$linea['detalle_id']]);
             }
 
             $this->recibidoEntregaGeneral = '';
@@ -2273,7 +2294,8 @@ new class extends Component
             $this->ultimaEntregaCreditoId = (int) $resultado['entrega_credito_id'];
             $this->ultimaEntregaCreditoNumero = (string) $resultado['numero_factura'];
 
-            $this->mostrarToast('Entrega confirmada. Ya puede generar el recibo.');
+            $this->prepararReciboEntregaCredito((int) $resultado['entrega_credito_id']);
+            $this->mostrarToast('Entrega confirmada. Comprobante listo para imprimir.');
             $this->buscarPendientesEntregaCredito();
             $this->cargarMunicipiosEntregaCredito();
             $this->cargarInstitucionesEntregaCredito();
@@ -2299,6 +2321,20 @@ new class extends Component
         return floor($cantidad) == $cantidad
             ? (string) (int) $cantidad
             : number_format($cantidad, 2, '.', '');
+    }
+
+    public function cantidadEntregaTexto(float|int|string $cantidad): string
+    {
+        $numero = (float) $cantidad;
+
+        return floor($numero) == $numero
+            ? number_format($numero, 0, '.', ',')
+            : number_format($numero, 2, '.', ',');
+    }
+
+    private function seleccionEntregaActiva(mixed $valor): bool
+    {
+        return filter_var($valor, FILTER_VALIDATE_BOOLEAN);
     }
 
 
@@ -2835,16 +2871,30 @@ new class extends Component
             <div class="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-[#D7E4F3] bg-[#F8FBFF] p-3">
                 <div class="space-y-3">
                     @forelse ($entregasPendientes as $pendiente)
+                    @php
+                        $pendienteSeleccionado = filter_var($seleccionEntregaPendientes[$pendiente['id']] ?? false, FILTER_VALIDATE_BOOLEAN);
+                    @endphp
                     <div wire:key="pendiente-entrega-{{ $pendiente['id'] }}"
-                        class="rounded-2xl border border-[#D7E4F3] bg-white p-3 shadow-sm">
+                        class="{{ $pendienteSeleccionado ? 'border-[#0B6FE4] ring-2 ring-[#0B6FE4]/15' : 'border-[#D7E4F3]' }} rounded-2xl border bg-white p-3 shadow-sm">
                         <div class="grid grid-cols-1 gap-3 xl:grid-cols-12 xl:items-center">
+                            <div class="xl:col-span-1">
+                                <label class="flex cursor-pointer items-center gap-2 rounded-xl border border-[#D7E4F3] bg-[#F8FBFF] px-3 py-2 text-sm font-bold text-[#1A2B42] xl:flex-col xl:justify-center xl:text-center">
+                                    <input
+                                        type="checkbox"
+                                        wire:model.live="seleccionEntregaPendientes.{{ $pendiente['id'] }}"
+                                        class="h-5 w-5 rounded border-[#D7E4F3] text-[#0B6FE4] focus:ring-[#0B6FE4]"
+                                    />
+                                    <span>Seleccionar</span>
+                                </label>
+                            </div>
+
                             <div class="xl:col-span-2">
                                 <p class="text-[11px] font-bold uppercase tracking-wide text-[#5F6B7A]">Factura</p>
                                 <p class="mt-1 text-sm font-black text-[#1A2B42]">{{ $pendiente['factura'] }}</p>
                                 <p class="mt-1 text-xs font-semibold text-[#5F6B7A]">{{ $pendiente['fecha'] }}</p>
                             </div>
 
-                            <div class="xl:col-span-3">
+                            <div class="xl:col-span-2">
                                 <p class="text-[11px] font-bold uppercase tracking-wide text-[#5F6B7A]">Institución</p>
                                 <p class="mt-1 text-sm font-bold text-[#1A2B42]">{{ $pendiente['institucion'] }}</p>
                                 <p class="mt-1 text-xs font-semibold text-[#5F6B7A]">{{ $pendiente['municipio'] }}</p>
@@ -2861,7 +2911,7 @@ new class extends Component
                                     </span>
                                     <span
                                         class="rounded-full bg-[#F0F3F7] px-2 py-1 text-[11px] font-black text-[#1A2B42]">
-                                        Cant: {{ number_format($pendiente['cantidad'], 0, '.', ',') }}
+                                        Cant: {{ $this->cantidadEntregaTexto($pendiente['cantidad']) }}
                                     </span>
                                 </div>
                                 <p class="mt-2 text-xs text-[#5F6B7A]">
@@ -2873,18 +2923,15 @@ new class extends Component
                                 <div class="grid grid-cols-2 gap-2 text-center sm:grid-cols-4 xl:grid-cols-2">
                                     <div class="rounded-xl bg-[#F0F3F7] px-2 py-2">
                                         <p class="text-[10px] font-bold uppercase text-[#5F6B7A]">Total</p>
-                                        <p class="text-sm font-black text-[#1A2B42]">{{
-                                            number_format($pendiente['cantidad'], 0, '.', ',') }}</p>
+                                        <p class="text-sm font-black text-[#1A2B42]">{{ $this->cantidadEntregaTexto($pendiente['cantidad']) }}</p>
                                     </div>
                                     <div class="rounded-xl bg-[#F0F3F7] px-2 py-2">
                                         <p class="text-[10px] font-bold uppercase text-[#5F6B7A]">Entreg.</p>
-                                        <p class="text-sm font-black text-[#1A2B42]">{{
-                                            number_format($pendiente['entregada'], 0, '.', ',') }}</p>
+                                        <p class="text-sm font-black text-[#1A2B42]">{{ $this->cantidadEntregaTexto($pendiente['entregada']) }}</p>
                                     </div>
                                     <div class="rounded-xl bg-[#EAF2FB] px-2 py-2">
                                         <p class="text-[10px] font-bold uppercase text-[#0B6FE4]">Pend.</p>
-                                        <p class="text-sm font-black text-[#1A2B42]">{{
-                                            number_format($pendiente['pendiente'], 0, '.', ',') }}</p>
+                                        <p class="text-sm font-black text-[#1A2B42]">{{ $this->cantidadEntregaTexto($pendiente['pendiente']) }}</p>
                                     </div>
                                     <div class="rounded-xl bg-[#F0F3F7] px-2 py-2">
                                         <p class="text-[10px] font-bold uppercase text-[#5F6B7A]">P/Unit</p>
@@ -2898,14 +2945,12 @@ new class extends Component
                                 <label class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-[#5F6B7A]">
                                     Entregar ahora
                                 </label>
-                                <x-input
+                                <input
                                     wire:model.live.debounce.250ms="cantidadesEntregaPendientes.{{ $pendiente['id'] }}"
                                     type="number" min="0.01" step="0.01"
-                                    placeholder="Pend. {{ number_format($pendiente['pendiente'], 0, '.', ',') }}"
-                                    class="h-10 min-h-10 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42]" />
-                                <p class="mt-2 text-[11px] font-semibold text-[#5F6B7A]">
-                                    Se incluirá en el recibo solo si ingresa una cantidad.
-                                </p>
+                                    placeholder="Cantidad a entregar"
+                                    @disabled(! $pendienteSeleccionado)
+                                    class="{{ $pendienteSeleccionado ? 'border-[#0B6FE4] bg-white shadow-inner' : 'border-[#D7E4F3] bg-[#F0F3F7] opacity-60' }} h-11 min-h-11 w-full rounded-xl border px-3 text-sm font-bold text-[#1A2B42] outline-none focus:border-[#0B6FE4] focus:ring-2 focus:ring-[#0B6FE4]/20 disabled:cursor-not-allowed" />
                             </div>
                         </div>
                     </div>
@@ -2924,7 +2969,7 @@ new class extends Component
         <x-slot:actions>
             @if ($ultimaEntregaCreditoId)
             <x-button icon="o-document-text"
-                label="Generar recibo{{ $ultimaEntregaCreditoNumero !== '' ? ' · ' . $ultimaEntregaCreditoNumero : '' }}"
+                label="Imprimir comprobante{{ $ultimaEntregaCreditoNumero !== '' ? ' · ' . $ultimaEntregaCreditoNumero : '' }}"
                 type="button" wire:click="generarReciboEntregaCreditoConfirmado"
                 class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]" />
             @endif
@@ -3050,13 +3095,14 @@ new class extends Component
 
         <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div class="min-w-0">
-                <h3 class="text-2xl font-bold text-[#1A2B42]">Recibo de entrega confirmada</h3>
+                <h3 class="text-2xl font-bold text-[#1A2B42]">Voucher de entrega confirmada</h3>
+                <p class="mt-1 text-sm text-[#5F6B7A]">Comprobante de las cantidades que se llevaron.</p>
             </div>
 
             @if ($reciboEntregaCreditoPreviewUrl !== '')
             <a href="{{ $reciboEntregaCreditoPreviewUrl }}" target="_blank"
-                class="inline-flex h-10 shrink-0 items-center justify-center rounded-xl border border-[#D7E4F3] bg-white px-4 text-sm font-semibold text-[#1A2B42] shadow-sm hover:bg-[#F8FAFC]">
-                Abrir
+                class="inline-flex h-10 shrink-0 items-center justify-center rounded-xl border-0 bg-[#0E48A1] px-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0B6FE4]">
+                Imprimir comprobante
             </a>
             @endif
         </div>

@@ -46,6 +46,7 @@ class BasePdfReporteService
 
         $this->encabezado($pdf, $reporte, $resumen);
         $this->tabla($pdf, $reporte, $filas);
+        $this->firmaReporte($pdf, $reporte);
 
         return $pdf->Output($reporte->nombreArchivo() . '.pdf', 'S');
     }
@@ -110,25 +111,44 @@ class BasePdfReporteService
     private function tabla(\TCPDF $pdf, BaseReporteService $reporte, Collection $filas): void
     {
         $columnas = $reporte->columnas();
+        $anchoTabla = (float) collect($columnas)->sum(fn($columna) => $columna['pdf'] ?? 20);
 
         $this->tablaHeader($pdf, $columnas);
 
         $pdf->SetFont('helvetica', '', 6.5);
 
         $numeroFila = 0;
+        $enBloqueTotales = false;
 
         foreach ($filas as $fila) {
-            if ($pdf->GetY() > 190) {
-                $pdf->AddPage();
-                $this->tablaHeader($pdf, $columnas);
-                $pdf->SetFont('helvetica', '', 6.5);
+            $esTotal = $reporte->filaEsTotal($fila);
+            $esTotalGeneral = $reporte->filaEsTotalGeneral($fila);
+
+            if ($esTotal && ! $enBloqueTotales) {
+                $this->asegurarEspacio($pdf, $columnas, 24);
+                $pdf->Ln(6);
+                $this->separadorTotales($pdf, $anchoTabla);
+                $enBloqueTotales = true;
             }
+
+            $this->asegurarEspacio($pdf, $columnas, 6);
 
             $numeroFila++;
             $fill = $numeroFila % 2 === 0;
 
-            $pdf->SetFillColor($fill ? 247 : 255, $fill ? 249 : 255, $fill ? 252 : 255);
-            $pdf->SetTextColor(26, 43, 66);
+            if ($esTotalGeneral) {
+                $pdf->SetFillColor(217, 235, 248);
+                $pdf->SetTextColor(26, 43, 66);
+                $pdf->SetFont('helvetica', 'B', 6.8);
+            } elseif ($esTotal) {
+                $pdf->SetFillColor(232, 244, 252);
+                $pdf->SetTextColor(26, 43, 66);
+                $pdf->SetFont('helvetica', 'B', 6.6);
+            } else {
+                $pdf->SetFillColor($fill ? 247 : 255, $fill ? 249 : 255, $fill ? 252 : 255);
+                $pdf->SetTextColor(26, 43, 66);
+                $pdf->SetFont('helvetica', '', 6.5);
+            }
 
             foreach ($columnas as $columna) {
                 $key = $columna['key'];
@@ -161,6 +181,10 @@ class BasePdfReporteService
             }
 
             $pdf->Ln();
+
+            if ($esTotal) {
+                $pdf->SetFont('helvetica', '', 6.5);
+            }
         }
 
         if ($filas->isEmpty()) {
@@ -168,6 +192,25 @@ class BasePdfReporteService
             $pdf->SetFillColor(247, 249, 252);
             $pdf->Cell(263, 8, 'No hay datos disponibles para mostrar.', 0, 1, 'C', true);
         }
+    }
+
+    private function asegurarEspacio(\TCPDF $pdf, array $columnas, float $altoNecesario): void
+    {
+        if (($pdf->GetY() + $altoNecesario) <= 194) {
+            return;
+        }
+
+        $pdf->AddPage();
+        $this->tablaHeader($pdf, $columnas);
+        $pdf->SetFont('helvetica', '', 6.5);
+    }
+
+    private function separadorTotales(\TCPDF $pdf, float $anchoTabla): void
+    {
+        $pdf->SetFillColor(240, 247, 252);
+        $pdf->SetTextColor(26, 43, 66);
+        $pdf->SetFont('helvetica', 'B', 7);
+        $pdf->Cell($anchoTabla, 6.5, 'RESUMEN DE TOTALES', 0, 1, 'C', true);
     }
 
     private function tablaHeader(\TCPDF $pdf, array $columnas): void
@@ -181,6 +224,40 @@ class BasePdfReporteService
         }
 
         $pdf->Ln();
+    }
+
+    private function firmaReporte(\TCPDF $pdf, BaseReporteService $reporte): void
+    {
+        $firma = $reporte->firmaReporte();
+
+        if (! $firma) {
+            return;
+        }
+
+        if ($pdf->GetY() > 168) {
+            $pdf->AddPage();
+        }
+
+        $nombre = trim((string) ($firma['nombre'] ?? ''));
+        $cargo = trim((string) ($firma['cargo'] ?? ''));
+        $x = 104;
+        $w = 72;
+        $y = max($pdf->GetY() + 12, 178);
+
+        $pdf->SetDrawColor(26, 43, 66);
+        $pdf->SetTextColor(26, 43, 66);
+        $pdf->SetLineWidth(0.25);
+        $pdf->Line($x, $y, $x + $w, $y);
+
+        $pdf->SetXY($x, $y + 2);
+        $pdf->SetFont('helvetica', 'B', 8.5);
+        $pdf->Cell($w, 4.5, $nombre, 0, 1, 'C');
+
+        if ($cargo !== '') {
+            $pdf->SetX($x);
+            $pdf->SetFont('helvetica', '', 7);
+            $pdf->Cell($w, 4, $cargo, 0, 1, 'C');
+        }
     }
 
     private function logoParaPdf(BaseReporteService $reporte): ?string

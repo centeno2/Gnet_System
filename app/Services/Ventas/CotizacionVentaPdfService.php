@@ -3,26 +3,28 @@
 namespace App\Services\Ventas;
 
 use App\Models\CotizacionVenta;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use TCPDF;
 
 class CotizacionVentaPdfService
 {
-    private const COLOR_PRIMARIO = [46, 139, 192];
-    private const COLOR_TITULO = [26, 43, 66];
-    private const COLOR_TEXTO = [95, 107, 122];
-    private const COLOR_BORDE = [215, 228, 243];
-    private const COLOR_FONDO = [240, 243, 247];
-    private const COLOR_FILA = [247, 249, 252];
-
+    private const AZUL = [21, 74, 143];
+    private const ROJO = [220, 38, 38];
+    private const FONDO_SUAVE = [250, 252, 255];
 
     public function generarDesdeCotizacion(CotizacionVenta $cotizacion): string
     {
-        $cotizacion->loadMissing('detalles');
+        $cotizacion->loadMissing('detalles', 'cliente.persona');
+
+        $cliente = $cotizacion->cliente;
 
         return $this->generar([
             'numero' => $cotizacion->Numero_Cotizacion,
             'cliente' => $cotizacion->Cliente_Nombre,
+            'telefono' => $cliente?->telefono_facturacion ?: '',
+            'correo' => $cliente?->correo_facturacion ?: '',
+            'direccion' => $cliente?->direccion_facturacion ?: '',
             'municipio' => $cotizacion->Municipio,
             'tipo_venta' => $cotizacion->Tipo_Venta,
             'tipo_cambio' => (float) $cotizacion->Tipo_Cambio,
@@ -30,11 +32,11 @@ class CotizacionVentaPdfService
             'descuento' => (float) $cotizacion->Descuento,
             'total' => (float) $cotizacion->Total,
             'observacion' => $cotizacion->Observacion,
-            'fecha' => $cotizacion->Fecha_Cotizacion?->format('d/m/Y h:i A'),
-            'vence' => $cotizacion->Fecha_Vencimiento?->format('d/m/Y h:i A'),
+            'fecha' => $cotizacion->Fecha_Cotizacion?->toDateTimeString(),
+            'vence' => $cotizacion->Fecha_Vencimiento?->toDateTimeString(),
             'validez_dias' => (int) $cotizacion->Plazo_Validez_Dias,
             'estado' => $cotizacion->Estado,
-            'items' => $cotizacion->detalles->map(fn($detalle) => [
+            'items' => $cotizacion->detalles->map(fn ($detalle) => [
                 'descripcion' => $detalle->Descripcion,
                 'cantidad' => (float) $detalle->Cantidad,
                 'precio_unitario' => (float) $detalle->Precio_Unitario_Cotizado,
@@ -50,266 +52,305 @@ class CotizacionVentaPdfService
         $items = collect($payload['items'] ?? []);
         $nombreArchivo = 'cotizacion-' . preg_replace('/[^A-Za-z0-9_-]/', '-', (string) ($payload['numero'] ?? 'proforma')) . '.pdf';
 
-        $pdf = new class('P', 'mm', 'LETTER', true, 'UTF-8', false) extends TCPDF {
+        $pdf = new class('L', 'mm', 'LETTER', true, 'UTF-8', false) extends TCPDF {
             public function Footer(): void
             {
-                $this->SetY(-9);
-                $this->SetFont('helvetica', '', 7);
-                $this->SetTextColor(95, 107, 122);
-                $this->Cell(0, 5, 'Gnet System | Pagina ' . $this->getAliasNumPage() . ' de ' . $this->getAliasNbPages(), 0, 0, 'R');
+                $this->SetY(-8);
+                $this->SetFont('helvetica', '', 6);
+                $this->SetTextColor(21, 74, 143);
+                $this->Cell(0, 4, 'Imp. Mariana Telf.: 2772-1224 No. RUC: 441050577006H  O.T. 04862-2026 - 22 B  (C) No.6,001-7,100 AIMP/15/0010/2-2026 F. 260226', 0, 0, 'C');
             }
         };
 
         $pdf->SetCreator('Gnet System');
         $pdf->SetAuthor('Gnet System');
-        $pdf->SetTitle('Cotización');
-        $pdf->SetSubject('Cotización');
+        $pdf->SetTitle('Cotizacion');
+        $pdf->SetSubject('Cotizacion');
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(true);
         $pdf->SetCompression(true);
         $pdf->setFontSubsetting(false);
         $pdf->setJPEGQuality(76);
-        $pdf->SetMargins(10, 8, 10);
+        $pdf->SetMargins(8, 7, 8);
         $pdf->SetFooterMargin(5);
-        $pdf->SetAutoPageBreak(true, 12);
+        $pdf->SetAutoPageBreak(false);
         $pdf->AddPage();
 
-        $this->encabezado($pdf, $payload);
-        $this->datosCotizacion($pdf, $payload);
-        $this->tabla($pdf, $items, $payload);
-        $this->observacion($pdf, (string) ($payload['observacion'] ?? ''));
-        $this->firma($pdf);
+        $this->dibujarPagina($pdf, $payload, $items);
 
         return $pdf->Output($nombreArchivo, 'S');
     }
 
+    private function dibujarPagina(TCPDF $pdf, array $payload, Collection $items): void
+    {
+        $this->marco($pdf);
+        $this->encabezado($pdf, $payload);
+        $this->datosCliente($pdf, $payload);
+        $this->tabla($pdf, $items, $payload);
+        $this->firmas($pdf);
+    }
+
+    private function marco(TCPDF $pdf): void
+    {
+        $pdf->SetDrawColor(...self::AZUL);
+        $pdf->SetLineWidth(0.35);
+        $pdf->RoundedRect(9, 8, 261, 191, 3, '1111');
+    }
+
     private function encabezado(TCPDF $pdf, array $payload): void
     {
-        [$fr, $fg, $fb] = self::COLOR_FONDO;
-        [$br, $bg, $bb] = self::COLOR_BORDE;
-        [$tr, $tg, $tb] = self::COLOR_TITULO;
-        [$pr, $pg, $pb] = self::COLOR_PRIMARIO;
-
-        $pdf->SetFillColor($fr, $fg, $fb);
-        $pdf->SetDrawColor($br, $bg, $bb);
-        $pdf->Rect(10, 8, 196, 24, 'DF');
+        $fecha = ! empty($payload['fecha']) ? Carbon::parse($payload['fecha']) : now();
+        $tipoVenta = strtoupper((string) ($payload['tipo_venta'] ?? 'CONTADO'));
 
         $logo = $this->logoParaPdf();
 
         if ($logo) {
-            $pdf->Image($logo, 14, 11, 18, 18, 'JPG');
+            $pdf->Image($logo, 15, 13, 18, 18, 'JPG');
         }
 
-        $pdf->SetXY($logo ? 38 : 14, 12);
-        $pdf->SetTextColor($tr, $tg, $tb);
-        $pdf->SetFont('helvetica', 'B', 16);
-        $pdf->Cell(86, 7, 'GNET SYSTEM', 0, 0, 'L');
+        $pdf->SetTextColor(...self::AZUL);
+        $pdf->SetFont('helvetica', 'B', 21);
+        $pdf->SetXY(36, 11);
+        $pdf->Cell(38, 8, 'G-NET', 0, 1, 'L');
 
-        $pdf->SetXY(128, 12);
-        $pdf->SetTextColor($pr, $pg, $pb);
-        $pdf->SetFont('helvetica', 'B', 15);
-        $pdf->Cell(72, 7, 'COTIZACION', 0, 1, 'R');
-
-        $pdf->SetXY(128, 21);
-        $pdf->SetTextColor(95, 107, 122);
         $pdf->SetFont('helvetica', 'B', 8);
-        $pdf->Cell(72, 5, (string) ($payload['numero'] ?? 'PROFORMA'), 0, 1, 'R');
+        $pdf->SetXY(75, 12);
+        $pdf->Cell(86, 4, 'SERVICIOS INFORMATICOS', 0, 1, 'L');
+        $pdf->SetFont('helvetica', 'B', 6.5);
+        $pdf->SetX(75);
+        $pdf->MultiCell(102, 3.4, 'CENTRO DE COPIAS E IMPRESIONES DIGITALES, VENTA DE EQUIPOS, ACCESORIOS Y SUMINISTROS DE COMPUTACION Y OFICINA.', 0, 'L');
+        $pdf->SetX(75);
+        $pdf->MultiCell(112, 3.4, 'SOPORTE TECNICO, Reparacion y Mantenimiento de Computadoras portatiles y de escritorio. Instalacion y Actualizacion de Programas.', 0, 'L');
+        $pdf->SetX(75);
+        $pdf->MultiCell(112, 3.4, 'Diseno e Instalacion de Redes e Instalacion de Camaras de Seguridad Bajo de Control de Asistencia Biometrico.', 0, 'L');
 
-        $pdf->SetY(38);
+        $pdf->SetFont('helvetica', 'B', 7);
+        $pdf->SetXY(36, 34);
+        $pdf->Cell(110, 4, 'CEL. 8339-6054 / E-MAIL: gnetservicomp@gmail.com / No. RUC 441081284005P', 0, 1, 'L');
+        $pdf->SetX(36);
+        $pdf->Cell(115, 4, 'PARQUE DARIO 10 MTS AL NORTE, MATAGALPA, NIC', 0, 1, 'L');
+        $pdf->SetFont('helvetica', '', 6.5);
+        $pdf->SetX(36);
+        $pdf->Cell(110, 4, 'Somos Proveedores del Estado', 0, 1, 'L');
+
+        $this->fechaBox($pdf, 196, 13, 'DIA', $fecha->format('d'), 17);
+        $this->fechaBox($pdf, 214, 13, 'MES', $fecha->format('m'), 20);
+        $this->fechaBox($pdf, 235, 13, 'ANO', $fecha->format('Y'), 26);
+
+        $pdf->SetFont('helvetica', 'B', 15);
+        $pdf->SetTextColor(...self::AZUL);
+        $pdf->SetXY(188, 30);
+        $pdf->Cell(42, 8, 'COTIZACION', 0, 0, 'L');
+        $pdf->SetTextColor(...self::ROJO);
+        $pdf->SetX(232);
+        $pdf->Cell(30, 8, 'No. ' . $this->numeroCorto((string) ($payload['numero'] ?? '')), 0, 1, 'R');
+
+        $this->checkOpcion($pdf, 197, 43, 'CONTADO', $tipoVenta === 'CONTADO');
+        $this->checkOpcion($pdf, 229, 43, 'CREDITO', $tipoVenta === 'CREDITO');
     }
 
-    private function datosCotizacion(TCPDF $pdf, array $payload): void
+    private function datosCliente(TCPDF $pdf, array $payload): void
     {
-        [$br, $bg, $bb] = self::COLOR_BORDE;
-        [$fr, $fg, $fb] = self::COLOR_FILA;
-        [$tr, $tg, $tb] = self::COLOR_TITULO;
-        [$sr, $sg, $sb] = self::COLOR_TEXTO;
+        $cliente = $this->cortar((string) ($payload['cliente'] ?? 'Consumidor final'), 80);
+        $telefono = $this->cortar((string) ($payload['telefono'] ?? ''), 26);
+        $municipio = $this->cortar((string) ($payload['municipio'] ?? ''), 34);
 
-        $pdf->SetDrawColor($br, $bg, $bb);
-        $pdf->SetFillColor($fr, $fg, $fb);
-        $pdf->Rect(10, 38, 196, 20, 'DF');
-
-        $cliente = $this->cortar((string) ($payload['cliente'] ?? 'Consumidor final'), 62);
-        $numero = (string) ($payload['numero'] ?? 'PROFORMA');
-        $fecha = (string) ($payload['fecha'] ?? now()->format('d/m/Y h:i A'));
-        $vence = (string) ($payload['vence'] ?? now()->addDays((int) ($payload['validez_dias'] ?? 15))->format('d/m/Y h:i A'));
-        $validez = (int) ($payload['validez_dias'] ?? 15);
-        $estado = (string) ($payload['estado'] ?? 'VIGENTE');
+        $pdf->SetDrawColor(...self::AZUL);
+        $pdf->SetTextColor(...self::AZUL);
+        $pdf->SetLineWidth(0.25);
 
         $pdf->SetFont('helvetica', 'B', 7);
-        $pdf->SetTextColor($sr, $sg, $sb);
+        $pdf->SetXY(15, 49);
+        $pdf->Cell(19, 5, 'CLIENTE:', 0, 0, 'L');
+        $pdf->Line(35, 53, 178, 53);
+        $pdf->SetFont('helvetica', 'B', 8);
+        $pdf->SetXY(36, 48.9);
+        $pdf->Cell(142, 5, $cliente, 0, 1, 'L');
 
-        $pdf->SetXY(14, 41);
-        $pdf->Cell(62, 4, 'DIRIGIDO A', 0, 0, 'L');
-        $pdf->SetX(82);
-        $pdf->Cell(42, 4, 'NO. COTIZACION', 0, 0, 'L');
-        $pdf->SetX(130);
-        $pdf->Cell(34, 4, 'FECHA', 0, 0, 'L');
-        $pdf->SetX(169);
-        $pdf->Cell(30, 4, 'VENCE', 0, 1, 'L');
-
-        $pdf->SetFont('helvetica', 'B', 8.2);
-        $pdf->SetTextColor($tr, $tg, $tb);
-
-        $pdf->SetXY(14, 47);
-        $pdf->Cell(62, 5, $cliente, 0, 0, 'L');
-        $pdf->SetX(82);
-        $pdf->Cell(42, 5, $numero, 0, 0, 'L');
-        $pdf->SetX(130);
-        $pdf->Cell(34, 5, $fecha, 0, 0, 'L');
-        $pdf->SetX(169);
-        $pdf->Cell(30, 5, $vence, 0, 1, 'L');
-
-        $pdf->SetXY(14, 53);
         $pdf->SetFont('helvetica', 'B', 7);
-        $pdf->SetTextColor($sr, $sg, $sb);
-        $pdf->Cell(16, 4, 'VALIDEZ:', 0, 0, 'L');
+        $pdf->SetXY(182, 49);
+        $pdf->Cell(11, 5, 'TEL:', 0, 0, 'L');
+        $pdf->Line(194, 53, 263, 53);
         $pdf->SetFont('helvetica', '', 8);
-        $pdf->SetTextColor($tr, $tg, $tb);
-        $pdf->Cell(30, 4, $validez . ' dias', 0, 0, 'L');
+        $pdf->SetXY(195, 48.9);
+        $pdf->Cell(68, 5, $telefono !== '' ? $telefono : '-', 0, 1, 'L');
 
         $pdf->SetFont('helvetica', 'B', 7);
-        $pdf->SetTextColor($sr, $sg, $sb);
-        $pdf->Cell(14, 4, 'ESTADO:', 0, 0, 'L');
+        $pdf->SetXY(15, 57);
+        $pdf->Cell(23, 5, 'MUNICIPIO:', 0, 0, 'L');
+        $pdf->Line(39, 61, 118, 61);
         $pdf->SetFont('helvetica', '', 8);
-        $pdf->SetTextColor($tr, $tg, $tb);
-        $pdf->Cell(30, 4, $estado, 0, 0, 'L');
+        $pdf->SetXY(40, 56.9);
+        $pdf->Cell(78, 5, $municipio !== '' ? $municipio : '-', 0, 1, 'L');
 
-        if (! empty($payload['municipio'])) {
-            $pdf->SetFont('helvetica', 'B', 7);
-            $pdf->SetTextColor($sr, $sg, $sb);
-            $pdf->Cell(20, 4, 'MUNICIPIO:', 0, 0, 'L');
-            $pdf->SetFont('helvetica', '', 8);
-            $pdf->SetTextColor($tr, $tg, $tb);
-            $pdf->Cell(70, 4, $this->cortar((string) $payload['municipio'], 48), 0, 1, 'L');
-        }
-
-        $pdf->SetY(65);
+        $pdf->SetFont('helvetica', 'B', 7);
+        $pdf->SetXY(124, 57);
+        $pdf->Cell(30, 5, 'VALIDEZ:', 0, 0, 'L');
+        $pdf->Line(154, 61, 263, 61);
+        $pdf->SetFont('helvetica', '', 8);
+        $pdf->SetXY(155, 56.9);
+        $pdf->Cell(108, 5, ((int) ($payload['validez_dias'] ?? 15)) . ' dias', 0, 1, 'L');
     }
 
     private function tabla(TCPDF $pdf, Collection $items, array $payload): void
     {
-        $this->tablaHeader($pdf);
+        $x = 15;
+        $y = 69;
+        $wCant = 23;
+        $wDesc = 155;
+        $wUnit = 38;
+        $wTotal = 39;
+        $rowH = 8.4;
+        $rowsPerPage = 12;
+        $items = $items->values();
+        $page = 0;
 
-        $numeroFila = 0;
-
-        foreach ($items as $item) {
-            $descripcion = $this->cortar((string) ($item['descripcion'] ?? 'Item'), 105);
-            $cantidad = (float) ($item['cantidad'] ?? 1);
-            $precio = (float) ($item['precio_unitario'] ?? 0);
-            $subtotal = (float) ($item['subtotal_valor'] ?? 0);
-
-            $lineas = max(1, (int) ceil(mb_strlen($descripcion) / 63));
-            $alto = max(7, $lineas * 4.3);
-
-            if ($pdf->GetY() + $alto + 24 > 260) {
+        do {
+            if ($page > 0) {
                 $pdf->AddPage();
-                $this->tablaHeader($pdf);
+                $this->marco($pdf);
+                $this->encabezado($pdf, $payload);
+                $this->datosCliente($pdf, $payload);
             }
 
-            $numeroFila++;
-            $fill = $numeroFila % 2 === 0;
-            $pdf->SetFillColor($fill ? 247 : 255, $fill ? 249 : 255, $fill ? 252 : 255);
-            $pdf->SetTextColor(26, 43, 66);
-            $pdf->SetDrawColor(215, 228, 243);
-            $pdf->SetFont('helvetica', '', 7.5);
+            $this->tablaHeader($pdf, $x, $y, $wCant, $wDesc, $wUnit, $wTotal);
+            $currentY = $y + 9;
 
-            $pdf->MultiCell(18, $alto, $this->cantidadTexto($cantidad), 1, 'C', true, 0);
-            $pdf->MultiCell(106, $alto, $descripcion, 1, 'L', true, 0);
-            $pdf->MultiCell(30, $alto, 'C$ ' . number_format($precio, 2), 1, 'R', true, 0);
-            $pdf->MultiCell(36, $alto, 'C$ ' . number_format($subtotal, 2), 1, 'R', true, 1);
-        }
+            for ($i = 0; $i < $rowsPerPage; $i++) {
+                $item = $items->get(($page * $rowsPerPage) + $i);
+                $this->tablaFila($pdf, $x, $currentY, $rowH, $wCant, $wDesc, $wUnit, $wTotal, $item);
+                $currentY += $rowH;
+            }
 
-        if ($items->isEmpty()) {
-            $pdf->SetTextColor(95, 107, 122);
-            $pdf->SetFillColor(247, 249, 252);
-            $pdf->Cell(190, 8, 'No hay items agregados.', 1, 1, 'C', true);
-        }
+            if (($page + 1) * $rowsPerPage >= max($items->count(), 1)) {
+                $this->totalTabla($pdf, $x, $currentY, $wCant, $wDesc, $wUnit, $wTotal, (float) ($payload['total'] ?? 0));
+                break;
+            }
 
-        $this->filasTotales($pdf, $payload);
+            $page++;
+        } while (true);
     }
 
-    private function tablaHeader(TCPDF $pdf): void
+    private function tablaHeader(TCPDF $pdf, float $x, float $y, float $wCant, float $wDesc, float $wUnit, float $wTotal): void
     {
-        $pdf->SetFont('helvetica', 'B', 7.5);
-        $pdf->SetFillColor(46, 139, 192);
-        $pdf->SetDrawColor(215, 228, 243);
-        $pdf->SetTextColor(255, 255, 255);
-
-        $pdf->Cell(18, 7, 'Cant.', 1, 0, 'C', true);
-        $pdf->Cell(106, 7, 'Descripcion', 1, 0, 'L', true);
-        $pdf->Cell(30, 7, 'P/Unit', 1, 0, 'R', true);
-        $pdf->Cell(36, 7, 'Subtotal', 1, 1, 'R', true);
-    }
-
-    private function filasTotales(TCPDF $pdf, array $payload): void
-    {
-        $subtotal = (float) ($payload['subtotal'] ?? 0);
-        $descuento = (float) ($payload['descuento'] ?? 0);
-        $total = (float) ($payload['total'] ?? 0);
-
-        if ($pdf->GetY() + 24 > 260) {
-            $pdf->AddPage();
-        }
-
-        $pdf->SetDrawColor(215, 228, 243);
+        $pdf->SetDrawColor(...self::AZUL);
+        $pdf->SetTextColor(...self::AZUL);
+        $pdf->SetFillColor(...self::FONDO_SUAVE);
+        $pdf->SetLineWidth(0.28);
         $pdf->SetFont('helvetica', 'B', 8);
 
-        $this->filaTotal($pdf, 'Subtotal', $subtotal, false);
-        $this->filaTotal($pdf, 'Descuento', $descuento, false);
-        $this->filaTotal($pdf, 'TOTAL', $total, true);
+        $pdf->SetXY($x, $y);
+        $pdf->Cell($wCant, 9, 'CANT.', 1, 0, 'C', true);
+        $pdf->Cell($wDesc, 9, 'DESCRIPCION', 1, 0, 'C', true);
+        $pdf->Cell($wUnit, 9, 'P. UNIT.', 1, 0, 'C', true);
+        $pdf->Cell($wTotal, 9, 'TOTAL', 1, 1, 'C', true);
     }
 
-    private function filaTotal(TCPDF $pdf, string $label, float $monto, bool $principal): void
-    {
-        if ($principal) {
-            $pdf->SetFillColor(46, 139, 192);
-            $pdf->SetTextColor(255, 255, 255);
-        } else {
-            $pdf->SetFillColor(240, 243, 247);
-            $pdf->SetTextColor(26, 43, 66);
+    private function tablaFila(
+        TCPDF $pdf,
+        float $x,
+        float $y,
+        float $h,
+        float $wCant,
+        float $wDesc,
+        float $wUnit,
+        float $wTotal,
+        mixed $item
+    ): void {
+        $pdf->SetDrawColor(...self::AZUL);
+        $pdf->SetTextColor(...self::AZUL);
+        $pdf->SetFillColor(255, 255, 255);
+        $pdf->SetLineWidth(0.2);
+        $pdf->SetFont('helvetica', '', 7.4);
+
+        $descripcion = '';
+        $cantidad = '';
+        $unitario = '';
+        $total = '';
+
+        if ($item) {
+            $descripcion = $this->cortar((string) ($item['descripcion'] ?? 'Item'), 86);
+            $cantidad = $this->cantidadTexto((float) ($item['cantidad'] ?? 1));
+            $unitario = 'C$ ' . number_format((float) ($item['precio_unitario'] ?? 0), 2);
+            $total = 'C$ ' . number_format((float) ($item['subtotal_valor'] ?? 0), 2);
         }
 
-        $pdf->Cell(154, 7, $label, 1, 0, 'R', true);
-        $pdf->Cell(36, 7, 'C$ ' . number_format($monto, 2), 1, 1, 'R', true);
+        $pdf->SetXY($x, $y);
+        $pdf->Cell($wCant, $h, $cantidad, 1, 0, 'C');
+        $pdf->Cell($wDesc, $h, $descripcion, 1, 0, 'L');
+        $pdf->Cell($wUnit, $h, $unitario, 1, 0, 'R');
+        $pdf->Cell($wTotal, $h, $total, 1, 1, 'R');
     }
 
-    private function observacion(TCPDF $pdf, string $observacion): void
+    private function totalTabla(TCPDF $pdf, float $x, float $y, float $wCant, float $wDesc, float $wUnit, float $wTotal, float $total): void
     {
-        $observacion = trim($observacion);
+        $pdf->SetDrawColor(...self::AZUL);
+        $pdf->SetTextColor(...self::AZUL);
+        $pdf->SetFillColor(...self::FONDO_SUAVE);
+        $pdf->SetFont('helvetica', 'B', 9);
 
-        if ($observacion === '') {
-            return;
-        }
+        $pdf->SetXY($x, $y);
+        $pdf->Cell($wCant + $wDesc, 9, '', 1, 0, 'C');
+        $pdf->Cell($wUnit, 9, 'TOTAL C$', 1, 0, 'C', true);
+        $pdf->Cell($wTotal, 9, 'C$ ' . number_format($total, 2), 1, 1, 'R', true);
+    }
 
-        if ($pdf->GetY() + 18 > 260) {
-            $pdf->AddPage();
-        }
+    private function firmas(TCPDF $pdf): void
+    {
+        $pdf->SetTextColor(...self::AZUL);
+        $pdf->SetDrawColor(...self::AZUL);
+        $pdf->SetFont('helvetica', '', 7);
 
-        $pdf->Ln(5);
-        $pdf->SetDrawColor(215, 228, 243);
-        $pdf->SetFillColor(247, 249, 252);
-        $pdf->SetTextColor(95, 107, 122);
+        $y = 188;
+        $pdf->Line(23, $y, 92, $y);
+        $pdf->Line(186, $y, 255, $y);
+
+        $pdf->SetXY(23, $y + 2);
+        $pdf->Cell(69, 4, 'Firma Autorizada', 0, 0, 'C');
+        $pdf->SetXY(186, $y + 2);
+        $pdf->Cell(69, 4, 'Firma Cliente.', 0, 1, 'C');
+    }
+
+    private function fechaBox(TCPDF $pdf, float $x, float $y, string $label, string $value, float $w): void
+    {
+        $pdf->SetDrawColor(...self::AZUL);
+        $pdf->SetTextColor(...self::AZUL);
+        $pdf->SetLineWidth(0.25);
+        $pdf->Rect($x, $y, $w, 15);
+        $pdf->SetFont('helvetica', 'B', 5.5);
+        $pdf->SetXY($x, $y + 1);
+        $pdf->Cell($w, 3.5, $label, 0, 1, 'C');
+        $pdf->SetFont('helvetica', 'B', 7.5);
+        $pdf->SetX($x);
+        $pdf->Cell($w, 6, $value, 0, 1, 'C');
+    }
+
+    private function checkOpcion(TCPDF $pdf, float $x, float $y, string $label, bool $activo): void
+    {
+        $pdf->SetDrawColor(...self::AZUL);
+        $pdf->SetTextColor(...self::AZUL);
+        $pdf->SetLineWidth(0.25);
         $pdf->SetFont('helvetica', 'B', 7);
-        $pdf->Cell(190, 6, 'OBSERVACION', 1, 1, 'L', true);
+        $pdf->SetXY($x, $y);
+        $pdf->Cell(21, 5, $label, 0, 0, 'L');
+        $pdf->Rect($x + 22, $y + 0.6, 4.5, 4.5);
 
-        $pdf->SetTextColor(26, 43, 66);
-        $pdf->SetFont('helvetica', '', 7.5);
-        $pdf->MultiCell(190, 7, $this->cortar($observacion, 240), 1, 'L', false, 1);
+        if ($activo) {
+            $pdf->SetFont('helvetica', 'B', 8);
+            $pdf->SetXY($x + 22, $y - 0.1);
+            $pdf->Cell(4.5, 4.5, 'X', 0, 0, 'C');
+        }
     }
 
-    private function firma(TCPDF $pdf): void
+    private function numeroCorto(string $numero): string
     {
-        if ($pdf->GetY() + 22 > 260) {
-            $pdf->AddPage();
+        $soloDigitos = preg_replace('/\D+/', '', $numero) ?: '';
+
+        if ($soloDigitos !== '') {
+            return substr($soloDigitos, -6);
         }
 
-        $pdf->Ln(10);
-        $pdf->SetTextColor(26, 43, 66);
-        $pdf->SetFont('helvetica', '', 8);
-
-        $pdf->Cell(95, 5, 'Precios validos durante la vigencia indicada.', 0, 0, 'L');
-        $pdf->Cell(95, 5, 'Firma / Autorizado: __________________________', 0, 1, 'R');
+        return $this->cortar($numero, 12);
     }
 
     private function logoOriginalPath(): ?string
@@ -349,7 +390,7 @@ class CotizacionVentaPdfService
             mkdir($directorio, 0755, true);
         }
 
-        $optimizado = $directorio . '/logo-cotizacion-pdf.jpg';
+        $optimizado = $directorio . '/logo-cotizacion-formato.jpg';
 
         if (is_file($optimizado) && filemtime($optimizado) >= filemtime($original)) {
             return $optimizado;
@@ -369,33 +410,15 @@ class CotizacionVentaPdfService
 
         $anchoOriginal = imagesx($imagen);
         $altoOriginal = imagesy($imagen);
-
         $maximo = 160;
         $escala = min($maximo / $anchoOriginal, $maximo / $altoOriginal, 1);
-
         $nuevoAncho = max(1, (int) round($anchoOriginal * $escala));
         $nuevoAlto = max(1, (int) round($altoOriginal * $escala));
-
         $lienzo = imagecreatetruecolor($nuevoAncho, $nuevoAlto);
         $blanco = imagecolorallocate($lienzo, 255, 255, 255);
         imagefilledrectangle($lienzo, 0, 0, $nuevoAncho, $nuevoAlto, $blanco);
-
-        imagecopyresampled(
-            $lienzo,
-            $imagen,
-            0,
-            0,
-            0,
-            0,
-            $nuevoAncho,
-            $nuevoAlto,
-            $anchoOriginal,
-            $altoOriginal
-        );
-
+        imagecopyresampled($lienzo, $imagen, 0, 0, 0, 0, $nuevoAncho, $nuevoAlto, $anchoOriginal, $altoOriginal);
         imagejpeg($lienzo, $optimizado, 78);
-        imagedestroy($imagen);
-        imagedestroy($lienzo);
 
         return $optimizado;
     }

@@ -8,6 +8,7 @@ use App\Http\Controllers\Reportes\VentasPeriodoReporteController;
 use App\Http\Controllers\Reportes\OtrasSalidasReporteController;
 use App\Http\Controllers\Reportes\CreditosInstitucionalesReporteController;
 use App\Http\Controllers\Reportes\DevolucionesReporteController;
+use App\Http\Controllers\Reportes\ArqueoCajaCierreReporteController;
 use App\Http\Controllers\Reportes\ArqueosCajaReporteController;
 use App\Http\Controllers\Ventas\CotizacionVoucherController;
 use App\Http\Controllers\Ventas\VentaVoucherController;
@@ -274,5 +275,9 @@ Route::middleware(['auth', 'cargo: 1,2,3'])->group(function () {
 
     Route::get('/ventas/voucher/{venta}', [VentaVoucherController::class, 'show'])
         ->name('ventas.voucher');
+
+    Route::get('/reportes/cierre-caja/{arqueo}/pdf', [ArqueoCajaCierreReporteController::class, 'show'])
+        ->whereNumber('arqueo')
+        ->name('reportes.cierre-caja.pdf');
 
 });

@@ -28,6 +28,21 @@ abstract class BaseReporteService
         return $datos->map(fn($fila) => $this->mapFila($fila));
     }
 
+    public function filaEsTotal(mixed $fila): bool
+    {
+        return false;
+    }
+
+    public function filaEsTotalGeneral(mixed $fila): bool
+    {
+        return false;
+    }
+
+    public function firmaReporte(): ?array
+    {
+        return null;
+    }
+
     public function logoPath(): ?string
     {
         $paths = [

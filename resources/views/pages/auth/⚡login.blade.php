@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Usuario;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Validate;
 use Livewire\Component;
@@ -16,8 +17,10 @@ new #[Layout('layouts.blank')] class extends Component
     public bool $recordarme = false;
     public string $mensajeError = '';
     public bool $errorVisible = false;
+    public bool $confirmarCerrarSesionActiva = false;
+    public string $mensajeSesionActiva = '';
 
-    public function login()
+    public function login(bool $cerrarOtraSesion = false)
     {
         $this->validate();
 
@@ -49,8 +52,20 @@ new #[Layout('layouts.blank')] class extends Component
                 return;
             }
 
+            if (! $cerrarOtraSesion && $this->tieneOtraSesionActiva((int) $usuarioData->Id_Usuario)) {
+                $this->mensajeSesionActiva = 'Este usuario ya tiene una sesión activa en otra máquina o navegador. Si continúa, se cerrará la sesión anterior y entrará en esta máquina.';
+                $this->confirmarCerrarSesionActiva = true;
+                $this->errorVisible = false;
+                return;
+            }
+
+            if ($cerrarOtraSesion) {
+                $this->cerrarOtrasSesiones((int) $usuarioData->Id_Usuario);
+            }
+
             $usuarioData->resetearIntentosFallidos();
             auth()->login($usuarioData, $this->recordarme);
+            session()->regenerate();
 
             session([
                 'usuario_id' => $usuarioData->Id_Usuario,
@@ -71,10 +86,52 @@ new #[Layout('layouts.blank')] class extends Component
         }
     }
 
+    public function confirmarIngresoCerrandoSesionActiva()
+    {
+        $this->confirmarCerrarSesionActiva = false;
+
+        return $this->login(true);
+    }
+
+    public function cancelarIngresoCerrandoSesionActiva(): void
+    {
+        $this->confirmarCerrarSesionActiva = false;
+        $this->mensajeSesionActiva = '';
+        $this->password = '';
+    }
+
+    private function tieneOtraSesionActiva(int $usuarioId): bool
+    {
+        if (config('session.driver') !== 'database') {
+            return false;
+        }
+
+        $limiteActividad = now()->subMinutes((int) config('session.lifetime', 30))->timestamp;
+
+        return DB::table(config('session.table', 'sessions'))
+            ->where('user_id', $usuarioId)
+            ->where('id', '<>', session()->getId())
+            ->where('last_activity', '>=', $limiteActividad)
+            ->exists();
+    }
+
+    private function cerrarOtrasSesiones(int $usuarioId): void
+    {
+        if (config('session.driver') !== 'database') {
+            return;
+        }
+
+        DB::table(config('session.table', 'sessions'))
+            ->where('user_id', $usuarioId)
+            ->where('id', '<>', session()->getId())
+            ->delete();
+    }
+
     private function mostrarError(string $mensaje): void
     {
         $this->mensajeError = $mensaje;
         $this->errorVisible = true;
+        $this->confirmarCerrarSesionActiva = false;
         $this->password = '';
     }
 
@@ -199,5 +256,40 @@ new #[Layout('layouts.blank')] class extends Component
                 </x-slot:actions>
             </x-card>
         </form>
+
+        <x-modal
+            wire:model="confirmarCerrarSesionActiva"
+            class="backdrop-blur-sm"
+            box-class="max-w-md rounded-2xl border border-[#D7E4F3] bg-white p-0 shadow-2xl"
+        >
+            <div class="p-5">
+                <h3 class="text-xl font-bold text-[#1A2B42]">Sesión activa detectada</h3>
+                <p class="mt-2 text-sm leading-6 text-[#5F6B7A]">
+                    {{ $mensajeSesionActiva }}
+                </p>
+                <p class="mt-3 rounded-xl bg-[#EAF2FB] px-3 py-2 text-sm font-semibold text-[#1A2B42]">
+                    Si tenía una caja abierta con este usuario, al entrar aquí se cargará para continuar el cierre o los movimientos.
+                </p>
+            </div>
+
+            <x-slot:actions>
+                <div class="flex w-full flex-col-reverse gap-3 border-t border-[#D7E4F3] bg-white px-5 py-4 sm:flex-row sm:justify-end">
+                    <x-button
+                        label="Cancelar"
+                        type="button"
+                        wire:click="cancelarIngresoCerrandoSesionActiva"
+                        class="rounded-xl border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]"
+                    />
+
+                    <x-button
+                        label="Cerrar la otra sesión y entrar"
+                        type="button"
+                        wire:click="confirmarIngresoCerrandoSesionActiva"
+                        spinner="confirmarIngresoCerrandoSesionActiva"
+                        class="rounded-xl border-0 bg-[#0B6FE4] text-white hover:bg-[#2E8BC0]"
+                    />
+                </div>
+            </x-slot:actions>
+        </x-modal>
     </div>
 </div>
