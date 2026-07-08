@@ -28,6 +28,14 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'thermal' => [
+        'enabled' => env('THERMAL_PRINT_ENABLED', true),
+        'connection' => env('THERMAL_PRINTER_CONNECTION', PHP_OS_FAMILY === 'Windows' ? 'windows' : 'cups'),
+        'printer_name' => env('THERMAL_PRINTER_NAME', ''),
+        'paper_width' => env('THERMAL_PAPER_WIDTH', 80),
+        'cut' => env('THERMAL_PRINTER_CUT', true),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

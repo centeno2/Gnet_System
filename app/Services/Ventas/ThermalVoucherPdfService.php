@@ -123,10 +123,15 @@ class ThermalVoucherPdfService
 
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
-        $pdf->SetMargins(3, 4, 3);
-        $pdf->SetAutoPageBreak(false);
+        $pdf->SetMargins(2, 1, 2);
+        $pdf->SetHeaderMargin(0);
+        $pdf->SetFooterMargin(0);
+        $pdf->SetAutoPageBreak(false, 0);
         $pdf->AddPage();
+        $pdf->SetY(1);
         $pdf->SetTextColor(0, 0, 0);
+        $pdf->setCellPaddings(0, 0, 0, 0);
+        $pdf->setCellMargins(0, 0, 0, 0);
 
         return $pdf;
     }
@@ -135,7 +140,7 @@ class ThermalVoucherPdfService
     {
         $caracteresLinea = $ancho === 58 ? 28 : 42;
 
-        $alto = 65;
+        $alto = 48;
 
         foreach ($detalles as $detalle) {
             $lineasDescripcion = max(1, (int) ceil(mb_strlen((string) $detalle->Descripcion) / $caracteresLinea));
@@ -157,7 +162,7 @@ class ThermalVoucherPdfService
             $alto += 8 + ($pagos->count() * 7);
         }
 
-        return max(95, min($alto + 14, 500));
+        return max(68, min($alto + 6, 420));
     }
 
     private function observacionDetalle($detalles): string

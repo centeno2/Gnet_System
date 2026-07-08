@@ -25,6 +25,7 @@ class CotizacionVentaPdfService
             'telefono' => $cliente?->telefono_facturacion ?: '',
             'correo' => $cliente?->correo_facturacion ?: '',
             'direccion' => $cliente?->direccion_facturacion ?: '',
+            'ruc' => $cliente?->ruc_facturacion ?: '',
             'municipio' => $cotizacion->Municipio,
             'tipo_venta' => $cotizacion->Tipo_Venta,
             'tipo_cambio' => (float) $cotizacion->Tipo_Cambio,
@@ -153,7 +154,8 @@ class CotizacionVentaPdfService
     {
         $cliente = $this->cortar((string) ($payload['cliente'] ?? 'Consumidor final'), 80);
         $telefono = $this->cortar((string) ($payload['telefono'] ?? ''), 26);
-        $municipio = $this->cortar((string) ($payload['municipio'] ?? ''), 34);
+        $municipio = $this->cortar((string) ($payload['municipio'] ?? ''), 24);
+        $ruc = $this->cortar((string) ($payload['ruc'] ?? ''), 28);
 
         $pdf->SetDrawColor(...self::AZUL);
         $pdf->SetTextColor(...self::AZUL);
@@ -178,18 +180,26 @@ class CotizacionVentaPdfService
         $pdf->SetFont('helvetica', 'B', 7);
         $pdf->SetXY(15, 57);
         $pdf->Cell(23, 5, 'MUNICIPIO:', 0, 0, 'L');
-        $pdf->Line(39, 61, 118, 61);
+        $pdf->Line(39, 61, 92, 61);
         $pdf->SetFont('helvetica', '', 8);
         $pdf->SetXY(40, 56.9);
-        $pdf->Cell(78, 5, $municipio !== '' ? $municipio : '-', 0, 1, 'L');
+        $pdf->Cell(52, 5, $municipio !== '' ? $municipio : '-', 0, 1, 'L');
 
         $pdf->SetFont('helvetica', 'B', 7);
-        $pdf->SetXY(124, 57);
-        $pdf->Cell(30, 5, 'VALIDEZ:', 0, 0, 'L');
-        $pdf->Line(154, 61, 263, 61);
+        $pdf->SetXY(97, 57);
+        $pdf->Cell(11, 5, 'RUC:', 0, 0, 'L');
+        $pdf->Line(110, 61, 170, 61);
         $pdf->SetFont('helvetica', '', 8);
-        $pdf->SetXY(155, 56.9);
-        $pdf->Cell(108, 5, ((int) ($payload['validez_dias'] ?? 15)) . ' dias', 0, 1, 'L');
+        $pdf->SetXY(111, 56.9);
+        $pdf->Cell(58, 5, $ruc !== '' ? $ruc : '-', 0, 1, 'L');
+
+        $pdf->SetFont('helvetica', 'B', 7);
+        $pdf->SetXY(176, 57);
+        $pdf->Cell(30, 5, 'VALIDEZ:', 0, 0, 'L');
+        $pdf->Line(204, 61, 263, 61);
+        $pdf->SetFont('helvetica', '', 8);
+        $pdf->SetXY(205, 56.9);
+        $pdf->Cell(58, 5, ((int) ($payload['validez_dias'] ?? 15)) . ' dias', 0, 1, 'L');
     }
 
     private function tabla(TCPDF $pdf, Collection $items, array $payload): void

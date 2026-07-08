@@ -147,6 +147,27 @@ class Cliente extends Model
         return $this->persona?->Direccion ?: 'Sin dirección';
     }
 
+    public function getRucFacturacionAttribute(): string
+    {
+        foreach (['Codigo_RUC', 'Codigo_Ruc', 'RUC', 'Ruc', 'Cedula_RUC', 'Cedula'] as $campo) {
+            $valor = trim((string) ($this->getAttribute($campo) ?? ''));
+
+            if ($valor !== '') {
+                return $valor;
+            }
+        }
+
+        foreach (['Codigo_RUC', 'Codigo_Ruc', 'RUC', 'Ruc', 'Cedula_RUC', 'Cedula'] as $campo) {
+            $valor = trim((string) ($this->persona?->getAttribute($campo) ?? ''));
+
+            if ($valor !== '') {
+                return $valor;
+            }
+        }
+
+        return '';
+    }
+
     public function getTipoClienteNombreAttribute(): string
     {
         return $this->esInstitucion() ? 'Institucional' : 'Natural';

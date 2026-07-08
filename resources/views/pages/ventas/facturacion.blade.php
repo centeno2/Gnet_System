@@ -1188,8 +1188,6 @@ new class extends Component
             return null;
         }
 
-        $ventaIncluyeProductos = $this->ventaTieneProductos();
-
         try {
             $tipoVentaActual = $this->tipoVenta;
 
@@ -1400,15 +1398,13 @@ new class extends Component
 
             $this->limpiarVentaActual();
             $this->cerrarModalCobro();
+            $this->prepararVoucherVenta((int) $resultado['id_venta']);
 
-            if ($tipoVentaActual === self::TIPO_CONTADO && $ventaIncluyeProductos) {
-                $this->prepararVoucherVenta((int) $resultado['id_venta']);
-                $this->mostrarToast('Venta guardada. Revise el voucher antes de imprimir. Factura: ' . $resultado['numero_factura'], 'info');
-            } elseif ($tipoVentaActual === self::TIPO_CREDITO) {
-                $this->mostrarToast('Crédito guardado correctamente. Factura: ' . $resultado['numero_factura']);
-            } else {
-                $this->mostrarToast('Venta de copias guardada correctamente. Factura: ' . $resultado['numero_factura']);
-            }
+            $mensajeVoucher = $tipoVentaActual === self::TIPO_CREDITO
+                ? 'Crédito guardado. Revise el voucher antes de imprimir. Factura: '
+                : 'Venta guardada. Revise el voucher antes de imprimir. Factura: ';
+
+            $this->mostrarToast($mensajeVoucher . $resultado['numero_factura'], 'info');
 
             return null;
         } catch (ValidationException $e) {
@@ -1421,16 +1417,10 @@ new class extends Component
         }
     }
 
-    protected function ventaTieneProductos(): bool
-    {
-        return collect($this->detalleVenta)
-            ->contains(fn ($item) => ($item['tipo'] ?? null) === self::TIPO_PRODUCTO);
-    }
-
     protected function prepararVoucherVenta(int $ventaId): void
     {
         $this->voucherVentaId = $ventaId;
-        $this->voucherPreviewUrl = route('ventas.voucher', ['venta' => $ventaId, 'ancho' => 80]);
+        $this->voucherPreviewUrl = route('ventas.voucher', ['venta' => $ventaId, 'ancho' => $this->anchoVoucherTermico()]);
         $this->modalVoucherVenta = true;
     }
 
@@ -1500,7 +1490,23 @@ new class extends Component
 
     protected function impresionTermicaActiva(): bool
     {
-        return filter_var(env('THERMAL_PRINT_ENABLED', false), FILTER_VALIDATE_BOOLEAN);
+        return $this->booleanConfig('services.thermal.enabled', true);
+    }
+
+    protected function anchoVoucherTermico(): int
+    {
+        return (int) config('services.thermal.paper_width', 80) === 58 ? 58 : 80;
+    }
+
+    protected function booleanConfig(string $key, bool $default = false): bool
+    {
+        $valor = config($key);
+
+        if ($valor === null || $valor === '') {
+            return $default;
+        }
+
+        return in_array(strtolower(trim((string) $valor)), ['1', 'true', 'yes', 'on', 'enable', 'enabled'], true);
     }
 
     protected function limpiarVentaActual(): void
@@ -3124,6 +3130,10 @@ new class extends Component
         </div>
 
         <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-[#F8FBFF]">
+            @if ($modalVoucherVenta)
+            <div wire:poll.10s="cerrarModalVoucherVenta"></div>
+            @endif
+
             @if ($voucherPreviewUrl !== '')
             <iframe src="{{ $voucherPreviewUrl }}#toolbar=0&navpanes=0&scrollbar=1&view=FitH" loading="eager"
                 class="h-[68vh] w-full bg-white"></iframe>

@@ -13,7 +13,13 @@ class ThermalPrintService
         $venta = Venta::query()->findOrFail($ventaId);
 
         $ticket = $this->generarTicket($venta);
-        $destino = $this->destinoImpresora();
+        $conexion = $this->conexionImpresora();
+        $destino = $this->destinoImpresora($conexion);
+
+        if (in_array($conexion, ['cups', 'linux'], true)) {
+            $this->imprimirConCups($destino, $ticket);
+            return;
+        }
 
         $resultado = @file_put_contents($destino, $ticket);
 
@@ -197,9 +203,20 @@ class ThermalPrintService
         return $cliente->Nombre ?? 'Consumidor final';
     }
 
-    private function destinoImpresora(): string
+    private function conexionImpresora(): string
     {
-        $printerName = trim((string) env('THERMAL_PRINTER_NAME', ''));
+        $conexion = strtolower(trim((string) config('services.thermal.connection', '')));
+
+        if ($conexion !== '') {
+            return $conexion;
+        }
+
+        return PHP_OS_FAMILY === 'Windows' ? 'windows' : 'cups';
+    }
+
+    private function destinoImpresora(string $conexion): string
+    {
+        $printerName = trim((string) config('services.thermal.printer_name', ''));
 
         if ($printerName === '') {
             throw new \RuntimeException('Configura THERMAL_PRINTER_NAME en el archivo .env.');
@@ -207,25 +224,76 @@ class ThermalPrintService
 
         $printerName = trim($printerName, "\"' ");
 
+        if (in_array($conexion, ['cups', 'linux', 'file'], true)) {
+            return $printerName;
+        }
+
         if (str_starts_with($printerName, '\\\\')) {
             return $printerName;
         }
 
-        if (PHP_OS_FAMILY === 'Windows') {
+        if ($conexion === 'windows' || PHP_OS_FAMILY === 'Windows') {
             return '\\\\localhost\\' . $printerName;
         }
 
         return $printerName;
     }
 
+    private function imprimirConCups(string $cola, string $ticket): void
+    {
+        $proceso = @proc_open(
+            ['lp', '-d', $cola, '-o', 'raw'],
+            [
+                0 => ['pipe', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['pipe', 'w'],
+            ],
+            $pipes
+        );
+
+        if (! is_resource($proceso)) {
+            throw new \RuntimeException('No se pudo abrir CUPS. Verifica que el comando lp esté instalado.');
+        }
+
+        fwrite($pipes[0], $ticket);
+        fclose($pipes[0]);
+
+        $salida = stream_get_contents($pipes[1]);
+        $error = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        $codigo = proc_close($proceso);
+
+        if ($codigo !== 0) {
+            $detalle = trim($error ?: $salida);
+
+            throw new \RuntimeException(
+                'No se pudo enviar el voucher a la cola CUPS "' . $cola . '".'
+                . ($detalle !== '' ? ' Detalle: ' . $detalle : '')
+            );
+        }
+    }
+
     private function anchoPapel(): int
     {
-        return (int) env('THERMAL_PAPER_WIDTH', 80) === 58 ? 32 : 48;
+        return (int) config('services.thermal.paper_width', 80) === 58 ? 32 : 48;
     }
 
     private function debeCortarPapel(): bool
     {
-        return filter_var(env('THERMAL_PRINTER_CUT', true), FILTER_VALIDATE_BOOLEAN);
+        return $this->booleanConfig('services.thermal.cut', true);
+    }
+
+    private function booleanConfig(string $key, bool $default = false): bool
+    {
+        $valor = config($key);
+
+        if ($valor === null || $valor === '') {
+            return $default;
+        }
+
+        return in_array(strtolower(trim((string) $valor)), ['1', 'true', 'yes', 'on', 'enable', 'enabled'], true);
     }
 
     private function linea(): string
