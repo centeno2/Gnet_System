@@ -69,11 +69,8 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
 
     Route::livewire('/acerca', 'pages::acerca')->name('acerca');
     Route::livewire('/proveedores', 'pages::proveedores')->name('proveedores');
-    Route::livewire('/salidas', 'pages::otras_salidas')->name('otras_salidas');
     Route::livewire('/ventas/servicio-tecnico', 'pages::ventas.servicio-tecnico')->name('ventas.servicio-tecnico');
     Route::livewire('/ventas/instalacion-camaras', 'pages::ventas.instalacion-camaras')->name('ventas.instalacion-camaras');
-    Route::livewire('/productos', 'pages::productos')->name('productos.index');
-    Route::livewire('/productos/listado', 'pages::components.productos.listado')->name('productos.listado');
     Route::livewire('/reportes', 'pages::informes')->name('Informes');
 
     Route::get('/reportes/inventario/pdf', [InventarioReporteController::class, 'pdf'])
@@ -241,9 +238,6 @@ Route::middleware(['auth', 'cargo: 1, 2'])->group(function () {
     Route::livewire('/acerca', 'pages::acerca')->name('acerca');
     Route::livewire('/ventas/servicio-tecnico', 'pages::ventas.servicio-tecnico')->name('ventas.servicio-tecnico');
     Route::livewire('/ventas/instalacion-camaras', 'pages::ventas.instalacion-camaras')->name('ventas.instalacion-camaras');
-    Route::livewire('/productos', 'pages::productos')->name('productos.index');
-    Route::livewire('/productos/listado', 'pages::components.productos.listado')->name('productos.listado');
-
     //exportación de comprobante, liquidación y reporte anual de planilla
     Route::get('/planillapago/exportar/comprobante/{planilla}/{formato}', [PlanillaExportController::class, 'comprobante'])
         ->whereNumber('planilla')
@@ -258,6 +252,12 @@ Route::middleware(['auth', 'cargo: 1, 2'])->group(function () {
     Route::get('/ventas/servicio-tecnico/{servicio}/voucher', [ServicioTecnicoVoucherController::class, 'show'])
         ->whereNumber('servicio')
         ->name('ventas.servicio-tecnico.voucher');
+});
+
+Route::middleware(['auth', 'cargo: 1,2,3'])->group(function () {
+    Route::livewire('/salidas', 'pages::otras_salidas')->name('otras_salidas');
+    Route::livewire('/productos', 'pages::productos')->name('productos.index');
+    Route::livewire('/productos/listado', 'pages::components.productos.listado')->name('productos.listado');
 });
 
 Route::middleware(['auth', 'cargo: 1,2,3'])->group(function () {

@@ -120,8 +120,8 @@
         />
     @endif
 
-    {{-- Productos: cargos 1, 2 --}}
-    @if ($puede(1, 2))
+    {{-- Productos: cargos 1, 2 y 3 --}}
+    @if ($puede(1, 2, 3))
         <x-menu-item
             title="Productos"
              icon="o-cube-transparent"
@@ -129,8 +129,8 @@
         />
     @endif
 
-    {{-- Salidas de inventario: cargos 1  --}}
-    @if ($puede(2))
+    {{-- Salidas de inventario: cargos 1, 2 y 3 --}}
+    @if ($puede(1, 2, 3))
         <x-menu-item
             title="Salidas de inventario"
             icon="o-arrow-up-tray"
