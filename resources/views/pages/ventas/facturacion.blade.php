@@ -2120,6 +2120,7 @@ new class extends Component
                 'v.Id_Venta',
                 'v.Numero_Factura',
                 'v.Fecha_venta',
+                'c.Id_Cliente',
                 'c.Institucion',
                 'c.Municipio',
                 'dv.Tipo_Detalle',
@@ -2150,6 +2151,7 @@ new class extends Component
                 return [
                     'id' => $id,
                     'venta_id' => (int) $fila->Id_Venta,
+                    'cliente_id' => (int) $fila->Id_Cliente,
                     'fecha' => $fila->Fecha_venta ? \Illuminate\Support\Carbon::parse($fila->Fecha_venta)->format('d/m/Y') : '',
                     'factura' => (string) $fila->Numero_Factura,
                     'institucion' => (string) ($fila->Institucion ?: 'Institución'),
@@ -2228,11 +2230,17 @@ new class extends Component
         }
 
         $lineas = $idsSeleccionados
-            ->map(fn ($detalleId) => [
-                'detalle_id' => (int) $detalleId,
-                'cantidad' => $this->limpiarDecimal((string) ($this->cantidadesEntregaPendientes[$detalleId] ?? '')),
-            ])
-            ->filter(fn ($linea) => $linea['detalle_id'] > 0 && $linea['cantidad'] > 0)
+            ->map(function ($detalleId) {
+                $cantidad = $this->normalizarCantidadEntregaCredito(
+                    $this->cantidadesEntregaPendientes[$detalleId] ?? null
+                );
+
+                return [
+                    'detalle_id' => (int) $detalleId,
+                    'cantidad' => $cantidad,
+                ];
+            })
+            ->filter(fn ($linea) => $linea['detalle_id'] > 0 && $linea['cantidad'] !== null)
             ->values();
 
         if ($lineas->count() !== $idsSeleccionados->count()) {
@@ -2258,6 +2266,7 @@ new class extends Component
                         'v.Id_Venta',
                         'v.Numero_Factura',
                         'cr.Id_Credito',
+                        'c.Id_Cliente',
                         'dv.Cantidad',
                         'dv.Cantidad_Entregada',
                     ])
@@ -2271,15 +2280,17 @@ new class extends Component
                     ]);
                 }
 
-                $ventasSeleccionadas = $detalles->pluck('Id_Venta')->unique()->values();
+                $clientesSeleccionados = $detalles->pluck('Id_Cliente')->unique()->values();
 
-                if ($ventasSeleccionadas->count() > 1) {
+                if ($clientesSeleccionados->count() > 1) {
                     throw ValidationException::withMessages([
-                        'entrega' => 'Seleccione pendientes de una sola factura para generar un único recibo.',
+                        'entrega' => 'Seleccione pendientes de una sola institución para generar el voucher general.',
                     ]);
                 }
 
                 $primerDetalle = $detalles->first();
+                $ventasSeleccionadas = $detalles->pluck('Id_Venta')->unique()->values();
+                $unaSolaVenta = $ventasSeleccionadas->count() === 1;
                 $usuarioId = $this->obtenerUsuarioId();
 
                 foreach ($lineas as $linea) {
@@ -2295,11 +2306,14 @@ new class extends Component
                     }
                 }
 
+                $numeroRecibo = $this->generarNumeroReciboEntregaCredito();
+
                 $entregaCreditoId = (int) DB::table('entrega_credito')->insertGetId([
-                    'Id_Venta' => (int) $primerDetalle->Id_Venta,
-                    'Id_Credito' => (int) $primerDetalle->Id_Credito,
+                    'Id_Cliente' => (int) $primerDetalle->Id_Cliente,
+                    'Id_Venta' => $unaSolaVenta ? (int) $primerDetalle->Id_Venta : null,
+                    'Id_Credito' => $unaSolaVenta ? (int) $primerDetalle->Id_Credito : null,
                     'Id_Usuario' => $usuarioId,
-                    'Numero_Recibo' => $this->generarNumeroReciboEntregaCredito(),
+                    'Numero_Recibo' => $numeroRecibo,
                     'Fecha_Entrega' => now(),
                     'Recibido_Por' => Str::limit($recibidoPor, 150, ''),
                     'Observacion' => $observacion !== '' ? Str::limit($observacion, 255, '') : null,
@@ -2311,7 +2325,7 @@ new class extends Component
                     $cantidadTotal = (float) $detalle->Cantidad;
                     $cantidadYaEntregada = (float) ($detalle->Cantidad_Entregada ?? 0);
                     $pendienteAnterior = round(max($cantidadTotal - $cantidadYaEntregada, 0), 2);
-                    $cantidadEntregadaAhora = round((float) $linea['cantidad'], 2);
+                    $cantidadEntregadaAhora = $linea['cantidad'];
                     $nuevaCantidadEntregada = round($cantidadYaEntregada + $cantidadEntregadaAhora, 2);
                     $pendienteRestante = round(max($cantidadTotal - $nuevaCantidadEntregada, 0), 2);
                     $estadoEntrega = $pendienteRestante <= 0 ? 'ENTREGADO' : 'PARCIAL';
@@ -2336,7 +2350,7 @@ new class extends Component
 
                 return [
                     'entrega_credito_id' => $entregaCreditoId,
-                    'numero_factura' => (string) $primerDetalle->Numero_Factura,
+                    'numero_recibo' => $numeroRecibo,
                 ];
             });
 
@@ -2348,10 +2362,10 @@ new class extends Component
             $this->recibidoEntregaGeneral = '';
             $this->observacionEntregaGeneral = '';
             $this->ultimaEntregaCreditoId = (int) $resultado['entrega_credito_id'];
-            $this->ultimaEntregaCreditoNumero = (string) $resultado['numero_factura'];
+            $this->ultimaEntregaCreditoNumero = (string) $resultado['numero_recibo'];
 
             $this->prepararReciboEntregaCredito((int) $resultado['entrega_credito_id']);
-            $this->mostrarToast('Entrega confirmada.');
+            $this->mostrarToast('Entrega general confirmada.');
             $this->buscarPendientesEntregaCredito();
             $this->cargarMunicipiosEntregaCredito();
             $this->cargarInstitucionesEntregaCredito();
@@ -2392,6 +2406,19 @@ new class extends Component
     private function seleccionEntregaActiva(mixed $valor): bool
     {
         return filter_var($valor, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    private function normalizarCantidadEntregaCredito(mixed $valor): ?float
+    {
+        $normalizado = str_replace(',', '.', trim((string) $valor));
+
+        if (preg_match('/^\d+(?:\.\d{1,2})?$/', $normalizado) !== 1) {
+            return null;
+        }
+
+        $cantidad = round((float) $normalizado, 2);
+
+        return $cantidad > 0 ? $cantidad : null;
     }
 
 
@@ -2868,7 +2895,7 @@ new class extends Component
                 <div class="min-w-0">
                     <h3 class="text-2xl font-bold text-[#1A2B42]">Entregar pendientes de crédito</h3>
                     <p class="mt-1 text-sm text-[#5F6B7A]">
-                        Filtre, escriba las cantidades que entregará y confirme una sola entrega por factura.
+                        Seleccione varios pendientes, aunque sean de facturas distintas, y genere un solo voucher por institución.
                     </p>
                 </div>
 
@@ -3026,7 +3053,7 @@ new class extends Component
         <x-slot:actions>
             @if ($ultimaEntregaCreditoId)
             <x-button icon="o-document-text"
-                label="Imprimir comprobante{{ $ultimaEntregaCreditoNumero !== '' ? ' · ' . $ultimaEntregaCreditoNumero : '' }}"
+                label="Imprimir voucher general{{ $ultimaEntregaCreditoNumero !== '' ? ' · ' . $ultimaEntregaCreditoNumero : '' }}"
                 type="button" wire:click="generarReciboEntregaCreditoConfirmado"
                 class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]" />
             @endif

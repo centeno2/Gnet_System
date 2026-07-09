@@ -35,8 +35,8 @@ class CreditoEntregaReciboPdfService
         $pdf = new TCPDF('P', 'mm', [self::ANCHO, $alto], true, 'UTF-8', false);
         $pdf->SetCreator('Gnet System');
         $pdf->SetAuthor('Gnet System');
-        $pdf->SetTitle('Voucher de entrega de credito');
-        $pdf->SetSubject('Comprobante de entrega de credito');
+        $pdf->SetTitle('Voucher general de entrega');
+        $pdf->SetSubject('Comprobante general de entrega');
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
         $pdf->SetCompression(true);
@@ -57,24 +57,18 @@ class CreditoEntregaReciboPdfService
     private function obtenerEntrega(int $entregaCreditoId): ?object
     {
         return DB::table('entrega_credito as ec')
-            ->join('venta as v', 'v.Id_Venta', '=', 'ec.Id_Venta')
-            ->join('credito as cr', 'cr.Id_Credito', '=', 'ec.Id_Credito')
-            ->join('cliente as c', 'c.Id_Cliente', '=', 'v.Id_Cliente')
+            ->join('cliente as c', 'c.Id_Cliente', '=', 'ec.Id_Cliente')
             ->leftJoin('persona as pc', 'pc.Id_Persona', '=', 'c.Id_Persona')
             ->leftJoin('usuario as u', 'u.Id_Usuario', '=', 'ec.Id_Usuario')
             ->leftJoin('trabajador as tu', 'tu.Id_Trabajador', '=', 'u.Id_Trabajador')
             ->leftJoin('persona as pu', 'pu.Id_Persona', '=', 'tu.Id_Persona')
             ->where('ec.Id_Entrega_Credito', $entregaCreditoId)
-            ->where('v.Tipo_Venta', 'CREDITO')
             ->selectRaw("
                 ec.Id_Entrega_Credito,
                 ec.Numero_Recibo,
                 ec.Fecha_Entrega,
                 ec.Recibido_Por,
                 ec.Observacion,
-                v.Id_Venta,
-                v.Numero_Factura,
-                cr.Id_Credito,
                 c.Institucion,
                 c.Municipio,
                 c.Tipo_Cliente,
@@ -87,9 +81,8 @@ class CreditoEntregaReciboPdfService
     private function obtenerDetalles(int $entregaCreditoId)
     {
         return DB::table('entrega_credito_detalle as ecd')
-            ->join('entrega_credito as ec', 'ec.Id_Entrega_Credito', '=', 'ecd.Id_Entrega_Credito')
-            ->join('venta as v', 'v.Id_Venta', '=', 'ec.Id_Venta')
             ->join('detalle_venta as dv', 'dv.Id_Detalle_Venta', '=', 'ecd.Id_Detalle_Venta')
+            ->join('venta as v', 'v.Id_Venta', '=', 'dv.Id_Venta')
             ->leftJoin('producto as p', 'p.Id_Producto', '=', 'dv.Id_Producto')
             ->leftJoin('producto_serie as ps', 'ps.id_producto_serie', '=', 'dv.Id_Producto_serie')
             ->leftJoin('servicio as s', 's.Id_Servicio', '=', 'dv.Id_Servicio')
@@ -126,10 +119,10 @@ class CreditoEntregaReciboPdfService
         $pdf->Cell(0, 5, 'GNET SERVICOMP', 0, 1, 'C');
 
         $pdf->SetFont('helvetica', 'B', 8);
-        $pdf->Cell(0, 4, 'VOUCHER DE ENTREGA CREDITO', 0, 1, 'C');
+        $pdf->Cell(0, 4, 'VOUCHER GENERAL DE ENTREGA', 0, 1, 'C');
 
         $pdf->SetFont('helvetica', '', 7);
-        $pdf->MultiCell(0, 4, 'Comprobante de lo que se llevan', 0, 'C');
+        $pdf->MultiCell(0, 4, 'Comprobante de los artículos y servicios entregados', 0, 'C');
         $this->linea($pdf);
 
         $this->filaTexto($pdf, 'Recibo:', (string) $data->Numero_Recibo);
@@ -141,8 +134,6 @@ class CreditoEntregaReciboPdfService
             ? Carbon::parse($data->Fecha_Entrega)->format('d/m/Y h:i A')
             : now()->format('d/m/Y h:i A');
 
-        $this->filaTexto($pdf, 'Factura:', (string) $data->Numero_Factura);
-        $this->filaTexto($pdf, 'Credito:', '#' . (string) $data->Id_Credito);
         $this->filaTexto($pdf, 'Fecha:', $fecha);
         $this->filaTexto($pdf, 'Cliente:', $this->clienteNombre($data));
 
@@ -152,42 +143,31 @@ class CreditoEntregaReciboPdfService
             $this->filaTexto($pdf, 'Municipio:', $municipio);
         }
 
-        $this->filaTexto($pdf, 'Recibe:', (string) $data->Recibido_Por);
-        $this->filaTexto($pdf, 'Entrega:', (string) $data->Usuario_Entrega);
+        $this->filaTexto($pdf, 'Entregó:', (string) $data->Usuario_Entrega);
     }
 
     private function detalle(TCPDF $pdf, $detalles): void
     {
         $this->linea($pdf);
         $pdf->SetFont('helvetica', 'B', 8);
-        $pdf->Cell(0, 5, 'LO QUE SE LLEVA', 0, 1, 'L');
+        $pdf->Cell(0, 5, 'DETALLE DE LA ENTREGA', 0, 1, 'L');
 
-        foreach ($detalles as $detalle) {
+        foreach ($detalles as $indice => $detalle) {
             $pdf->SetFont('helvetica', 'B', 7);
-            $pdf->MultiCell(0, 4, $this->cortar((string) $detalle->Detalle_Nombre, 120), 0, 'L');
+            $pdf->MultiCell(0, 4, ($indice + 1) . '. Se entregó ' . $this->cortar((string) $detalle->Detalle_Nombre, 140), 0, 'L');
+
+            $pdf->SetFont('helvetica', '', 7);
+            $pdf->Cell(0, 4, 'Cantidad entregada: ' . $this->cantidadTexto((float) $detalle->Cantidad_Entregada_Ahora), 0, 1, 'L');
 
             $area = trim((string) ($detalle->Area_Item ?? ''));
 
             if ($area !== '') {
                 $pdf->SetFont('helvetica', '', 7);
-                $pdf->MultiCell(0, 4, 'Area: ' . $this->cortar($area, 80), 0, 'L');
+                $pdf->MultiCell(0, 4, 'Área: ' . $this->cortar($area, 80), 0, 'L');
             }
 
-            $pdf->SetFont('helvetica', '', 7);
-            $pdf->Cell(0, 4, 'Cant. original: ' . $this->cantidadTexto((float) $detalle->Cantidad_Total), 0, 1, 'L');
-            $pdf->Cell(0, 4, 'Pend. antes: ' . $this->cantidadTexto((float) $detalle->Cantidad_Pendiente_Anterior), 0, 1, 'L');
-            $pdf->SetFont('helvetica', 'B', 7);
-            $pdf->Cell(0, 4, 'Entregado ahora: ' . $this->cantidadTexto((float) $detalle->Cantidad_Entregada_Ahora), 0, 1, 'L');
-            $pdf->Cell(0, 4, 'Pendiente queda: ' . $this->cantidadTexto((float) $detalle->Cantidad_Pendiente_Restante), 0, 1, 'L');
             $pdf->Ln(1);
         }
-
-        $entregado = $detalles->sum(fn (object $fila) => (float) $fila->Cantidad_Entregada_Ahora);
-        $pendienteRestante = $detalles->sum(fn (object $fila) => (float) $fila->Cantidad_Pendiente_Restante);
-
-        $this->linea($pdf);
-        $this->total($pdf, 'Total entregado:', $entregado);
-        $this->total($pdf, 'Pendiente restante:', $pendienteRestante);
     }
 
     private function observacion(TCPDF $pdf, string $observacion): void
@@ -210,18 +190,9 @@ class CreditoEntregaReciboPdfService
         $pdf->Ln(9);
         $pdf->SetFont('helvetica', '', 7);
         $pdf->Cell(0, 4, '____________________________', 0, 1, 'C');
-        $pdf->Cell(0, 4, 'Recibi conforme', 0, 1, 'C');
+        $pdf->Cell(0, 4, 'Firma de recibido', 0, 1, 'C');
         $pdf->SetFont('helvetica', 'B', 7);
-        $pdf->MultiCell(0, 4, $this->cortar((string) $data->Recibido_Por, 54), 0, 'C');
-
-        $pdf->Ln(4);
-        $pdf->SetFont('helvetica', '', 7);
-        $pdf->Cell(0, 4, 'Entregado por:', 0, 1, 'C');
-        $pdf->SetFont('helvetica', 'B', 7);
-        $pdf->MultiCell(0, 4, $this->cortar((string) $data->Usuario_Entrega, 54), 0, 'C');
-        $pdf->Ln(2);
-        $pdf->SetFont('helvetica', '', 7);
-        $pdf->Cell(0, 4, 'Gracias', 0, 1, 'C');
+        $pdf->MultiCell(0, 4, 'Recibido por: ' . $this->cortar((string) $data->Recibido_Por, 54), 0, 'C');
     }
 
     private function filaTexto(TCPDF $pdf, string $label, string $valor): void
@@ -232,13 +203,6 @@ class CreditoEntregaReciboPdfService
         $pdf->MultiCell(0, 4, $this->cortar($valor, 70), 0, 'L');
     }
 
-    private function total(TCPDF $pdf, string $label, float $cantidad): void
-    {
-        $pdf->SetFont('helvetica', 'B', 7);
-        $pdf->Cell(42, 5, $label, 0, 0, 'L');
-        $pdf->Cell(0, 5, $this->cantidadTexto($cantidad), 0, 1, 'R');
-    }
-
     private function linea(TCPDF $pdf): void
     {
         $pdf->SetFont('helvetica', '', 7);
@@ -247,27 +211,15 @@ class CreditoEntregaReciboPdfService
 
     private function altoVoucher(object $data, $detalles): int
     {
-        $alto = 72;
-        $caracteresLinea = 36;
+        $medidor = $this->pdf(5000);
 
-        foreach ($detalles as $detalle) {
-            $lineasDetalle = max(1, (int) ceil(mb_strlen((string) $detalle->Detalle_Nombre) / $caracteresLinea));
-            $alto += 18 + ($lineasDetalle * 4);
+        $this->encabezado($medidor, $data);
+        $this->datosPrincipales($medidor, $data);
+        $this->detalle($medidor, $detalles);
+        $this->observacion($medidor, (string) ($data->Observacion ?? ''));
+        $this->firmas($medidor, $data);
 
-            if (trim((string) ($detalle->Area_Item ?? '')) !== '') {
-                $alto += 6;
-            }
-        }
-
-        $observacion = trim((string) ($data->Observacion ?? ''));
-
-        if ($observacion !== '') {
-            $alto += 10 + (max(1, (int) ceil(mb_strlen($observacion) / $caracteresLinea)) * 4);
-        }
-
-        $alto += 34;
-
-        return max(110, min($alto, 1200));
+        return max(110, (int) ceil($medidor->GetY() + 3));
     }
 
     private function clienteNombre(object $data): string
@@ -288,7 +240,18 @@ class CreditoEntregaReciboPdfService
             $formato = $this->formatoCopiaNombre($fila->Formato_Copia);
             $lados = $this->ladosCopiaNombre($fila->Lados_Copia);
 
-            return trim($nombre . ' ' . $formato . ' ' . $lados);
+            $incluyeFormato = preg_match('/\b(?:carta|oficio|a4|legal)\b/iu', $nombre) === 1;
+            $incluyeLados = preg_match('/\b(?:una|doble|1|2)\s+caras?\b/iu', $nombre) === 1;
+
+            if ($formato !== '' && ! $incluyeFormato) {
+                $nombre .= ' ' . $formato;
+            }
+
+            if ($lados !== '' && ! $incluyeLados) {
+                $nombre .= ' ' . $lados;
+            }
+
+            return trim($nombre);
         }
 
         if ((string) $fila->Tipo_Detalle === 'PRODUCTO') {
