@@ -44,6 +44,7 @@ class ThermalVoucherPdfService
         $pdf = $this->pdf($ancho, $alto);
 
         $cliente = $this->nombreCliente((int) ($venta->Id_Cliente ?? 0));
+        $usuario = $this->nombreUsuario((int) ($venta->Id_Usuario ?? 0));
 
         $this->titulo($pdf, $ancho, 'VOUCHER DE VENTA');
         $this->textoCentro($pdf, 'GNET SYSTEM');
@@ -57,6 +58,7 @@ class ThermalVoucherPdfService
         $this->filaTexto($pdf, 'Fecha:', $fecha);
         $this->filaTexto($pdf, 'Cliente:', $cliente);
         $this->filaTexto($pdf, 'Tipo:', (string) $venta->Tipo_Venta);
+        $this->filaTexto($pdf, 'Atendio:', $usuario);
 
         $this->linea($pdf, $ancho);
 
@@ -140,7 +142,7 @@ class ThermalVoucherPdfService
     {
         $caracteresLinea = $ancho === 58 ? 28 : 42;
 
-        $alto = 48;
+        $alto = 52;
 
         foreach ($detalles as $detalle) {
             $lineasDescripcion = max(1, (int) ceil(mb_strlen((string) $detalle->Descripcion) / $caracteresLinea));
@@ -268,5 +270,27 @@ class ThermalVoucherPdfService
             ->first();
 
         return $cliente->Nombre ?? 'Consumidor final';
+    }
+
+    private function nombreUsuario(int $usuarioId): string
+    {
+        if ($usuarioId <= 0) {
+            return 'Usuario';
+        }
+
+        $usuario = DB::table('usuario as u')
+            ->leftJoin('trabajador as t', 't.Id_Trabajador', '=', 'u.Id_Trabajador')
+            ->leftJoin('persona as p', 'p.Id_Persona', '=', 't.Id_Persona')
+            ->where('u.Id_Usuario', $usuarioId)
+            ->selectRaw("
+                COALESCE(
+                    NULLIF(TRIM(CONCAT_WS(' ', p.Primer_Nombre, p.Segundo_Nombre, p.Primer_Apellido, p.Segundo_Apellido)), ''),
+                    u.Nombre_Usuario,
+                    'Usuario'
+                ) as Nombre
+            ")
+            ->first();
+
+        return $usuario->Nombre ?? 'Usuario';
     }
 }

@@ -9,7 +9,6 @@ use App\Models\TarifaCopia;
 use App\Models\TasaCambio;
 use App\Models\Usuario;
 use App\Models\Venta;
-use App\Services\Ventas\ThermalPrintService;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -247,16 +246,17 @@ new class extends Component
 
             if (! $cliente || ! $this->clientePermitidoParaTipoVenta($cliente)) {
                 $this->limpiarClienteFacturacion();
-            } elseif ($this->tipoVenta === self::TIPO_CREDITO) {
+            } else {
                 $this->departamentoMunicipio = $cliente->Municipio ?? '';
-                $this->cargarSaldoFavorClienteCredito();
+
+                if ($this->tipoVenta === self::TIPO_CREDITO) {
+                    $this->cargarSaldoFavorClienteCredito();
+                } else {
+                    $this->saldoFavorClienteCredito = 0.00;
+                }
             }
         } else {
             $this->limpiarClienteFacturacion();
-        }
-
-        if ($this->tipoVenta === self::TIPO_CONTADO) {
-            $this->departamentoMunicipio = '';
         }
 
         if ($this->tipoVenta === self::TIPO_CREDITO) {
@@ -295,12 +295,12 @@ new class extends Component
             return;
         }
 
-        $tipoClientePermitido = $this->tipoClientePermitidoVenta();
+        $tiposClientePermitidos = $this->tiposClientePermitidosVenta();
 
         $this->clientesEncontrados = Cliente::query()
             ->with('persona')
             ->where('Estado', true)
-            ->where('Tipo_Cliente', $tipoClientePermitido)
+            ->whereIn('Tipo_Cliente', $tiposClientePermitidos)
             ->where(function ($query) use ($busqueda) {
                 $query->where('Institucion', 'like', "%{$busqueda}%")
                     ->orWhere('Telefono_Institucion', 'like', "%{$busqueda}%")
@@ -349,9 +349,7 @@ new class extends Component
         $this->clienteId = (int) $cliente->Id_Cliente;
         $this->clienteNombre = $this->nombreClienteFacturacion($cliente);
         $this->buscarCliente = $this->clienteNombre;
-        $this->departamentoMunicipio = $this->tipoVenta === self::TIPO_CREDITO
-            ? (string) ($cliente->Municipio ?? '')
-            : '';
+        $this->departamentoMunicipio = (string) ($cliente->Municipio ?? '');
 
         $this->clientesEncontrados = [];
         $this->mostrarClientes = false;
@@ -973,6 +971,7 @@ new class extends Component
                 $fechaVencimiento = now()->addDays($validezDias)->endOfDay();
                 $numeroCotizacion = $this->generarNumeroCotizacion();
                 $token = (string) Str::uuid();
+                $municipioCotizacion = $this->municipioCotizacion();
 
                 $cotizacion = CotizacionVenta::query()->create([
                     'Numero_Cotizacion' => $numeroCotizacion,
@@ -986,7 +985,7 @@ new class extends Component
                     'Id_Usuario' => $this->obtenerUsuarioId(),
                     'Tipo_Venta' => $this->tipoVenta,
                     'Cliente_Nombre' => Str::limit($this->clienteNombre, 180, ''),
-                    'Municipio' => $this->tipoVenta === self::TIPO_CREDITO ? Str::limit($this->departamentoMunicipio, 120, '') : null,
+                    'Municipio' => $municipioCotizacion !== null ? Str::limit($municipioCotizacion, 120, '') : null,
                     'Tipo_Cambio' => $this->tasaCambio(),
                     'Subtotal' => $this->subtotalVenta(),
                     'Descuento' => $this->descuentoVenta(),
@@ -1420,7 +1419,7 @@ new class extends Component
     protected function prepararVoucherVenta(int $ventaId): void
     {
         $this->voucherVentaId = $ventaId;
-        $this->voucherPreviewUrl = route('ventas.voucher', ['venta' => $ventaId, 'ancho' => $this->anchoVoucherTermico()]);
+        $this->voucherPreviewUrl = route('ventas.voucher', ['venta' => $ventaId]);
         $this->modalVoucherVenta = true;
     }
 
@@ -1453,27 +1452,6 @@ new class extends Component
         $this->reciboEntregaCreditoPreviewUrl = '';
     }
 
-    public function imprimirVoucherVenta(): void
-    {
-        if (! $this->voucherVentaId) {
-            $this->mostrarToast('No hay una venta seleccionada para imprimir.', 'error');
-            return;
-        }
-
-        if (! $this->impresionTermicaActiva()) {
-            $this->mostrarToast('La impresión térmica está desactivada en el archivo .env.', 'warning');
-            return;
-        }
-
-        try {
-            app(ThermalPrintService::class)->imprimirVenta((int) $this->voucherVentaId);
-            $this->mostrarToast('Voucher enviado a impresión correctamente.');
-            $this->cerrarModalVoucherVenta();
-        } catch (\Throwable $e) {
-            $this->mostrarToast('No se pudo imprimir el voucher: ' . $e->getMessage(), 'error');
-        }
-    }
-
     public function observacionVentaNormalizada(): ?string
     {
         $observacion = trim($this->observacionVenta);
@@ -1486,27 +1464,6 @@ new class extends Component
         $area = trim($this->areaItem);
 
         return $area !== '' ? Str::limit($area, 255, '') : null;
-    }
-
-    protected function impresionTermicaActiva(): bool
-    {
-        return $this->booleanConfig('services.thermal.enabled', true);
-    }
-
-    protected function anchoVoucherTermico(): int
-    {
-        return (int) config('services.thermal.paper_width', 80) === 58 ? 58 : 80;
-    }
-
-    protected function booleanConfig(string $key, bool $default = false): bool
-    {
-        $valor = config($key);
-
-        if ($valor === null || $valor === '') {
-            return $default;
-        }
-
-        return in_array(strtolower(trim((string) $valor)), ['1', 'true', 'yes', 'on', 'enable', 'enabled'], true);
     }
 
     protected function limpiarVentaActual(): void
@@ -1727,16 +1684,16 @@ new class extends Component
         $this->saldoFavorClienteCredito = round(max((float) ($saldo ?? 0), 0), 2);
     }
 
-    protected function tipoClientePermitidoVenta(): int
+    protected function tiposClientePermitidosVenta(): array
     {
         return $this->tipoVenta === self::TIPO_CREDITO
-            ? Cliente::TIPO_INSTITUCION
-            : Cliente::TIPO_NATURAL;
+            ? [Cliente::TIPO_INSTITUCION]
+            : [Cliente::TIPO_NATURAL, Cliente::TIPO_INSTITUCION];
     }
 
     protected function clientePermitidoParaTipoVenta(Cliente $cliente): bool
     {
-        return (int) $cliente->Tipo_Cliente === $this->tipoClientePermitidoVenta();
+        return in_array((int) $cliente->Tipo_Cliente, $this->tiposClientePermitidosVenta(), true);
     }
 
     protected function clienteSeleccionadoValidoParaVenta(): bool
@@ -1756,7 +1713,7 @@ new class extends Component
     {
         return $this->tipoVenta === self::TIPO_CREDITO
             ? 'Para crédito solo puede seleccionar clientes institucionales.'
-            : 'Para contado solo puede seleccionar clientes naturales o consumidor final.';
+            : 'Para contado puede seleccionar cliente natural, institución o consumidor final.';
     }
 
     protected function limpiarClienteFacturacion(): void
@@ -1770,6 +1727,27 @@ new class extends Component
         $this->saldoFavorClienteCredito = 0.00;
         $this->clientesEncontrados = [];
         $this->mostrarClientes = false;
+    }
+
+    protected function municipioCotizacion(): ?string
+    {
+        $municipio = trim($this->departamentoMunicipio);
+
+        if ($municipio !== '') {
+            return $municipio;
+        }
+
+        if (! $this->clienteId) {
+            return null;
+        }
+
+        $municipio = Cliente::query()
+            ->where('Id_Cliente', $this->clienteId)
+            ->value('Municipio');
+
+        $municipio = trim((string) $municipio);
+
+        return $municipio !== '' ? $municipio : null;
     }
 
     protected function nombreClienteFacturacion(Cliente $cliente): string
@@ -2480,12 +2458,12 @@ new class extends Component
                         <div
                             class="relative min-w-0 {{ $tipoVenta === 'CREDITO' ? 'lg:col-span-5' : 'lg:col-span-7' }}">
                             <label class="mb-1.5 block text-sm font-semibold text-[#1A2B42]">
-                                {{ $tipoVenta === 'CREDITO' ? 'Institución' : 'Cliente natural' }}
+                                {{ $tipoVenta === 'CREDITO' ? 'Institución' : 'Cliente' }}
                             </label>
 
                             <div class="flex gap-2">
                                 <x-input wire:model.live.debounce.250ms="buscarCliente" type="text" autocomplete="off"
-                                    placeholder="{{ $tipoVenta === 'CREDITO' ? 'Buscar institución' : 'Buscar cliente natural' }}"
+                                    placeholder="{{ $tipoVenta === 'CREDITO' ? 'Buscar institución' : 'Buscar cliente o institución' }}"
                                     class="h-11 min-h-11 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
 
                                 @if ($tipoVenta === 'CONTADO')
@@ -3135,7 +3113,7 @@ new class extends Component
             @endif
 
             @if ($voucherPreviewUrl !== '')
-            <iframe src="{{ $voucherPreviewUrl }}#toolbar=0&navpanes=0&scrollbar=1&view=FitH" loading="eager"
+            <iframe id="voucher-venta-frame" src="{{ $voucherPreviewUrl }}#toolbar=0&navpanes=0&scrollbar=1&view=FitH" loading="eager"
                 class="h-[68vh] w-full bg-white"></iframe>
             @else
             <div class="px-4 py-12 text-center text-sm text-[#7B8794]">No hay voucher para mostrar.</div>
@@ -3146,7 +3124,7 @@ new class extends Component
             <x-button label="No imprimir" type="button" wire:click="cerrarModalVoucherVenta"
                 class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#F0F3F7]" />
 
-            <x-button label="Imprimir voucher" type="button" wire:click="imprimirVoucherVenta"
+            <x-button label="Imprimir voucher" type="button" onclick="window.gnetPrintPdfFrame('voucher-venta-frame')"
                 class="border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]" />
         </x-slot:actions>
     </x-modal>
@@ -3161,16 +3139,16 @@ new class extends Component
             </div>
 
             @if ($reciboEntregaCreditoPreviewUrl !== '')
-            <a href="{{ $reciboEntregaCreditoPreviewUrl }}" target="_blank"
+            <button type="button" onclick="window.gnetPrintPdfFrame('voucher-entrega-credito-frame')"
                 class="inline-flex h-10 shrink-0 items-center justify-center rounded-xl border-0 bg-[#0E48A1] px-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0B6FE4]">
                 Imprimir comprobante
-            </a>
+            </button>
             @endif
         </div>
 
         <div class="overflow-hidden rounded-xl border border-[#D7E4F3] bg-[#F8FBFF]">
             @if ($reciboEntregaCreditoPreviewUrl !== '')
-            <iframe src="{{ $reciboEntregaCreditoPreviewUrl }}#toolbar=0&navpanes=0&scrollbar=1&view=FitH"
+            <iframe id="voucher-entrega-credito-frame" src="{{ $reciboEntregaCreditoPreviewUrl }}#toolbar=0&navpanes=0&scrollbar=1&view=FitH"
                 loading="eager" class="h-[76vh] w-full bg-white"></iframe>
             @else
             <div class="px-4 py-12 text-center text-sm text-[#7B8794]">No hay recibo para mostrar.</div>
@@ -3341,3 +3319,34 @@ new class extends Component
         </x-slot:actions>
     </x-modal>
 </div>
+
+@once
+<script>
+    window.gnetPrintPdfFrame = function (frameId) {
+        const frame = document.getElementById(frameId);
+
+        if (!frame || !frame.src) {
+            return;
+        }
+
+        try {
+            frame.focus();
+
+            if (frame.contentWindow) {
+                frame.contentWindow.focus();
+                frame.contentWindow.print();
+                return;
+            }
+        } catch (error) {
+            const printWindow = window.open(frame.src, '_blank');
+
+            if (printWindow) {
+                printWindow.addEventListener('load', function () {
+                    printWindow.focus();
+                    printWindow.print();
+                }, { once: true });
+            }
+        }
+    };
+</script>
+@endonce

@@ -3,6 +3,7 @@
 use App\Models\Cliente;
 use App\Models\Persona;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -24,6 +25,7 @@ new class extends Component
     public int|string $tipoPago = Cliente::TIPO_PAGO_CONTADO;
 
     public ?string $institucion = '';
+    public ?string $codigoRuc = '';
     public ?string $telefonoInstitucion = '';
     public ?string $correoInstitucion = '';
     public ?string $direccionInstitucion = '';
@@ -70,9 +72,17 @@ new class extends Component
         ['id' => Cliente::TIPO_PAGO_CONTADO, 'name' => 'Contado'],
     ];
 
+    private const COLUMNA_RUC_CLIENTE = 'RUC';
+
     public function mount(): void
     {
-        // La tabla carga con paginación desde clientes().
+        if ($this->clienteTieneColumnaRuc()) {
+            array_splice($this->headers, 3, 0, [[
+                'key' => 'ruc',
+                'label' => 'RUC',
+                'class' => 'hidden lg:table-cell min-w-[130px]',
+            ]]);
+        }
     }
 
     public function updatedBuscar(): void
@@ -89,6 +99,7 @@ new class extends Component
             $this->tipoPago = Cliente::TIPO_PAGO_CONTADO;
 
             $this->institucion = '';
+            $this->codigoRuc = '';
             $this->telefonoInstitucion = '';
             $this->correoInstitucion = '';
             $this->direccionInstitucion = '';
@@ -215,6 +226,16 @@ new class extends Component
                 ]
                 : ['nullable'],
 
+            'codigoRuc' => $esInstitucion && $this->clienteTieneColumnaRuc()
+                ? [
+                    'nullable',
+                    'string',
+                    'max:30',
+                    'regex:/^[A-Za-z0-9\-\s]+$/',
+                    Rule::unique('cliente', self::COLUMNA_RUC_CLIENTE)->ignore($this->clienteEditandoId, 'Id_Cliente'),
+                ]
+                : ['nullable'],
+
             'telefonoInstitucion' => $esInstitucion
                 ? [
                     'required',
@@ -275,6 +296,10 @@ new class extends Component
 
         'institucion.required' => 'La institución es obligatoria para clientes institucionales.',
         'institucion.max' => 'La institución no debe superar los 150 caracteres.',
+
+        'codigoRuc.max' => 'El código RUC no debe superar los 30 caracteres.',
+        'codigoRuc.regex' => 'El código RUC solo puede llevar letras, números, espacios o guiones.',
+        'codigoRuc.unique' => 'Este código RUC ya está registrado en otro cliente.',
 
         'telefonoInstitucion.required' => 'El teléfono institucional es obligatorio.',
         'telefonoInstitucion.regex' => 'Ingrese solo 8 dígitos. Ejemplo: 27720000.',
@@ -397,7 +422,7 @@ new class extends Component
                         ]);
                     }
 
-                    Cliente::query()->create([
+                    Cliente::query()->create(array_merge([
                         'Id_Persona' => $persona->Id_Persona,
                         'Tipo_Cliente' => Cliente::TIPO_NATURAL,
                         'Institucion' => null,
@@ -407,12 +432,12 @@ new class extends Component
                         'Municipio' => $this->municipio,
                         'Estado' => Cliente::ESTADO_ACTIVO,
                         'Tipo_pago' => Cliente::TIPO_PAGO_CONTADO,
-                    ]);
+                    ], $this->datosRucCliente(null)));
 
                     return;
                 }
 
-                Cliente::query()->create([
+                Cliente::query()->create(array_merge([
                     'Id_Persona' => null,
                     'Tipo_Cliente' => Cliente::TIPO_INSTITUCION,
                     'Institucion' => $this->institucion,
@@ -422,7 +447,7 @@ new class extends Component
                     'Municipio' => $this->municipio,
                     'Estado' => Cliente::ESTADO_ACTIVO,
                     'Tipo_pago' => (int) $this->tipoPago,
-                ]);
+                ], $this->datosRucCliente($this->codigoRuc)));
             });
 
             $this->modalConfirmarPersonaExistente = false;
@@ -480,7 +505,7 @@ new class extends Component
                         ]);
                     }
 
-                    $cliente->update([
+                    $cliente->update(array_merge([
                         'Id_Persona' => $persona->Id_Persona,
                         'Tipo_Cliente' => Cliente::TIPO_NATURAL,
                         'Institucion' => null,
@@ -489,12 +514,12 @@ new class extends Component
                         'Correo_Institucion' => null,
                         'Municipio' => $this->municipio,
                         'Tipo_pago' => Cliente::TIPO_PAGO_CONTADO,
-                    ]);
+                    ], $this->datosRucCliente(null)));
 
                     return;
                 }
 
-                $cliente->update([
+                $cliente->update(array_merge([
                     'Id_Persona' => null,
                     'Tipo_Cliente' => Cliente::TIPO_INSTITUCION,
                     'Institucion' => $this->institucion,
@@ -503,7 +528,7 @@ new class extends Component
                     'Correo_Institucion' => $this->correoInstitucion,
                     'Municipio' => $this->municipio,
                     'Tipo_pago' => (int) $this->tipoPago,
-                ]);
+                ], $this->datosRucCliente($this->codigoRuc)));
             });
 
             $this->limpiarFormulario();
@@ -560,6 +585,7 @@ new class extends Component
             $this->tipoPago = Cliente::TIPO_PAGO_CONTADO;
 
             $this->institucion = '';
+            $this->codigoRuc = '';
             $this->telefonoInstitucion = '';
             $this->correoInstitucion = '';
             $this->direccionInstitucion = '';
@@ -571,6 +597,7 @@ new class extends Component
             $this->direccion = '';
 
             $this->institucion = $cliente->Institucion;
+            $this->codigoRuc = $cliente->ruc_facturacion ?: '';
             $this->telefonoInstitucion = $cliente->Telefono_Institucion;
             $this->correoInstitucion = $cliente->Correo_Institucion;
             $this->direccionInstitucion = $cliente->Direccion_Institucion;
@@ -634,6 +661,7 @@ new class extends Component
             'direccion',
             'municipio',
             'institucion',
+            'codigoRuc',
             'telefonoInstitucion',
             'correoInstitucion',
             'direccionInstitucion',
@@ -686,6 +714,10 @@ new class extends Component
                                 ->orWhere('Telefono', 'like', $like)
                                 ->orWhere('Direccion', 'like', $like);
                         });
+
+                    if ($this->clienteTieneColumnaRuc()) {
+                        $subQuery->orWhere(self::COLUMNA_RUC_CLIENTE, 'like', $like);
+                    }
                 });
             })
             ->orderByDesc('Id_Cliente')
@@ -696,6 +728,7 @@ new class extends Component
                     'codigo' => 'CL-' . str_pad((string) $cliente->Id_Cliente, 4, '0', STR_PAD_LEFT),
                     'full_name' => $this->nombreClienteTabla($cliente),
                     'telefono' => $this->telefonoClienteTabla($cliente),
+                    'ruc' => $cliente->ruc_facturacion ?: 'Sin RUC',
                     'correo' => $this->correoClienteTabla($cliente),
                     'municipio' => $cliente->Municipio ?: 'No registrado',
                     'tipo_cliente' => $this->obtenerNombreTipoCliente($cliente->Tipo_Cliente),
@@ -719,6 +752,7 @@ new class extends Component
         $this->direccion = $this->limpiarTextoOpcional($this->direccion);
 
         $this->institucion = $this->limpiarTextoOpcional($this->institucion);
+        $this->codigoRuc = $this->limpiarTextoOpcional($this->codigoRuc);
         $this->telefonoInstitucion = $this->limpiarSoloDigitos($this->telefonoInstitucion);
         $this->correoInstitucion = $this->limpiarTextoOpcional($this->correoInstitucion);
         $this->direccionInstitucion = $this->limpiarTextoOpcional($this->direccionInstitucion);
@@ -731,6 +765,7 @@ new class extends Component
             $this->tipoPago = Cliente::TIPO_PAGO_CONTADO;
 
             $this->institucion = null;
+            $this->codigoRuc = null;
             $this->telefonoInstitucion = null;
             $this->correoInstitucion = null;
             $this->direccionInstitucion = null;
@@ -889,6 +924,24 @@ new class extends Component
     {
         return (int) $tipo === Cliente::TIPO_PAGO_CREDITO ? 'Crédito' : 'Contado';
     }
+
+    public function clienteTieneColumnaRuc(): bool
+    {
+        try {
+            return Schema::hasColumn('cliente', self::COLUMNA_RUC_CLIENTE);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function datosRucCliente(?string $valor): array
+    {
+        if (! $this->clienteTieneColumnaRuc()) {
+            return [];
+        }
+
+        return [self::COLUMNA_RUC_CLIENTE => $this->limpiarTextoOpcional($valor)];
+    }
 };
 ?>
 
@@ -901,6 +954,7 @@ new class extends Component
 
     $isNatural = (int) $tipoCliente === \App\Models\Cliente::TIPO_NATURAL;
     $isInstitucion = (int) $tipoCliente === \App\Models\Cliente::TIPO_INSTITUCION;
+    $mostrarRucCliente = $this->clienteTieneColumnaRuc();
 @endphp
 
 <div class="min-h-screen overflow-x-hidden bg-[#F0F3F7] p-4 md:p-6">
@@ -1048,6 +1102,17 @@ new class extends Component
                             icon="o-building-office-2"
                             class="{{ $fieldClass }}"
                         />
+
+                        @if ($mostrarRucCliente)
+                            <x-input
+                                label="Código RUC"
+                                wire:model.live.debounce.250ms="codigoRuc"
+                                placeholder="Ej: J0310000000000"
+                                icon="o-identification"
+                                maxlength="30"
+                                class="{{ $fieldClass }}"
+                            />
+                        @endif
 
                         <x-input
                             label="Teléfono institucional"

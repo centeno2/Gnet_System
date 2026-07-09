@@ -4,17 +4,11 @@ namespace App\Services\Ventas;
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use TCPDF;
 
 class CreditoEntregaReciboPdfService
 {
-    private const COLOR_PRIMARIO = [46, 139, 192];
-    private const COLOR_TITULO = [26, 43, 66];
-    private const COLOR_TEXTO = [95, 107, 122];
-    private const COLOR_BORDE = [215, 228, 243];
-    private const COLOR_FONDO = [240, 243, 247];
-    private const COLOR_FILA = [247, 249, 252];
+    private const ANCHO = 80;
 
     public function generar(int $entregaCreditoId): string
     {
@@ -25,38 +19,39 @@ class CreditoEntregaReciboPdfService
         abort_if($detalles->isEmpty(), 404);
 
         $nombreArchivo = 'voucher-entrega-' . preg_replace('/[^A-Za-z0-9_-]/', '-', (string) $data->Numero_Recibo) . '.pdf';
+        $pdf = $this->pdf($this->altoVoucher($data, $detalles));
 
-        $pdf = new class('P', 'mm', 'LETTER', true, 'UTF-8', false) extends TCPDF {
-            public function Footer(): void
-            {
-                $this->SetY(-9);
-                $this->SetFont('helvetica', '', 7);
-                $this->SetTextColor(95, 107, 122);
-                $this->Cell(0, 5, 'Gnet System | Pagina ' . $this->getAliasNumPage() . ' de ' . $this->getAliasNbPages(), 0, 0, 'R');
-            }
-        };
+        $this->encabezado($pdf, $data);
+        $this->datosPrincipales($pdf, $data);
+        $this->detalle($pdf, $detalles);
+        $this->observacion($pdf, (string) ($data->Observacion ?? ''));
+        $this->firmas($pdf, $data);
 
+        return $pdf->Output($nombreArchivo, 'S');
+    }
+
+    private function pdf(int $alto): TCPDF
+    {
+        $pdf = new TCPDF('P', 'mm', [self::ANCHO, $alto], true, 'UTF-8', false);
         $pdf->SetCreator('Gnet System');
         $pdf->SetAuthor('Gnet System');
         $pdf->SetTitle('Voucher de entrega de credito');
         $pdf->SetSubject('Comprobante de entrega de credito');
         $pdf->setPrintHeader(false);
-        $pdf->setPrintFooter(true);
+        $pdf->setPrintFooter(false);
         $pdf->SetCompression(true);
         $pdf->setFontSubsetting(false);
-        $pdf->setJPEGQuality(76);
-        $pdf->SetMargins(10, 8, 10);
-        $pdf->SetFooterMargin(5);
-        $pdf->SetAutoPageBreak(true, 12);
+        $pdf->SetMargins(3, 2, 3);
+        $pdf->SetHeaderMargin(0);
+        $pdf->SetFooterMargin(0);
+        $pdf->SetAutoPageBreak(false, 0);
         $pdf->AddPage();
+        $pdf->SetY(2);
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->setCellPaddings(0, 0, 0, 0);
+        $pdf->setCellMargins(0, 0, 0, 0);
 
-        $this->encabezado($pdf, $data);
-        $this->datosPrincipales($pdf, $data);
-        $this->tablaDetalle($pdf, $data, $detalles);
-        $this->observacion($pdf, (string) ($data->Observacion ?? ''));
-        $this->firmas($pdf, $data);
-
-        return $pdf->Output($nombreArchivo, 'S');
+        return $pdf;
     }
 
     private function obtenerEntrega(int $entregaCreditoId): ?object
@@ -71,7 +66,21 @@ class CreditoEntregaReciboPdfService
             ->leftJoin('persona as pu', 'pu.Id_Persona', '=', 'tu.Id_Persona')
             ->where('ec.Id_Entrega_Credito', $entregaCreditoId)
             ->where('v.Tipo_Venta', 'CREDITO')
-            ->selectRaw("\n                ec.Id_Entrega_Credito,\n                ec.Numero_Recibo,\n                ec.Fecha_Entrega,\n                ec.Recibido_Por,\n                ec.Observacion,\n                ec.Estado as Estado_Recibo,\n                v.Id_Venta,\n                v.Numero_Factura,\n                v.Fecha_venta,\n                v.Total as Total_Venta,\n                cr.Id_Credito,\n                cr.Saldo_Actual,\n                c.Institucion,\n                c.Municipio,\n                c.Tipo_Cliente,\n                CONCAT_WS(' ', pc.Primer_Nombre, pc.Segundo_Nombre, pc.Primer_Apellido, pc.Segundo_Apellido) as Cliente_Natural,\n                COALESCE(NULLIF(TRIM(CONCAT_WS(' ', pu.Primer_Nombre, pu.Segundo_Nombre, pu.Primer_Apellido, pu.Segundo_Apellido)), ''), u.Nombre_Usuario, 'Usuario') as Usuario_Entrega\n            ")
+            ->selectRaw("
+                ec.Id_Entrega_Credito,
+                ec.Numero_Recibo,
+                ec.Fecha_Entrega,
+                ec.Recibido_Por,
+                ec.Observacion,
+                v.Id_Venta,
+                v.Numero_Factura,
+                cr.Id_Credito,
+                c.Institucion,
+                c.Municipio,
+                c.Tipo_Cliente,
+                CONCAT_WS(' ', pc.Primer_Nombre, pc.Segundo_Nombre, pc.Primer_Apellido, pc.Segundo_Apellido) as Cliente_Natural,
+                COALESCE(NULLIF(TRIM(CONCAT_WS(' ', pu.Primer_Nombre, pu.Segundo_Nombre, pu.Primer_Apellido, pu.Segundo_Apellido)), ''), u.Nombre_Usuario, 'Usuario') as Usuario_Entrega
+            ")
             ->first();
     }
 
@@ -87,7 +96,23 @@ class CreditoEntregaReciboPdfService
             ->leftJoin('tarifa_copia as tc', 'tc.Id_Tarifa_Copia', '=', 'dv.Id_Tarifa_Copia')
             ->where('ecd.Id_Entrega_Credito', $entregaCreditoId)
             ->orderBy('ecd.Id_Entrega_Credito_Detalle')
-            ->selectRaw("\n                v.Numero_Factura,\n                dv.Tipo_Detalle,\n                dv.Nombre_Formato,\n                dv.Formato_Copia,\n                dv.Lados_Copia,\n                COALESCE(NULLIF(TRIM(dv.Observacion), ''), '—') as Area_Item,\n                p.Nombre_Producto,\n                p.Modelo,\n                ps.Numero_Serie,\n                s.Nombre_Servicio,\n                tc.Nombre_Tarifa,\n                ecd.Cantidad_Total,\n                ecd.Cantidad_Pendiente_Anterior,\n                ecd.Cantidad_Entregada_Ahora,\n                ecd.Cantidad_Pendiente_Restante\n            ")
+            ->selectRaw("
+                v.Numero_Factura,
+                dv.Tipo_Detalle,
+                dv.Nombre_Formato,
+                dv.Formato_Copia,
+                dv.Lados_Copia,
+                COALESCE(NULLIF(TRIM(dv.Observacion), ''), '') as Area_Item,
+                p.Nombre_Producto,
+                p.Modelo,
+                ps.Numero_Serie,
+                s.Nombre_Servicio,
+                tc.Nombre_Tarifa,
+                ecd.Cantidad_Total,
+                ecd.Cantidad_Pendiente_Anterior,
+                ecd.Cantidad_Entregada_Ahora,
+                ecd.Cantidad_Pendiente_Restante
+            ")
             ->get()
             ->map(function (object $fila) {
                 $fila->Detalle_Nombre = $this->nombreDetalle($fila);
@@ -97,154 +122,72 @@ class CreditoEntregaReciboPdfService
 
     private function encabezado(TCPDF $pdf, object $data): void
     {
-        [$fr, $fg, $fb] = self::COLOR_FONDO;
-        [$br, $bg, $bb] = self::COLOR_BORDE;
-        [$tr, $tg, $tb] = self::COLOR_TITULO;
-        [$pr, $pg, $pb] = self::COLOR_PRIMARIO;
+        $pdf->SetFont('helvetica', 'B', 10);
+        $pdf->Cell(0, 5, 'GNET SERVICOMP', 0, 1, 'C');
 
-        $pdf->SetFillColor($fr, $fg, $fb);
-        $pdf->SetDrawColor($br, $bg, $bb);
-        $pdf->Rect(10, 8, 196, 28, 'DF');
-
-        $logo = $this->logoParaPdf();
-
-        if ($logo) {
-            $pdf->Image($logo, 14, 12, 18, 18, 'JPG');
-        }
-
-        $pdf->SetXY($logo ? 38 : 14, 13);
-        $pdf->SetTextColor($tr, $tg, $tb);
-        $pdf->SetFont('helvetica', 'B', 15);
-        $pdf->Cell(88, 7, 'GNET SYSTEM', 0, 1, 'L');
-
-        $pdf->SetX($logo ? 38 : 14);
-        $pdf->SetTextColor(95, 107, 122);
-        $pdf->SetFont('helvetica', '', 7.5);
-        $pdf->Cell(88, 5, 'Comprobante de cantidades entregadas', 0, 1, 'L');
-
-        $pdf->SetXY(122, 13);
-        $pdf->SetTextColor($pr, $pg, $pb);
-        $pdf->SetFont('helvetica', 'B', 14);
-        $pdf->Cell(76, 7, 'VOUCHER DE ENTREGA', 0, 1, 'R');
-
-        $pdf->SetXY(122, 23);
-        $pdf->SetTextColor($tr, $tg, $tb);
         $pdf->SetFont('helvetica', 'B', 8);
-        $pdf->Cell(76, 5, (string) $data->Numero_Recibo, 0, 1, 'R');
+        $pdf->Cell(0, 4, 'VOUCHER DE ENTREGA CREDITO', 0, 1, 'C');
 
-        $pdf->SetY(44);
+        $pdf->SetFont('helvetica', '', 7);
+        $pdf->MultiCell(0, 4, 'Comprobante de lo que se llevan', 0, 'C');
+        $this->linea($pdf);
+
+        $this->filaTexto($pdf, 'Recibo:', (string) $data->Numero_Recibo);
     }
 
     private function datosPrincipales(TCPDF $pdf, object $data): void
     {
-        [$br, $bg, $bb] = self::COLOR_BORDE;
-        [$fr, $fg, $fb] = self::COLOR_FILA;
-        [$tr, $tg, $tb] = self::COLOR_TITULO;
-        [$sr, $sg, $sb] = self::COLOR_TEXTO;
+        $fecha = $data->Fecha_Entrega
+            ? Carbon::parse($data->Fecha_Entrega)->format('d/m/Y h:i A')
+            : now()->format('d/m/Y h:i A');
 
-        $cliente = $this->clienteNombre($data);
-        $fecha = $data->Fecha_Entrega ? Carbon::parse($data->Fecha_Entrega)->format('d/m/Y h:i A') : now()->format('d/m/Y h:i A');
+        $this->filaTexto($pdf, 'Factura:', (string) $data->Numero_Factura);
+        $this->filaTexto($pdf, 'Credito:', '#' . (string) $data->Id_Credito);
+        $this->filaTexto($pdf, 'Fecha:', $fecha);
+        $this->filaTexto($pdf, 'Cliente:', $this->clienteNombre($data));
 
-        $pdf->SetDrawColor($br, $bg, $bb);
-        $pdf->SetFillColor($fr, $fg, $fb);
-        $pdf->Rect(10, 44, 196, 42, 'DF');
+        $municipio = trim((string) ($data->Municipio ?? ''));
 
-        $pdf->SetXY(14, 49);
-        $pdf->SetTextColor($tr, $tg, $tb);
-        $pdf->SetFont('helvetica', 'B', 10);
-        $pdf->Cell(188, 5, 'Comprobante de las cantidades que se llevaron en esta entrega.', 0, 1, 'L');
+        if ($municipio !== '') {
+            $this->filaTexto($pdf, 'Municipio:', $municipio);
+        }
 
-        $this->dato($pdf, 14, 58, 'Cliente', $cliente, 86);
-        $this->dato($pdf, 110, 58, 'Fecha', $fecha, 86);
-        $this->dato($pdf, 14, 66, 'Factura', (string) $data->Numero_Factura, 86);
-        $this->dato($pdf, 110, 66, 'Credito', '#' . (string) $data->Id_Credito, 86);
-        $this->dato($pdf, 14, 74, 'Recibido por', (string) $data->Recibido_Por, 86);
-        $this->dato($pdf, 110, 74, 'Entregado por', (string) $data->Usuario_Entrega, 86);
-
-        $pdf->SetY(94);
+        $this->filaTexto($pdf, 'Recibe:', (string) $data->Recibido_Por);
+        $this->filaTexto($pdf, 'Entrega:', (string) $data->Usuario_Entrega);
     }
 
-    private function dato(TCPDF $pdf, float $x, float $y, string $label, string $valor, float $w): void
+    private function detalle(TCPDF $pdf, $detalles): void
     {
-        $pdf->SetXY($x, $y);
-        $pdf->SetTextColor(95, 107, 122);
-        $pdf->SetFont('helvetica', 'B', 7);
-        $pdf->Cell(22, 4, $label . ':', 0, 0, 'L');
+        $this->linea($pdf);
+        $pdf->SetFont('helvetica', 'B', 8);
+        $pdf->Cell(0, 5, 'LO QUE SE LLEVA', 0, 1, 'L');
 
-        $pdf->SetTextColor(26, 43, 66);
-        $pdf->SetFont('helvetica', 'B', 7.5);
-        $pdf->Cell($w - 22, 4, $this->cortar($valor, 48), 0, 0, 'L');
-    }
-
-    private function tablaDetalle(TCPDF $pdf, object $data, $detalles): void
-    {
-        $this->tablaHeader($pdf);
-
-        $i = 0;
         foreach ($detalles as $detalle) {
-            $nombre = $this->cortar((string) $detalle->Detalle_Nombre, 48);
-            $area = trim((string) ($detalle->Area_Item ?? '—'));
-            $area = $area !== '' ? $this->cortar($area, 28) : '—';
+            $pdf->SetFont('helvetica', 'B', 7);
+            $pdf->MultiCell(0, 4, $this->cortar((string) $detalle->Detalle_Nombre, 120), 0, 'L');
 
-            $lineasNombre = max(1, (int) ceil(mb_strlen($nombre) / 38));
-            $lineasArea = max(1, (int) ceil(mb_strlen($area) / 22));
-            $alto = max(8, max($lineasNombre, $lineasArea) * 4.2);
+            $area = trim((string) ($detalle->Area_Item ?? ''));
 
-            if ($pdf->GetY() + $alto + 34 > 260) {
-                $pdf->AddPage();
-                $this->tablaHeader($pdf);
+            if ($area !== '') {
+                $pdf->SetFont('helvetica', '', 7);
+                $pdf->MultiCell(0, 4, 'Area: ' . $this->cortar($area, 80), 0, 'L');
             }
 
-            $i++;
-            $fill = $i % 2 === 0;
-            $pdf->SetFillColor($fill ? 247 : 255, $fill ? 249 : 255, $fill ? 252 : 255);
-            $pdf->SetTextColor(26, 43, 66);
-            $pdf->SetDrawColor(215, 228, 243);
-            $pdf->SetFont('helvetica', '', 6.8);
-
-            $pdf->MultiCell(28, $alto, (string) $detalle->Numero_Factura, 1, 'L', true, 0);
-            $pdf->MultiCell(52, $alto, $nombre, 1, 'L', true, 0);
-            $pdf->MultiCell(32, $alto, $area, 1, 'L', true, 0);
-            $pdf->MultiCell(18, $alto, $this->cantidadTexto((float) $detalle->Cantidad_Total), 1, 'C', true, 0);
-            $pdf->MultiCell(22, $alto, $this->cantidadTexto((float) $detalle->Cantidad_Pendiente_Anterior), 1, 'C', true, 0);
-            $pdf->MultiCell(23, $alto, $this->cantidadTexto((float) $detalle->Cantidad_Entregada_Ahora), 1, 'C', true, 0);
-            $pdf->MultiCell(15, $alto, $this->cantidadTexto((float) $detalle->Cantidad_Pendiente_Restante), 1, 'C', true, 1);
+            $pdf->SetFont('helvetica', '', 7);
+            $pdf->Cell(0, 4, 'Cant. original: ' . $this->cantidadTexto((float) $detalle->Cantidad_Total), 0, 1, 'L');
+            $pdf->Cell(0, 4, 'Pend. antes: ' . $this->cantidadTexto((float) $detalle->Cantidad_Pendiente_Anterior), 0, 1, 'L');
+            $pdf->SetFont('helvetica', 'B', 7);
+            $pdf->Cell(0, 4, 'Entregado ahora: ' . $this->cantidadTexto((float) $detalle->Cantidad_Entregada_Ahora), 0, 1, 'L');
+            $pdf->Cell(0, 4, 'Pendiente queda: ' . $this->cantidadTexto((float) $detalle->Cantidad_Pendiente_Restante), 0, 1, 'L');
+            $pdf->Ln(1);
         }
 
-        $entregado = $detalles->sum(fn($fila) => (float) $fila->Cantidad_Entregada_Ahora);
-        $pendienteRestante = $detalles->sum(fn($fila) => (float) $fila->Cantidad_Pendiente_Restante);
+        $entregado = $detalles->sum(fn (object $fila) => (float) $fila->Cantidad_Entregada_Ahora);
+        $pendienteRestante = $detalles->sum(fn (object $fila) => (float) $fila->Cantidad_Pendiente_Restante);
 
-        $pdf->Ln(4);
-        $pdf->SetDrawColor(215, 228, 243);
-        $pdf->SetFont('helvetica', 'B', 8);
-        $pdf->SetFillColor(240, 243, 247);
-        $pdf->SetTextColor(26, 43, 66);
-        $pdf->Cell(152, 7, 'Total entregado en este recibo', 1, 0, 'R', true);
-        $pdf->Cell(38, 7, $this->cantidadTexto($entregado), 1, 1, 'C', true);
-
-        $pdf->SetFillColor($pendienteRestante > 0 ? 255 : 240, $pendienteRestante > 0 ? 247 : 243, $pendienteRestante > 0 ? 237 : 247);
-        $pdf->Cell(152, 7, 'Pendiente restante para proxima entrega', 1, 0, 'R', true);
-        $pdf->Cell(38, 7, $this->cantidadTexto($pendienteRestante), 1, 1, 'C', true);
-    }
-
-    private function tablaHeader(TCPDF $pdf): void
-    {
-        if ($pdf->GetY() < 94) {
-            $pdf->SetY(94);
-        }
-
-        $pdf->SetFont('helvetica', 'B', 6.8);
-        $pdf->SetFillColor(46, 139, 192);
-        $pdf->SetDrawColor(215, 228, 243);
-        $pdf->SetTextColor(255, 255, 255);
-
-        $pdf->Cell(28, 7, 'Factura', 1, 0, 'L', true);
-        $pdf->Cell(52, 7, 'Detalle entregado', 1, 0, 'L', true);
-        $pdf->Cell(32, 7, 'Area', 1, 0, 'L', true);
-        $pdf->Cell(18, 7, 'Total', 1, 0, 'C', true);
-        $pdf->Cell(22, 7, 'Pend. ant.', 1, 0, 'C', true);
-        $pdf->Cell(23, 7, 'Entregado', 1, 0, 'C', true);
-        $pdf->Cell(15, 7, 'Pend.', 1, 1, 'C', true);
+        $this->linea($pdf);
+        $this->total($pdf, 'Total entregado:', $entregado);
+        $this->total($pdf, 'Pendiente restante:', $pendienteRestante);
     }
 
     private function observacion(TCPDF $pdf, string $observacion): void
@@ -255,46 +198,76 @@ class CreditoEntregaReciboPdfService
             return;
         }
 
-        if ($pdf->GetY() + 18 > 260) {
-            $pdf->AddPage();
-        }
-
-        $pdf->Ln(5);
-        $pdf->SetDrawColor(215, 228, 243);
-        $pdf->SetFillColor(247, 249, 252);
-        $pdf->SetTextColor(95, 107, 122);
+        $this->linea($pdf);
         $pdf->SetFont('helvetica', 'B', 7);
-        $pdf->Cell(190, 6, 'OBSERVACION GENERAL', 1, 1, 'L', true);
-
-        $pdf->SetTextColor(26, 43, 66);
-        $pdf->SetFont('helvetica', '', 7.5);
-        $pdf->MultiCell(190, 7, $this->cortar($observacion, 240), 1, 'L', false, 1);
+        $pdf->Cell(0, 4, 'OBSERVACION', 0, 1, 'L');
+        $pdf->SetFont('helvetica', '', 7);
+        $pdf->MultiCell(0, 4, $this->cortar($observacion, 180), 0, 'L');
     }
 
     private function firmas(TCPDF $pdf, object $data): void
     {
-        if ($pdf->GetY() + 36 > 260) {
-            $pdf->AddPage();
+        $pdf->Ln(9);
+        $pdf->SetFont('helvetica', '', 7);
+        $pdf->Cell(0, 4, '____________________________', 0, 1, 'C');
+        $pdf->Cell(0, 4, 'Recibi conforme', 0, 1, 'C');
+        $pdf->SetFont('helvetica', 'B', 7);
+        $pdf->MultiCell(0, 4, $this->cortar((string) $data->Recibido_Por, 54), 0, 'C');
+
+        $pdf->Ln(4);
+        $pdf->SetFont('helvetica', '', 7);
+        $pdf->Cell(0, 4, 'Entregado por:', 0, 1, 'C');
+        $pdf->SetFont('helvetica', 'B', 7);
+        $pdf->MultiCell(0, 4, $this->cortar((string) $data->Usuario_Entrega, 54), 0, 'C');
+        $pdf->Ln(2);
+        $pdf->SetFont('helvetica', '', 7);
+        $pdf->Cell(0, 4, 'Gracias', 0, 1, 'C');
+    }
+
+    private function filaTexto(TCPDF $pdf, string $label, string $valor): void
+    {
+        $pdf->SetFont('helvetica', 'B', 7);
+        $pdf->Cell(18, 4, $label, 0, 0, 'L');
+        $pdf->SetFont('helvetica', '', 7);
+        $pdf->MultiCell(0, 4, $this->cortar($valor, 70), 0, 'L');
+    }
+
+    private function total(TCPDF $pdf, string $label, float $cantidad): void
+    {
+        $pdf->SetFont('helvetica', 'B', 7);
+        $pdf->Cell(42, 5, $label, 0, 0, 'L');
+        $pdf->Cell(0, 5, $this->cantidadTexto($cantidad), 0, 1, 'R');
+    }
+
+    private function linea(TCPDF $pdf): void
+    {
+        $pdf->SetFont('helvetica', '', 7);
+        $pdf->Cell(0, 3, str_repeat('-', 46), 0, 1, 'C');
+    }
+
+    private function altoVoucher(object $data, $detalles): int
+    {
+        $alto = 72;
+        $caracteresLinea = 36;
+
+        foreach ($detalles as $detalle) {
+            $lineasDetalle = max(1, (int) ceil(mb_strlen((string) $detalle->Detalle_Nombre) / $caracteresLinea));
+            $alto += 18 + ($lineasDetalle * 4);
+
+            if (trim((string) ($detalle->Area_Item ?? '')) !== '') {
+                $alto += 6;
+            }
         }
 
-        $pdf->Ln(18);
-        $pdf->SetTextColor(26, 43, 66);
-        $pdf->SetFont('helvetica', '', 8);
+        $observacion = trim((string) ($data->Observacion ?? ''));
 
-        $y = $pdf->GetY();
-        $pdf->Line(18, $y + 16, 82, $y + 16);
-        $pdf->Line(124, $y + 16, 188, $y + 16);
+        if ($observacion !== '') {
+            $alto += 10 + (max(1, (int) ceil(mb_strlen($observacion) / $caracteresLinea)) * 4);
+        }
 
-        $pdf->SetXY(18, $y + 18);
-        $pdf->Cell(64, 5, 'Entregado por', 0, 0, 'C');
-        $pdf->SetXY(124, $y + 18);
-        $pdf->Cell(64, 5, 'Recibi conforme', 0, 1, 'C');
+        $alto += 34;
 
-        $pdf->SetFont('helvetica', 'B', 7.5);
-        $pdf->SetXY(18, $y + 24);
-        $pdf->Cell(64, 5, $this->cortar((string) $data->Usuario_Entrega, 42), 0, 0, 'C');
-        $pdf->SetXY(124, $y + 24);
-        $pdf->Cell(64, 5, $this->cortar((string) $data->Recibido_Por, 42), 0, 1, 'C');
+        return max(110, min($alto, 1200));
     }
 
     private function clienteNombre(object $data): string
@@ -342,92 +315,6 @@ class CreditoEntregaReciboPdfService
             1 => 'una cara',
             2 => 'doble cara',
             default => '',
-        };
-    }
-
-    private function logoOriginalPath(): ?string
-    {
-        $rutas = [
-            public_path('img/gnetlogo.png'),
-            public_path('img/gnetlogo.jpg'),
-            public_path('img/logo.png'),
-            public_path('img/logo.jpg'),
-            public_path('images/gnetlogo.png'),
-            public_path('images/logo.png'),
-            public_path('assets/img/gnetlogo.png'),
-            public_path('assets/img/logo.png'),
-            public_path('logo.png'),
-        ];
-
-        foreach ($rutas as $ruta) {
-            if (is_file($ruta)) {
-                return $ruta;
-            }
-        }
-
-        return null;
-    }
-
-    private function logoParaPdf(): ?string
-    {
-        $original = $this->logoOriginalPath();
-
-        if (! $original || ! is_file($original)) {
-            return null;
-        }
-
-        $directorio = storage_path('app/reportes');
-
-        if (! is_dir($directorio)) {
-            mkdir($directorio, 0755, true);
-        }
-
-        $optimizado = $directorio . '/logo-recibo-entrega-credito.jpg';
-
-        if (is_file($optimizado) && filemtime($optimizado) >= filemtime($original)) {
-            return $optimizado;
-        }
-
-        if (! extension_loaded('gd')) {
-            $extension = strtolower(pathinfo($original, PATHINFO_EXTENSION));
-
-            return in_array($extension, ['jpg', 'jpeg'], true) ? $original : null;
-        }
-
-        $imagen = $this->crearImagenDesdeArchivo($original);
-
-        if (! $imagen) {
-            return null;
-        }
-
-        $anchoOriginal = imagesx($imagen);
-        $altoOriginal = imagesy($imagen);
-
-        $maximo = 160;
-        $escala = min($maximo / $anchoOriginal, $maximo / $altoOriginal, 1);
-
-        $nuevoAncho = max(1, (int) round($anchoOriginal * $escala));
-        $nuevoAlto = max(1, (int) round($altoOriginal * $escala));
-
-        $lienzo = imagecreatetruecolor($nuevoAncho, $nuevoAlto);
-        $blanco = imagecolorallocate($lienzo, 255, 255, 255);
-        imagefilledrectangle($lienzo, 0, 0, $nuevoAncho, $nuevoAlto, $blanco);
-
-        imagecopyresampled($lienzo, $imagen, 0, 0, 0, 0, $nuevoAncho, $nuevoAlto, $anchoOriginal, $altoOriginal);
-        imagejpeg($lienzo, $optimizado, 78);
-
-        return $optimizado;
-    }
-
-    private function crearImagenDesdeArchivo(string $ruta)
-    {
-        $extension = strtolower(pathinfo($ruta, PATHINFO_EXTENSION));
-
-        return match ($extension) {
-            'png' => @imagecreatefrompng($ruta),
-            'jpg', 'jpeg' => @imagecreatefromjpeg($ruta),
-            'webp' => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($ruta) : false,
-            default => false,
         };
     }
 

@@ -34,6 +34,7 @@ class Cliente extends Model
         'Municipio',
         'Estado',
         'Tipo_pago',
+        'RUC',
     ];
 
     protected $casts = [
@@ -149,7 +150,7 @@ class Cliente extends Model
 
     public function getRucFacturacionAttribute(): string
     {
-        foreach (['Codigo_RUC', 'Codigo_Ruc', 'RUC', 'Ruc', 'Cedula_RUC', 'Cedula'] as $campo) {
+        foreach (['RUC', 'Codigo_RUC', 'Codigo_Ruc', 'Ruc', 'Cedula_RUC', 'Cedula'] as $campo) {
             $valor = trim((string) ($this->getAttribute($campo) ?? ''));
 
             if ($valor !== '') {
@@ -157,7 +158,7 @@ class Cliente extends Model
             }
         }
 
-        foreach (['Codigo_RUC', 'Codigo_Ruc', 'RUC', 'Ruc', 'Cedula_RUC', 'Cedula'] as $campo) {
+        foreach (['RUC', 'Codigo_RUC', 'Codigo_Ruc', 'Ruc', 'Cedula_RUC', 'Cedula'] as $campo) {
             $valor = trim((string) ($this->persona?->getAttribute($campo) ?? ''));
 
             if ($valor !== '') {

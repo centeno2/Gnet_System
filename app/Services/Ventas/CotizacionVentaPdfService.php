@@ -26,7 +26,7 @@ class CotizacionVentaPdfService
             'correo' => $cliente?->correo_facturacion ?: '',
             'direccion' => $cliente?->direccion_facturacion ?: '',
             'ruc' => $cliente?->ruc_facturacion ?: '',
-            'municipio' => $cotizacion->Municipio,
+            'municipio' => $cotizacion->Municipio ?: ($cliente?->Municipio ?: ''),
             'tipo_venta' => $cotizacion->Tipo_Venta,
             'tipo_cambio' => (float) $cotizacion->Tipo_Cambio,
             'subtotal' => (float) $cotizacion->Subtotal,
@@ -110,9 +110,12 @@ class CotizacionVentaPdfService
         }
 
         $pdf->SetTextColor(...self::AZUL);
-        $pdf->SetFont('helvetica', 'B', 21);
-        $pdf->SetXY(36, 11);
-        $pdf->Cell(38, 8, 'G-NET', 0, 1, 'L');
+        $pdf->SetFont('helvetica', 'B', 18);
+        $pdf->SetXY(36, 12.4);
+        $pdf->Cell(36, 7, 'GNET', 0, 1, 'L');
+        $pdf->SetFont('helvetica', 'B', 7.5);
+        $pdf->SetXY(37, 20.8);
+        $pdf->Cell(34, 4, 'SERVICOMP', 0, 1, 'L');
 
         $pdf->SetFont('helvetica', 'B', 8);
         $pdf->SetXY(75, 12);
