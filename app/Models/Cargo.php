@@ -7,6 +7,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Cargo extends Model
 {
+    public const ADMINISTRADOR = 1;
+    public const GERENTE = 2;
+    public const CAJERA = 3;
+    public const TECNICO = 4;
+    public const SUPER_USUARIO = 5;
+
     protected $table = 'cargo';
 
     protected $primaryKey = 'Id_Cargo';

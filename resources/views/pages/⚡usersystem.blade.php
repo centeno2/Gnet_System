@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Cargo;
 use App\Models\Trabajador;
 use App\Models\Usuario;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -44,6 +45,48 @@ new class extends Component
     public function paginationView(): string
     {
         return 'vendor.pagination.gnet';
+    }
+
+    public function esSuperUsuario(): bool
+    {
+        return $this->cargoActualId() === Cargo::SUPER_USUARIO;
+    }
+
+    protected function cargoActualId(): int
+    {
+        return (int) (auth()->user()?->trabajador?->Id_Cargo ?? auth()->user()?->trabajador?->cargo?->Id_Cargo ?? 0);
+    }
+
+    protected function usuarioActualId(): int
+    {
+        return (int) (auth()->user()?->Id_Usuario ?? auth()->id() ?? 0);
+    }
+
+    protected function usuarioEsSuperUsuario(Usuario $usuario): bool
+    {
+        return (int) ($usuario->trabajador?->Id_Cargo ?? $usuario->trabajador?->cargo?->Id_Cargo ?? 0) === Cargo::SUPER_USUARIO;
+    }
+
+    protected function existeUsuarioSuperUsuario(): bool
+    {
+        return Usuario::query()
+            ->whereHas('trabajador', function ($trabajadorQuery) {
+                $trabajadorQuery->where('Id_Cargo', Cargo::SUPER_USUARIO);
+            })
+            ->exists();
+    }
+
+    protected function puedePrepararSuperUsuario(): bool
+    {
+        if ($this->esSuperUsuario()) {
+            return true;
+        }
+
+        if (! in_array($this->cargoActualId(), [Cargo::ADMINISTRADOR, Cargo::GERENTE], true)) {
+            return false;
+        }
+
+        return ! $this->existeUsuarioSuperUsuario();
     }
 
     public function mount(): void
@@ -143,6 +186,12 @@ new class extends Component
             ]);
         }
 
+        if ((int) $trabajador->Id_Cargo === Cargo::SUPER_USUARIO && ! $this->puedePrepararSuperUsuario()) {
+            throw ValidationException::withMessages([
+                'idTrabajador' => 'No tiene permiso para asignar este cargo.',
+            ]);
+        }
+
         Usuario::query()->create([
             'Id_Trabajador' => (int) $datos['idTrabajador'],
             'Nombre_Usuario' => trim($datos['nombreUsuario']),
@@ -171,6 +220,11 @@ new class extends Component
 
         if (! $usuario) {
             $this->mostrarToast('No se encontró el usuario seleccionado.', 'error');
+            return;
+        }
+
+        if ($this->usuarioEsSuperUsuario($usuario) && ! $this->esSuperUsuario()) {
+            $this->mostrarToast('No tiene permiso para editar este usuario.', 'error');
             return;
         }
 
@@ -249,10 +303,17 @@ new class extends Component
             ]
         );
 
-        $usuario = Usuario::query()->find((int) $datos['idUsuarioEditar']);
+        $usuario = Usuario::query()
+            ->with(['trabajador.cargo'])
+            ->find((int) $datos['idUsuarioEditar']);
 
         if (! $usuario) {
             $this->mostrarToast('No se encontró el usuario seleccionado.', 'error');
+            return;
+        }
+
+        if ($this->usuarioEsSuperUsuario($usuario) && ! $this->esSuperUsuario()) {
+            $this->mostrarToast('No tiene permiso para actualizar este usuario.', 'error');
             return;
         }
 
@@ -269,10 +330,22 @@ new class extends Component
 
     public function cambiarEstadoUsuario(int $idUsuario): void
     {
-        $usuario = Usuario::query()->find($idUsuario);
+        $usuario = Usuario::query()
+            ->with(['trabajador.cargo'])
+            ->find($idUsuario);
 
         if (! $usuario) {
             $this->mostrarToast('No se encontró el usuario seleccionado.', 'error');
+            return;
+        }
+
+        if ($this->usuarioEsSuperUsuario($usuario) && ! $this->esSuperUsuario()) {
+            $this->mostrarToast('No tiene permiso para modificar este usuario.', 'error');
+            return;
+        }
+
+        if ((int) $usuario->Id_Usuario === $this->usuarioActualId() && (int) $usuario->Estado === 1) {
+            $this->mostrarToast('No puede inactivar su propio usuario.', 'error');
             return;
         }
 
@@ -286,11 +359,48 @@ new class extends Component
         $this->mostrarToast($mensaje);
     }
 
+    public function eliminarUsuario(int $idUsuario): void
+    {
+        if (! $this->esSuperUsuario()) {
+            $this->mostrarToast('No tiene permiso para eliminar usuarios.', 'error');
+            return;
+        }
+
+        $usuario = Usuario::query()
+            ->with(['trabajador.cargo'])
+            ->find($idUsuario);
+
+        if (! $usuario) {
+            $this->mostrarToast('No se encontró el usuario seleccionado.', 'error');
+            return;
+        }
+
+        if ((int) $usuario->Id_Usuario === $this->usuarioActualId()) {
+            $this->mostrarToast('No puede eliminar su propio usuario.', 'error');
+            return;
+        }
+
+        try {
+            $usuario->delete();
+        } catch (\Throwable) {
+            $this->mostrarToast('No se puede eliminar este usuario.', 'error');
+            return;
+        }
+
+        $this->cargarTrabajadores();
+        $this->resetPage();
+
+        $this->mostrarToast('Usuario eliminado.');
+    }
+
     protected function cargarTrabajadores(): void
     {
         $this->trabajadores = Trabajador::query()
             ->with(['persona', 'cargo'])
             ->where('Estado', 1)
+            ->when(! $this->puedePrepararSuperUsuario(), function ($query) {
+                $query->where('Id_Cargo', '!=', Cargo::SUPER_USUARIO);
+            })
             ->whereDoesntHave('usuario')
             ->get()
             ->sortBy(fn ($trabajador) => $this->nombreTrabajador($trabajador))
@@ -330,6 +440,11 @@ new class extends Component
 
         return Usuario::query()
             ->with(['trabajador.persona', 'trabajador.cargo'])
+            ->when(! $this->esSuperUsuario(), function ($query) {
+                $query->whereHas('trabajador', function ($trabajadorQuery) {
+                    $trabajadorQuery->where('Id_Cargo', '!=', Cargo::SUPER_USUARIO);
+                });
+            })
             ->when($busqueda !== '', function ($query) use ($busqueda) {
                 $query->where(function ($q) use ($busqueda) {
                     $q->where('Nombre_Usuario', 'like', "%{$busqueda}%")
@@ -350,6 +465,7 @@ new class extends Component
             ->through(function (Usuario $usuario) {
                 return [
                     'id_usuario' => $usuario->Id_Usuario,
+                    'usuario_actual' => (int) $usuario->Id_Usuario === $this->usuarioActualId(),
                     'trabajador' => $this->nombreTrabajador($usuario->trabajador),
                     'cargo' => $usuario->trabajador?->cargo?->Cargo_Asignado ?: '—',
                     'username' => $usuario->Nombre_Usuario,
@@ -581,6 +697,18 @@ new class extends Component
                             ? 'bg-red-600 hover:bg-red-700'
                             : 'bg-green-600 hover:bg-green-700' }} h-8 min-h-8 border-0 px-3 text-xs text-white"
                     />
+
+                    @if ($this->esSuperUsuario() && ! $usuario['usuario_actual'])
+                        <x-button
+                            icon="o-trash"
+                            wire:click="eliminarUsuario({{ $usuario['id_usuario'] }})"
+                            wire:confirm="Eliminar este usuario?"
+                            spinner="eliminarUsuario({{ $usuario['id_usuario'] }})"
+                            title="Eliminar usuario"
+                            aria-label="Eliminar usuario"
+                            class="btn-sm h-10 w-10 min-h-0 rounded-xl border border-red-600 bg-red-600 p-0 text-white shadow-sm hover:bg-red-700 hover:text-white"
+                        />
+                    @endif
                 </div>
             @endscope
         </x-table>

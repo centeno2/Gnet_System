@@ -7,6 +7,7 @@ use App\Http\Controllers\Reportes\StockProximoAgotarseReporteController;
 use App\Http\Controllers\Reportes\VentasPeriodoReporteController;
 use App\Http\Controllers\Reportes\OtrasSalidasReporteController;
 use App\Http\Controllers\Reportes\CreditosInstitucionalesReporteController;
+use App\Http\Controllers\Reportes\CreditosInstitucionalesPendientesReporteController;
 use App\Http\Controllers\Reportes\DevolucionesReporteController;
 use App\Http\Controllers\Reportes\ArqueoCajaCierreReporteController;
 use App\Http\Controllers\Reportes\ArqueosCajaReporteController;
@@ -56,19 +57,24 @@ Route::middleware('auth')->group(function () {
     })->name('logout');
 
     Route::get('/ventas/factura/{venta}', [FacturaVentaController::class, 'show'])
+        ->middleware('cargo:1,2,3,5')
         ->name('ventas.factura');
 });
 
-Route::middleware(['auth', 'cargo: 2'])->group(function () {
+Route::middleware(['auth', 'cargo:1,2,5'])->group(function () {
+    Route::livewire('/compras', 'pages::compras')->name('compras');
+    Route::livewire('/proveedores', 'pages::proveedores')->name('proveedores');
+
+    Route::get('/compras/comprobante/{compra}', [CompraComprobanteController::class, 'show'])
+        ->name('compras.comprobante');
+});
+
+Route::middleware(['auth', 'cargo:1,5'])->group(function () {
     Route::livewire('/usersystem', 'pages::usersystem')->name('usersystem');
     Route::livewire('/trabajadores', 'pages::trabajadores')->name('trabajadores');
-    Route::livewire('/compras', 'pages::compras')->name('compras');
     Route::livewire('/planillapago', 'pages::planillapago')->name('planillapago');
-    Route::livewire('/creditos', 'pages::creditos')->name('creditos');
     Route::livewire('/mantenimiento', 'pages::mantenimiento')->name('mantenimiento');
 
-    Route::livewire('/acerca', 'pages::acerca')->name('acerca');
-    Route::livewire('/proveedores', 'pages::proveedores')->name('proveedores');
     Route::livewire('/ventas/servicio-tecnico', 'pages::ventas.servicio-tecnico')->name('ventas.servicio-tecnico');
     Route::livewire('/ventas/instalacion-camaras', 'pages::ventas.instalacion-camaras')->name('ventas.instalacion-camaras');
     Route::livewire('/reportes', 'pages::informes')->name('Informes');
@@ -112,16 +118,6 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
     Route::get('/reportes/otras-salidas/word', [OtrasSalidasReporteController::class, 'word'])
         ->name('reportes.otras-salidas.word');
 
-    //creditos institucionales
-    Route::get('/reportes/creditos-institucionales/pdf', [CreditosInstitucionalesReporteController::class, 'pdf'])
-        ->name('reportes.creditos-institucionales.pdf');
-
-    Route::get('/reportes/creditos-institucionales/excel', [CreditosInstitucionalesReporteController::class, 'excel'])
-        ->name('reportes.creditos-institucionales.excel');
-
-    Route::get('/reportes/creditos-institucionales/word', [CreditosInstitucionalesReporteController::class, 'word'])
-        ->name('reportes.creditos-institucionales.word');
-
     //devoluciones
     Route::get('/reportes/devoluciones/pdf', [DevolucionesReporteController::class, 'pdf'])
         ->name('reportes.devoluciones.pdf');
@@ -158,21 +154,9 @@ Route::middleware(['auth', 'cargo: 2'])->group(function () {
     Route::get('/reportes/compras-proveedor/word', [ComprasProveedorReporteController::class, 'word'])
         ->name('reportes.compras-proveedor.word');
 
-    Route::get('/compras/comprobante/{compra}', [CompraComprobanteController::class, 'show'])
-    ->name('compras.comprobante');
-
     Route::prefix('reportes/planilla-pago')
     ->name('reportes.planilla-pago.')
     ->controller(PlanillaPagoReporteController::class)
-    ->group(function () {
-        Route::get('/pdf', 'pdf')->name('pdf');
-        Route::get('/excel', 'excel')->name('excel');
-        Route::get('/word', 'word')->name('word');
-    });
-
-    Route::prefix('reportes/credito-factura')
-    ->name('reportes.credito-factura.')
-    ->controller(CreditoFacturaReporteController::class)
     ->group(function () {
         Route::get('/pdf', 'pdf')->name('pdf');
         Route::get('/excel', 'excel')->name('excel');
@@ -215,27 +199,18 @@ Route::prefix('reportes/instalacion-camara-factura')
         Route::get('/word', 'word')->name('word');
     });
 
-    Route::get('/ventas/credito/entregas/{entrega}/recibo', [CreditoEntregaReciboController::class, 'show'])
-        ->whereNumber('entrega')
-        ->name('ventas.credito.entrega.recibo');
-
     Route::get('/ventas/instalacion-camaras/{contrato}/contrato', [ContratoInstalacionCamaraController::class, 'show'])
         ->whereNumber('contrato')
         ->name('ventas.instalacion-camaras.contrato');
-
-    Route::get('/creditos/voucher/{recibo}', [CreditoVoucherController::class, 'show'])
-        ->where('recibo', '[A-Za-z0-9\-]+')
-        ->name('creditos.voucher');
 });
 
-Route::middleware(['auth', 'cargo: 1, 2'])->group(function () {
+Route::middleware(['auth', 'cargo:1,5'])->group(function () {
 
+    Route::livewire('/usersystem', 'pages::usersystem')->name('usersystem');
     Route::livewire('/trabajadores', 'pages::trabajadores')->name('trabajadores');
     Route::livewire('/planillapago', 'pages::planillapago')->name('planillapago');
-    Route::livewire('/creditos', 'pages::creditos')->name('creditos');
     Route::livewire('/mantenimiento', 'pages::mantenimiento')->name('mantenimiento');
 
-    Route::livewire('/acerca', 'pages::acerca')->name('acerca');
     Route::livewire('/ventas/servicio-tecnico', 'pages::ventas.servicio-tecnico')->name('ventas.servicio-tecnico');
     Route::livewire('/ventas/instalacion-camaras', 'pages::ventas.instalacion-camaras')->name('ventas.instalacion-camaras');
     //exportación de comprobante, liquidación y reporte anual de planilla
@@ -252,15 +227,55 @@ Route::middleware(['auth', 'cargo: 1, 2'])->group(function () {
     Route::get('/ventas/servicio-tecnico/{servicio}/voucher', [ServicioTecnicoVoucherController::class, 'show'])
         ->whereNumber('servicio')
         ->name('ventas.servicio-tecnico.voucher');
+
 });
 
-Route::middleware(['auth', 'cargo: 1,2,3'])->group(function () {
+Route::middleware(['auth', 'cargo:1,5'])->group(function () {
+    Route::livewire('/creditos', 'pages::creditos')->name('creditos');
+
+    Route::get('/reportes/creditos-institucionales/pdf', [CreditosInstitucionalesReporteController::class, 'pdf'])
+        ->name('reportes.creditos-institucionales.pdf');
+
+    Route::get('/reportes/creditos-institucionales/excel', [CreditosInstitucionalesReporteController::class, 'excel'])
+        ->name('reportes.creditos-institucionales.excel');
+
+    Route::get('/reportes/creditos-institucionales/word', [CreditosInstitucionalesReporteController::class, 'word'])
+        ->name('reportes.creditos-institucionales.word');
+
+    Route::prefix('reportes/credito-factura')
+        ->name('reportes.credito-factura.')
+        ->controller(CreditoFacturaReporteController::class)
+        ->group(function () {
+            Route::get('/pdf', 'pdf')->name('pdf');
+            Route::get('/excel', 'excel')->name('excel');
+            Route::get('/word', 'word')->name('word');
+        });
+
+    Route::prefix('reportes/creditos-institucionales-pendientes')
+        ->name('reportes.creditos-institucionales-pendientes.')
+        ->controller(CreditosInstitucionalesPendientesReporteController::class)
+        ->group(function () {
+            Route::get('/pdf', 'pdf')->name('pdf');
+            Route::get('/excel', 'excel')->name('excel');
+            Route::get('/word', 'word')->name('word');
+        });
+
+    Route::get('/ventas/credito/entregas/{entrega}/recibo', [CreditoEntregaReciboController::class, 'show'])
+        ->whereNumber('entrega')
+        ->name('ventas.credito.entrega.recibo');
+
+    Route::get('/creditos/voucher/{recibo}', [CreditoVoucherController::class, 'show'])
+        ->where('recibo', '[A-Za-z0-9\-]+')
+        ->name('creditos.voucher');
+});
+
+Route::middleware(['auth', 'cargo:1,2,3,5'])->group(function () {
     Route::livewire('/salidas', 'pages::otras_salidas')->name('otras_salidas');
     Route::livewire('/productos', 'pages::productos')->name('productos.index');
     Route::livewire('/productos/listado', 'pages::components.productos.listado')->name('productos.listado');
 });
 
-Route::middleware(['auth', 'cargo: 1,2,3'])->group(function () {
+Route::middleware(['auth', 'cargo:1,2,3,5'])->group(function () {
 
     Route::livewire('/main', 'pages::main')->name('main');
     Route::livewire('/ventas/facturacion', 'pages::ventas.facturacion')->name('ventas.facturacion');
@@ -269,6 +284,7 @@ Route::middleware(['auth', 'cargo: 1,2,3'])->group(function () {
     Route::livewire('/clientes', 'pages::clientes')->name('clientes');
     Route::livewire('/devoluciones', 'pages::devoluciones')->name('devoluciones');
     Route::livewire('/arqueodecaja', 'pages::arqueodecaja')->name('arqueodecaja');
+    Route::livewire('/acerca', 'pages::acerca')->name('acerca');
 
     Route::get('/ventas/cotizacion/{key}', [CotizacionVoucherController::class, 'show'])
         ->name('ventas.cotizacion');

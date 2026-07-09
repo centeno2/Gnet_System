@@ -1,6 +1,7 @@
 <?php
 
 use Carbon\CarbonInterface;
+use App\Models\Cargo;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
@@ -82,6 +83,7 @@ new class extends Component
                 u.Id_Usuario,
                 u.Nombre_Usuario,
                 u.Correo,
+                t.Id_Cargo as Cargo_Id,
                 COALESCE(
                     NULLIF(TRIM(CONCAT_WS(' ', p.Primer_Nombre, p.Segundo_Nombre, p.Primer_Apellido, p.Segundo_Apellido)), ''),
                     u.Nombre_Usuario
@@ -94,6 +96,7 @@ new class extends Component
             'nombre' => (string) ($usuario?->Nombre_Completo ?? 'Usuario'),
             'usuario' => (string) ($usuario?->Nombre_Usuario ?? 'system'),
             'cargo' => (string) ($usuario?->Cargo ?? 'Sin cargo asignado'),
+            'cargo_id' => (int) ($usuario?->Cargo_Id ?? 0),
             'correo' => (string) ($usuario?->Correo ?? ''),
         ];
     }
@@ -101,8 +104,9 @@ new class extends Component
     private function configurarAlcancePorCargo(): void
     {
         $cargo = strtolower(trim($this->usuarioActual['cargo'] ?? ''));
+        $cargoId = (int) ($this->usuarioActual['cargo_id'] ?? 0);
 
-        $this->esCajero = str_starts_with($cargo, 'cajer');
+        $this->esCajero = str_starts_with($cargo, 'cajer') || $cargoId === Cargo::GERENTE;
         $this->dashboardCompleto = ! $this->esCajero;
         $this->periodosOpciones = $this->esCajero
             ? [['id' => 'hoy', 'name' => 'Hoy']]

@@ -138,6 +138,7 @@ class GnetSeeder extends Seeder
             ['Id_Cargo' => 2, 'Cargo_Asignado' => 'Gerente'],
             ['Id_Cargo' => 3, 'Cargo_Asignado' => 'Cajera'],
             ['Id_Cargo' => 4, 'Cargo_Asignado' => 'Técnico'],
+            ['Id_Cargo' => 5, 'Cargo_Asignado' => 'Super usuario'],
         ]);
 
         $categorias = [

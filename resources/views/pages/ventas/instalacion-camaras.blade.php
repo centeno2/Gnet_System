@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Mary\Traits\Toast;
 
+use App\Models\Cargo;
 use App\Models\Cliente;
 use App\Models\Trabajador;
 use App\Models\Producto;
@@ -61,12 +62,18 @@ new class extends Component
 
     // MODIFICADO: productos filtrados desde base de datos para evitar payloads pesados.
     public string $filtroProducto = '';
+    public bool $mostrarBusquedaProductos = false;
+    public bool $hayMasProductos = false;
+    public int $paginaBusquedaProductos = 1;
+    public int $totalProductosBusqueda = 0;
+    public string $productoSeleccionadoNombre = '';
 
     public int $paginaPendientes = 1;
     public int $totalPendientes = 0;
     public int $totalPaginasPendientes = 1;
 
     public ?int $contratoInstalacionIdSeleccionado = null;
+    public bool $contratoBloqueado = false;
 
     public bool $modalPendientes = false;
     public string $filtroPendientes = '';
@@ -281,6 +288,10 @@ new class extends Component
 
     public function cambiarTipoOperacion(string $tipo): void
     {
+        if ($this->contratoBloqueado) {
+            return;
+        }
+
         if (! in_array($tipo, [self::TIPO_CONTADO, self::TIPO_CREDITO], true)) {
             return;
         }
@@ -433,6 +444,9 @@ new class extends Component
             ->join('persona as p', 'p.Id_Persona', '=', 'trabajador.Id_Persona')
             ->leftJoin('cargo as cg', 'cg.Id_Cargo', '=', 'trabajador.Id_Cargo')
             ->where('trabajador.Estado', 1)
+            ->when(! $this->esSuperUsuario(), function ($query) {
+                $query->where('trabajador.Id_Cargo', '!=', Cargo::SUPER_USUARIO);
+            })
             ->select([
                 'trabajador.Id_Trabajador as id',
                 'p.Primer_Nombre',
@@ -452,6 +466,9 @@ new class extends Component
                 ->join('persona as p', 'p.Id_Persona', '=', 'trabajador.Id_Persona')
                 ->leftJoin('cargo as cg', 'cg.Id_Cargo', '=', 'trabajador.Id_Cargo')
                 ->where('trabajador.Id_Trabajador', $this->tecnicoId)
+                ->when(! $this->esSuperUsuario(), function ($query) {
+                    $query->where('trabajador.Id_Cargo', '!=', Cargo::SUPER_USUARIO);
+                })
                 ->select([
                     'trabajador.Id_Trabajador as id',
                     'p.Primer_Nombre',
@@ -468,6 +485,11 @@ new class extends Component
         }
 
         $this->tecnicos = $tecnicos->toArray();
+    }
+
+    private function esSuperUsuario(): bool
+    {
+        return (int) (auth()->user()?->trabajador?->Id_Cargo ?? auth()->user()?->trabajador?->cargo?->Id_Cargo ?? 0) === Cargo::SUPER_USUARIO;
     }
 
     private function tecnicoOpcion(object $item): array
@@ -487,7 +509,14 @@ new class extends Component
 
     private function cargarProductosDisponibles(): void
     {
-        $query = $this->consultaProductosBase(trim($this->filtroProducto))
+        $filtro = trim($this->filtroProducto);
+
+        if ($this->productoId && $filtro === trim($this->productoSeleccionadoNombre)) {
+            $filtro = '';
+        }
+
+        $limite = max(1, $this->paginaBusquedaProductos) * self::PRODUCTOS_POR_PAGINA;
+        $query = $this->consultaProductosBase($filtro)
             ->select([
                 'producto.Id_Producto as id',
                 'producto.Nombre_Producto',
@@ -497,23 +526,15 @@ new class extends Component
                 'm.Nombre_Marca',
             ])
             ->orderBy('producto.Nombre_Producto')
-            ->limit(self::RESULTADOS_BUSQUEDA_SELECT);
+            ->orderBy('producto.Modelo')
+            ->limit($limite);
+
+        $this->totalProductosBusqueda = (clone $this->consultaProductosBase($filtro))->count();
 
         $productos = $query->get();
 
         if ($this->productoId && ! $productos->contains(fn ($item) => (int) $item->id === (int) $this->productoId)) {
-            $seleccionado = Producto::query()
-                ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
-                ->where('producto.Id_Producto', $this->productoId)
-                ->select([
-                    'producto.Id_Producto as id',
-                    'producto.Nombre_Producto',
-                    'producto.Modelo',
-                    'producto.Precio_Venta as precio',
-                    'producto.Stock_Actual',
-                    'm.Nombre_Marca',
-                ])
-                ->first();
+            $seleccionado = $this->buscarProductoPorId((int) $this->productoId);
 
             if ($seleccionado) {
                 $productos->prepend($seleccionado);
@@ -535,6 +556,8 @@ new class extends Component
             ->map(fn ($item) => $this->productoOpcion($item, (int) ($seriesDisponiblesPorProducto[$item->id] ?? 0)))
             ->values()
             ->toArray();
+
+        $this->hayMasProductos = $this->totalProductosBusqueda > count($this->productosDisponibles);
     }
 
     private function consultaProductosBase(string $filtro)
@@ -548,9 +571,32 @@ new class extends Component
                     $q->where('producto.Nombre_Producto', 'like', '%' . $filtro . '%')
                         ->orWhere('producto.Modelo', 'like', '%' . $filtro . '%')
                         ->orWhere('m.Nombre_Marca', 'like', '%' . $filtro . '%')
-                        ->orWhere('producto.Id_Producto', 'like', '%' . $filtro . '%');
+                        ->orWhere('producto.Id_Producto', 'like', '%' . $filtro . '%')
+                        ->orWhereExists(function ($subquery) use ($filtro) {
+                            $subquery->select(DB::raw(1))
+                                ->from('producto_serie as ps_busqueda')
+                                ->whereColumn('ps_busqueda.Id_Producto', 'producto.Id_Producto')
+                                ->where('ps_busqueda.Estado', 'DISPONIBLE')
+                                ->where('ps_busqueda.Numero_Serie', 'like', '%' . $filtro . '%');
+                        });
                 });
             });
+    }
+
+    private function buscarProductoPorId(int $id): ?object
+    {
+        return Producto::query()
+            ->leftJoin('marca as m', 'm.Id_Marca', '=', 'producto.Id_Marca')
+            ->where('producto.Id_Producto', $id)
+            ->select([
+                'producto.Id_Producto as id',
+                'producto.Nombre_Producto',
+                'producto.Modelo',
+                'producto.Precio_Venta as precio',
+                'producto.Stock_Actual',
+                'm.Nombre_Marca',
+            ])
+            ->first();
     }
 
     private function productoOpcion(object $item, int $seriesDisponibles): array
@@ -563,12 +609,18 @@ new class extends Component
             )
         );
 
+        $stock = (int) $item->Stock_Actual;
+        $precio = (float) $item->precio;
+
         return [
             'id' => (int) $item->id,
             'name' => $nombre .
-                ' - Stock: ' . (int) $item->Stock_Actual .
+                ' - Stock: ' . $stock .
                 ($seriesDisponibles > 0 ? ' | Series: ' . $seriesDisponibles : ''),
-            'precio' => (float) $item->precio,
+            'titulo' => $nombre,
+            'stock' => $stock,
+            'precio' => $precio,
+            'precio_texto' => 'C$ ' . number_format($precio, 2),
             'series_disponibles' => $seriesDisponibles,
         ];
     }
@@ -778,6 +830,67 @@ new class extends Component
 
     public function updatedFiltroProducto(): void
     {
+        if ($this->productoId && trim($this->filtroProducto) !== trim($this->productoSeleccionadoNombre)) {
+            $this->productoId = null;
+            $this->productoSerieId = null;
+            $this->seriesDisponibles = [];
+            $this->productoTieneSeries = false;
+            $this->productoCantidad = 1;
+            $this->productoPrecio = 0;
+            $this->productoSeleccionadoNombre = '';
+        }
+
+        $this->paginaBusquedaProductos = 1;
+        $this->mostrarBusquedaProductos = true;
+        $this->cargarProductosDisponibles();
+    }
+
+    public function abrirBusquedaProductos(): void
+    {
+        $this->paginaBusquedaProductos = 1;
+        $this->mostrarBusquedaProductos = true;
+        $this->cargarProductosDisponibles();
+    }
+
+    public function cerrarBusquedaProductos(): void
+    {
+        $this->mostrarBusquedaProductos = false;
+    }
+
+    public function cargarMasProductos(): void
+    {
+        if (! $this->hayMasProductos) {
+            return;
+        }
+
+        $this->paginaBusquedaProductos++;
+        $this->mostrarBusquedaProductos = true;
+        $this->cargarProductosDisponibles();
+    }
+
+    public function seleccionarProducto(int $id): void
+    {
+        $producto = $this->buscarProductoPorId($id);
+
+        if (! $producto) {
+            $this->mostrarMensaje('error', 'Producto no encontrado', 'El producto seleccionado ya no está disponible.');
+            $this->cargarProductosDisponibles();
+            return;
+        }
+
+        $seriesDisponibles = ProductoSerie::query()
+            ->where('Id_Producto', $id)
+            ->where('Estado', 'DISPONIBLE')
+            ->count();
+
+        $opcion = $this->productoOpcion($producto, (int) $seriesDisponibles);
+
+        $this->productoId = (int) $opcion['id'];
+        $this->productoSeleccionadoNombre = (string) $opcion['name'];
+        $this->filtroProducto = (string) $opcion['name'];
+        $this->mostrarBusquedaProductos = false;
+        $this->resetErrorBag('productoId');
+        $this->updatedProductoId($this->productoId);
         $this->cargarProductosDisponibles();
     }
 
@@ -839,25 +952,23 @@ new class extends Component
         $this->cargarProductosDelContrato((int) $contrato->Id_Contrato_Instalacion_Camara);
         $this->resetProductoForm();
         $this->resetErrorBag();
+        $this->contratoBloqueado = true;
 
         if ($cerrarModal) {
             $this->modalPendientes = false;
         }
 
-        $this->mostrarMensaje('success', 'Pendiente cargado', 'Ya podés actualizar el contrato o agregar materiales.');
+        $this->mostrarMensaje('success', 'Pendiente cargado');
     }
 
     public function nuevoContrato(): void
     {
         $this->limpiarFormulario();
+        $this->contratoBloqueado = false;
         $this->cargarCombos();
         $this->cargarPendientes();
 
-        $this->mostrarMensaje(
-            'success',
-            'Formulario limpio',
-            'Listo para registrar un nuevo contrato de instalación.'
-        );
+        $this->mostrarMensaje('success', 'Formulario limpio');
     }
 
     public function updatedClienteId($value): void
@@ -1028,11 +1139,7 @@ new class extends Component
         $this->resetProductoForm();
         $this->cargarCombos();
 
-        $this->mostrarMensaje(
-            'success',
-            'Producto agregado',
-            'El material quedó listo para guardarse con el contrato.'
-        );
+        $this->mostrarMensaje('success', 'Producto agregado');
     }
 
     public function quitarProducto(string $tmpId): void
@@ -1040,7 +1147,7 @@ new class extends Component
         $producto = collect($this->productosUsados)->firstWhere('tmp_id', $tmpId);
 
         if ($producto && !empty($producto['ya_guardado'])) {
-            $this->mostrarMensaje('error', 'No permitido', 'Este material ya fue descontado del inventario. Para revertirlo hay que hacer una devolución o ajuste de inventario.');
+            $this->mostrarMensaje('error', 'No permitido', 'Este material ya fue descontado.');
             return;
         }
 
@@ -1051,15 +1158,17 @@ new class extends Component
 
         $this->cargarCombos();
 
-        $this->mostrarMensaje(
-            'success',
-            'Producto quitado',
-            'El material fue removido del contrato.'
-        );
+        $this->mostrarMensaje('success', 'Producto quitado');
     }
 
     public function guardar(): void
     {
+        if ($this->contratoInstalacionIdSeleccionado && $this->contratoBloqueado) {
+            $this->contratoBloqueado = false;
+            $this->mostrarMensaje('info', 'Edición habilitada');
+            return;
+        }
+
         // MODIFICADO: reglas centralizadas para permitir alertas dinámicas y limpieza automática.
         if ($this->validarConToast($this->reglasContrato(), $this->mensajesValidacionContrato()) === null) {
             return;
@@ -1090,7 +1199,7 @@ new class extends Component
                 $this->cargarPendientes();
                 $this->cargarPendiente($id, false);
 
-                $this->mostrarMensaje('success', 'Contrato actualizado', 'La instalación de cámaras se actualizó correctamente.');
+                $this->mostrarMensaje('success', 'Contrato actualizado');
                 return;
             }
 
@@ -1101,19 +1210,11 @@ new class extends Component
             $this->cargarPendientes();
             $this->cargarPendiente($contratoId, false);
 
-            $this->mostrarMensaje(
-                'success',
-                'Contrato guardado',
-                'La instalación de cámaras se registró correctamente. Ya podés generar el contrato PDF.'
-            );
+            $this->mostrarMensaje('success', 'Contrato guardado');
         } catch (\Throwable $e) {
             report($e);
 
-            $this->mostrarMensaje(
-                'error',
-                'No se pudo guardar',
-                $e->getMessage()
-            );
+            $this->mostrarMensaje('error', 'No se pudo guardar');
         }
     }
 
@@ -1428,6 +1529,11 @@ new class extends Component
         $this->productoPrecio = 0;
         $this->productoTieneSeries = false;
         $this->seriesDisponibles = [];
+        $this->filtroProducto = '';
+        $this->productoSeleccionadoNombre = '';
+        $this->mostrarBusquedaProductos = false;
+        $this->paginaBusquedaProductos = 1;
+        $this->hayMasProductos = false;
 
         $this->resetErrorBag([
             'productoId',
@@ -1440,6 +1546,7 @@ new class extends Component
     private function limpiarFormulario(): void
     {
         $this->contratoInstalacionIdSeleccionado = null;
+        $this->contratoBloqueado = false;
         $this->clienteId = null;
         $this->telefonoCliente = '';
         $this->municipio = '';
@@ -2158,35 +2265,25 @@ new class extends Component
         return trim(preg_replace('/\s+/', ' ', (string) $texto));
     }
 
-    private function mostrarMensaje(string $tipo, string $titulo, string $descripcion): void
+    private function mostrarMensaje(string $tipo, string $titulo, string $descripcion = ''): void
     {
         // MODIFICADO: antes se guardaba el mensaje en una propiedad y quedaba fijo en pantalla.
         // Ahora se dispara como toast temporal de MaryUI y desaparece automáticamente.
+        $descripcion = trim($descripcion);
+
         match ($tipo) {
-            'error' => $this->error(
-                $titulo,
-                $descripcion,
-                position: 'toast-top toast-end',
-                timeout: 3500
-            ),
-            'warning' => $this->warning(
-                $titulo,
-                $descripcion,
-                position: 'toast-top toast-end',
-                timeout: 3000
-            ),
-            'info' => $this->info(
-                $titulo,
-                $descripcion,
-                position: 'toast-top toast-end',
-                timeout: 2500
-            ),
-            default => $this->success(
-                $titulo,
-                $descripcion,
-                position: 'toast-top toast-end',
-                timeout: 2500
-            ),
+            'error' => $descripcion === ''
+                ? $this->error($titulo, position: 'toast-top toast-end', timeout: 3500)
+                : $this->error($titulo, $descripcion, position: 'toast-top toast-end', timeout: 3500),
+            'warning' => $descripcion === ''
+                ? $this->warning($titulo, position: 'toast-top toast-end', timeout: 3000)
+                : $this->warning($titulo, $descripcion, position: 'toast-top toast-end', timeout: 3000),
+            'info' => $descripcion === ''
+                ? $this->info($titulo, position: 'toast-top toast-end', timeout: 2500)
+                : $this->info($titulo, $descripcion, position: 'toast-top toast-end', timeout: 2500),
+            default => $descripcion === ''
+                ? $this->success($titulo, position: 'toast-top toast-end', timeout: 2500)
+                : $this->success($titulo, $descripcion, position: 'toast-top toast-end', timeout: 2500),
         };
     }
 };
@@ -2206,7 +2303,7 @@ new class extends Component
 
                         @if($contratoInstalacionIdSeleccionado)
                         <span class="rounded-full bg-[#EAF2FB] px-3 py-1 text-xs font-bold text-[#0B6FE4]">
-                            Editando #{{ $contratoInstalacionIdSeleccionado }}
+                            {{ $contratoBloqueado ? 'Contrato' : 'Editando' }} #{{ $contratoInstalacionIdSeleccionado }}
                         </span>
                         @else
                         <span
@@ -2222,12 +2319,12 @@ new class extends Component
                 </div>
 
                 <div class="flex flex-wrap gap-2">
-                    <button type="button" wire:click="cambiarTipoOperacion('CONTADO')"
+                    <button type="button" wire:click="cambiarTipoOperacion('CONTADO')" @disabled($contratoBloqueado)
                         class="{{ $tipoOperacion === 'CONTADO' ? 'bg-[#0B6FE4] text-white shadow-sm' : 'bg-white text-[#1A2B42]' }} inline-flex h-10 items-center justify-center rounded-xl border border-[#D7E4F3] px-4 text-sm font-bold transition hover:bg-[#F7F9FC]">
                         Contado
                     </button>
 
-                    <button type="button" wire:click="cambiarTipoOperacion('CREDITO')"
+                    <button type="button" wire:click="cambiarTipoOperacion('CREDITO')" @disabled($contratoBloqueado)
                         class="{{ $tipoOperacion === 'CREDITO' ? 'bg-[#0B6FE4] text-white shadow-sm' : 'bg-white text-[#1A2B42]' }} inline-flex h-10 items-center justify-center rounded-xl border border-[#D7E4F3] px-4 text-sm font-bold transition hover:bg-[#F7F9FC]">
                         Crédito
                     </button>
@@ -2255,7 +2352,7 @@ new class extends Component
 
         <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-12">
             <div class="min-h-0 overflow-y-auto pr-0 xl:col-span-8 xl:pr-1">
-                <div class="space-y-4">
+                <fieldset @disabled($contratoBloqueado) class="m-0 min-w-0 space-y-4 border-0 p-0 disabled:opacity-75">
 
                     <x-card class="rounded-3xl border border-[#D7E4F3] bg-white shadow-sm">
                         <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
@@ -2471,16 +2568,62 @@ new class extends Component
                         <div class="mb-4 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3"
                             wire:keydown.enter.prevent="agregarProducto">
                             <div class="grid grid-cols-1 gap-3 md:grid-cols-12">
-                                <div class="md:col-span-5">
+                                <div class="relative md:col-span-5">
                                     <label class="mb-1 block text-sm font-bold text-[#1A2B42]">Producto</label>
 
-                                    <x-input error-class="hidden" wire:model.live.debounce.300ms="filtroProducto" icon="o-magnifying-glass"
-                                        placeholder="Buscar producto por nombre, marca, modelo o código"
-                                        class="mb-2 h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    <x-input error-field="productoId" error-class="hidden" wire:model.live.debounce.350ms="filtroProducto"
+                                        wire:focus="abrirBusquedaProductos" wire:keydown.escape="cerrarBusquedaProductos"
+                                        icon="o-magnifying-glass"
+                                        placeholder="Buscar producto, marca, modelo, código o serie"
+                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
 
-                                    <x-select error-class="hidden" wire:model.live="productoId" :options="$productosDisponibles"
-                                        option-value="id" option-label="name" placeholder="Seleccione producto"
-                                        class="h-10 min-h-10 w-full rounded-xl bg-white text-sm text-[#1A2B42]" />
+                                    @if($mostrarBusquedaProductos)
+                                    <div
+                                        class="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-2xl border border-[#D7E4F3] bg-white shadow-xl">
+                                        <div class="max-h-72 overflow-y-auto">
+                                            @forelse($productosDisponibles as $producto)
+                                            <button type="button"
+                                                wire:click="seleccionarProducto({{ $producto['id'] }})"
+                                                class="flex w-full items-start gap-3 border-b border-[#EEF3F8] px-3 py-2 text-left transition hover:bg-[#EAF2FB]">
+                                                <span
+                                                    class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#EAF2FB] text-[#0B6FE4]">
+                                                    <x-icon name="o-cube" class="h-4 w-4" />
+                                                </span>
+                                                <span class="min-w-0 flex-1">
+                                                    <span class="block truncate text-sm font-bold text-[#1A2B42]">{{
+                                                        $producto['titulo'] }}</span>
+                                                    <span class="block text-[11px] font-semibold text-[#5F6B7A]">
+                                                        Stock: {{ $producto['stock'] }}
+                                                        @if(($producto['series_disponibles'] ?? 0) > 0)
+                                                        · Series: {{ $producto['series_disponibles'] }}
+                                                        @endif
+                                                        · {{ $producto['precio_texto'] }}
+                                                    </span>
+                                                </span>
+                                            </button>
+                                            @empty
+                                            <div class="px-4 py-5 text-center text-sm font-semibold text-[#5F6B7A]">
+                                                No encontré productos disponibles con esa búsqueda.
+                                            </div>
+                                            @endforelse
+                                        </div>
+
+                                        <div
+                                            class="flex flex-col gap-2 bg-[#F7F9FC] px-3 py-2 text-xs font-semibold text-[#5F6B7A] sm:flex-row sm:items-center sm:justify-between">
+                                            <span>Mostrando {{ count($productosDisponibles) }} de {{
+                                                $totalProductosBusqueda }} producto(s)</span>
+                                            <div class="flex justify-end gap-2">
+                                                @if($hayMasProductos)
+                                                <x-button label="Cargar más" wire:click="cargarMasProductos"
+                                                    class="h-8 min-h-8 rounded-xl bg-white px-3 text-xs font-bold text-[#1A2B42] hover:bg-[#EAF2FB]" />
+                                                @endif
+                                                <x-button icon="o-x-mark" label="Cerrar"
+                                                    wire:click="cerrarBusquedaProductos"
+                                                    class="h-8 min-h-8 rounded-xl border border-[#D7E4F3] bg-white px-3 text-xs font-bold text-[#1A2B42] hover:bg-[#EAF2FB]" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    @endif
                                 </div>
 
                                 @if($productoTieneSeries)
@@ -2544,7 +2687,7 @@ new class extends Component
                             </x-table>
                         </div>
                     </x-card>
-                </div>
+                </fieldset>
             </div>
 
             <div class="min-h-0 overflow-y-auto xl:col-span-4">
@@ -2597,7 +2740,8 @@ new class extends Component
                             </div>
                         </div>
 
-                        <div class="mt-3 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3">
+                        <fieldset @disabled($contratoBloqueado)
+                            class="mt-3 rounded-2xl border border-[#D7E4F3] bg-[#F7F9FC] p-3 disabled:opacity-75">
                             <div class="mb-3">
                                 <h3 class="text-sm font-black text-[#1A2B42]">Pago recibido</h3>
                             </div>
@@ -2677,7 +2821,7 @@ new class extends Component
                                     </div>
                                 </div>
                             </div>
-                        </div>
+                        </fieldset>
 
                         @if($tipoOperacion === 'CREDITO')
                         <div class="mt-3 rounded-2xl border border-[#B7D6F2] bg-[#EAF4FD] p-3">
@@ -2710,8 +2854,8 @@ new class extends Component
                             </p>
                         </div>
 
-                        <x-button icon="o-check"
-                            label="{{ $contratoInstalacionIdSeleccionado ? ($tipoOperacion === 'CREDITO' ? 'Actualizar crédito' : 'Actualizar contrato') : ($tipoOperacion === 'CREDITO' ? 'Guardar crédito' : 'Guardar contrato') }}"
+                        <x-button icon="{{ $contratoInstalacionIdSeleccionado && $contratoBloqueado ? 'o-pencil-square' : 'o-check' }}"
+                            label="{{ $contratoInstalacionIdSeleccionado && $contratoBloqueado ? 'Editar' : ($contratoInstalacionIdSeleccionado ? ($tipoOperacion === 'CREDITO' ? 'Actualizar crédito' : 'Actualizar contrato') : ($tipoOperacion === 'CREDITO' ? 'Guardar crédito' : 'Guardar contrato')) }}"
                             wire:click="guardar" spinner="guardar"
                             class="mt-3 h-11 min-h-11 w-full rounded-xl border-0 bg-[#2E8BC0] text-sm font-black text-white hover:bg-[#0B6FE4]" />
 

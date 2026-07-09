@@ -48,7 +48,7 @@ new class extends Component
     public int $reportePorPagina = 5;
 
    
-    public array $cargosExcluidosPlanilla = [2];
+    public array $cargosExcluidosPlanilla = [2, 5];
 
     public string $fechaIncentivo = '';
     public string $conceptoIncentivo = '';
@@ -947,13 +947,13 @@ new class extends Component
     }
 
 
-    private function aplicarFiltroSinGerentes($query)
+    private function aplicarFiltroCargosExcluidos($query)
     {
-        $idsGerentes = $this->idsCargoGerente();
+        $idsExcluidos = $this->idsCargosExcluidosPlanilla();
         $columnas = $this->columnasTextoCargo();
 
-        if (! empty($idsGerentes)) {
-            $query->whereNotIn('Id_Cargo', $idsGerentes);
+        if (! empty($idsExcluidos)) {
+            $query->whereNotIn('Id_Cargo', $idsExcluidos);
         }
 
         if (empty($columnas)) {
@@ -970,7 +970,7 @@ new class extends Component
         });
     }
 
-    private function idsCargoGerente(): array
+    private function idsCargosExcluidosPlanilla(): array
     {
         static $ids = null;
 
@@ -1071,7 +1071,7 @@ new class extends Component
                 $query->whereDate('Fecha_Ingreso', '<=', Carbon::parse($this->fechaFinCorte)->toDateString());
             });
 
-        return $this->aplicarFiltroSinGerentes($query)->orderBy('Id_Trabajador');
+        return $this->aplicarFiltroCargosExcluidos($query)->orderBy('Id_Trabajador');
     }
 
     private function trabajadoresParaPlanilla(): Collection
@@ -1086,7 +1086,7 @@ new class extends Component
             ->whereIn('Id_Trabajador', $ids)
             ->where('Estado', 1);
 
-        return $this->aplicarFiltroSinGerentes($query)
+        return $this->aplicarFiltroCargosExcluidos($query)
             ->orderBy('Id_Trabajador')
             ->get();
     }

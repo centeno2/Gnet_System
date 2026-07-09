@@ -183,6 +183,7 @@ class BaseWordReporteService
 
             $bg = $numeroFila % 2 === 0 ? 'F7F9FC' : 'FFFFFF';
             $font = ['size' => 8, 'color' => '1A2B42'];
+            $estiloFila = $reporte->estiloFila($fila);
 
             if ($esTotalGeneral) {
                 $bg = 'BFD9F6';
@@ -190,6 +191,9 @@ class BaseWordReporteService
             } elseif ($esTotal) {
                 $bg = 'EAF2FB';
                 $font = ['bold' => true, 'size' => 8, 'color' => '1A2B42'];
+            } elseif ($estiloFila) {
+                $bg = $estiloFila['fondo'] ?? $bg;
+                $font = ['size' => 8, 'color' => $estiloFila['texto'] ?? '1A2B42'];
             }
 
             $tabla->addRow(390);

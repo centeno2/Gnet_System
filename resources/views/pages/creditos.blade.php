@@ -1198,6 +1198,17 @@ new class extends Component
             timeout: 3500
         );
     }
+
+    public function urlInformePendientesInstitucional(): string
+    {
+        if ($this->idClienteSeleccionado <= 0) {
+            return '#';
+        }
+
+        return route('reportes.creditos-institucionales-pendientes.pdf', [
+            'clienteId' => $this->idClienteSeleccionado,
+        ]);
+    }
 };
 ?>
 
@@ -1230,12 +1241,18 @@ $finCreditos = min($paginaCreditos * $porPaginaCreditos, $totalFilasCreditos);
     <div class="flex shrink-0 items-center justify-between">
         <h1 class="text-[1.65rem] font-bold leading-none text-[#1A2B42]">Gestión de Créditos</h1>
 
+        <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
         @if ($idClienteCreditoSeleccionado > 0)
-        <span
-            class="rounded-full border border-[#B7D6F2] bg-[#EAF4FD] px-3 py-1.5 text-xs font-semibold text-[#0B6FE4]">
-            {{ $codigoCredito }} · {{ $totalCreditosPendientes }} crédito(s)
-        </span>
+            <x-button icon="o-document-text" label="Informe pendientes"
+                link="{{ $this->urlInformePendientesInstitucional() }}#toolbar=1&navpanes=0&view=FitH" external
+                class="btn-sm border-0 bg-[#0E48A1] text-white hover:bg-[#0B6FE4]" />
+
+            <span
+                class="rounded-full border border-[#B7D6F2] bg-[#EAF4FD] px-3 py-1.5 text-xs font-semibold text-[#0B6FE4]">
+                {{ $codigoCredito }} · {{ $totalCreditosPendientes }} crédito(s)
+            </span>
         @endif
+        </div>
     </div>
 
     <div class="grid min-h-0 grid-cols-1 items-start gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(380px,400px)]">

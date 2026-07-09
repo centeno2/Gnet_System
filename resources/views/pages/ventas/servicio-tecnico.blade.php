@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Mary\Traits\Toast;
 
+use App\Models\Cargo;
 use App\Models\Cliente;
 use App\Models\Trabajador;
 use App\Models\Producto;
@@ -487,6 +488,9 @@ new class extends Component
             ->join('persona as p', 'p.Id_Persona', '=', 'trabajador.Id_Persona')
             ->leftJoin('cargo as cg', 'cg.Id_Cargo', '=', 'trabajador.Id_Cargo')
             ->where('trabajador.Estado', 1)
+            ->when(! $this->esSuperUsuario(), function ($query) {
+                $query->where('trabajador.Id_Cargo', '!=', Cargo::SUPER_USUARIO);
+            })
             ->select([
                 'trabajador.Id_Trabajador as id',
                 'p.Primer_Nombre',
@@ -506,6 +510,9 @@ new class extends Component
                 ->join('persona as p', 'p.Id_Persona', '=', 'trabajador.Id_Persona')
                 ->leftJoin('cargo as cg', 'cg.Id_Cargo', '=', 'trabajador.Id_Cargo')
                 ->where('trabajador.Id_Trabajador', $this->tecnicoId)
+                ->when(! $this->esSuperUsuario(), function ($query) {
+                    $query->where('trabajador.Id_Cargo', '!=', Cargo::SUPER_USUARIO);
+                })
                 ->select([
                     'trabajador.Id_Trabajador as id',
                     'p.Primer_Nombre',
@@ -522,6 +529,11 @@ new class extends Component
         }
 
         $this->tecnicos = $tecnicos->toArray();
+    }
+
+    private function esSuperUsuario(): bool
+    {
+        return (int) (auth()->user()?->trabajador?->Id_Cargo ?? auth()->user()?->trabajador?->cargo?->Id_Cargo ?? 0) === Cargo::SUPER_USUARIO;
     }
 
     private function tecnicoOpcion(object $item): array
@@ -1151,13 +1163,13 @@ new class extends Component
             $this->modalPendientes = false;
         }
 
-        $this->mostrarMensaje('success', 'Pendiente cargado', 'Ya podés revisar, actualizar estado o agregar repuestos.');
+        $this->mostrarMensaje('success', 'Pendiente cargado');
     }
 
     public function nuevoIngreso(): void
     {
         $this->limpiarFormulario();
-        $this->mostrarMensaje('success', 'Formulario limpio', 'Listo para registrar un nuevo ingreso.');
+        $this->mostrarMensaje('success', 'Formulario limpio');
     }
 
     public function updatedClienteId($value): void
@@ -1327,7 +1339,7 @@ new class extends Component
 
         $this->resetProductoForm();
         $this->cargarCombos();
-        $this->mostrarMensaje('success', 'Producto agregado', 'El repuesto quedó listo para guardarse con el servicio.');
+        $this->mostrarMensaje('success', 'Producto agregado');
     }
 
     public function quitarProducto(string $tmpId): void
@@ -1335,7 +1347,7 @@ new class extends Component
         $producto = collect($this->productos)->firstWhere('tmp_id', $tmpId);
 
         if ($producto && !empty($producto['ya_guardado'])) {
-            $this->mostrarMensaje('error', 'No permitido', 'Este producto ya fue descontado del inventario. Para revertirlo hay que hacer una devolución o ajuste de inventario.');
+            $this->mostrarMensaje('error', 'No permitido', 'Este producto ya fue descontado.');
             return;
         }
 
@@ -1405,7 +1417,7 @@ new class extends Component
             $this->mostrarMensaje(
                 'error',
                 'Estado no permitido',
-                'Un servicio nuevo no puede registrarse directamente como ENTREGADO.'
+                'Un servicio nuevo no puede iniciar como ENTREGADO.'
             );
 
             return;
@@ -1418,7 +1430,7 @@ new class extends Component
             $this->mostrarMensaje(
                 'error',
                 'Servicio ya pagado',
-                'Este servicio ya está pagado completo. No se puede registrar otro pago.'
+                'Este servicio ya está pagado.'
             );
 
             return;
@@ -1430,7 +1442,7 @@ new class extends Component
             $this->mostrarMensaje(
                 'error',
                 'Cobro no permitido',
-                'Solo puede registrar pagos cuando el servicio esté en estado REPARADO.'
+                'Solo puede cobrar servicios REPARADOS.'
             );
 
             return;
@@ -1443,7 +1455,7 @@ new class extends Component
             $this->mostrarMensaje(
                 'error',
                 'Entrega no permitida',
-                'El estado ENTREGADO se asigna automáticamente cuando el servicio está REPARADO y queda pagado completo.'
+                'Se entrega al quedar reparado y pagado.'
             );
 
             return;
@@ -1483,7 +1495,7 @@ new class extends Component
 
                 if ($abrirVoucher) {
                     $this->prepararVoucherServicioTecnicoYLimpia($id);
-                    $this->mostrarMensaje('success', 'Servicio entregado automáticamente', 'El servicio estaba REPARADO y quedó pagado completo. Se limpiaron los campos y se abrió el voucher.');
+                    $this->mostrarMensaje('success', 'Servicio entregado');
                     return;
                 }
 
@@ -1491,11 +1503,11 @@ new class extends Component
                 $this->limpiarCobroServicio();
 
                 if ($this->estadoServicio === 'ENTREGADO' && ! $this->servicioEstaPagado($id)) {
-                    $this->mostrarMensaje('warning', 'Saldo pendiente', 'El servicio quedó entregado, pero aún tiene saldo pendiente. No se generó voucher.');
+                    $this->mostrarMensaje('warning', 'Saldo pendiente', 'No se generó voucher.');
                     return;
                 }
 
-                $this->mostrarMensaje('success', 'Servicio actualizado', 'El servicio técnico se actualizó correctamente.');
+                $this->mostrarMensaje('success', 'Servicio actualizado');
                 return;
             }
 
@@ -1507,16 +1519,16 @@ new class extends Component
 
             if ($abrirVoucher) {
                 $this->prepararVoucherServicioTecnicoYLimpia($id);
-                $this->mostrarMensaje('success', 'Servicio entregado automáticamente', 'El servicio estaba REPARADO y quedó pagado completo. Se limpiaron los campos y se abrió el voucher.');
+                $this->mostrarMensaje('success', 'Servicio entregado');
                 return;
             }
 
             $this->limpiarFormulario();
 
-            $this->mostrarMensaje('success', 'Ingreso guardado', 'El servicio técnico se registró correctamente. Orden #' . $id . '.');
+            $this->mostrarMensaje('success', 'Ingreso guardado');
         } catch (\Throwable $e) {
             report($e);
-            $this->mostrarMensaje('error', 'No se pudo guardar', $e->getMessage());
+            $this->mostrarMensaje('error', 'No se pudo guardar');
         }
     }
 
@@ -2650,35 +2662,25 @@ new class extends Component
         return trim(preg_replace('/\s+/', ' ', (string) $texto));
     }
 
-    private function mostrarMensaje(string $tipo, string $titulo, string $descripcion): void
+    private function mostrarMensaje(string $tipo, string $titulo, string $descripcion = ''): void
     {
         // MODIFICADO: antes se guardaba el mensaje en una propiedad y quedaba fijo en pantalla.
         // Ahora se dispara como toast temporal de MaryUI y desaparece automáticamente.
+        $descripcion = trim($descripcion);
+
         match ($tipo) {
-            'error' => $this->error(
-                $titulo,
-                $descripcion,
-                position: 'toast-top toast-end',
-                timeout: 3500
-            ),
-            'warning' => $this->warning(
-                $titulo,
-                $descripcion,
-                position: 'toast-top toast-end',
-                timeout: 3000
-            ),
-            'info' => $this->info(
-                $titulo,
-                $descripcion,
-                position: 'toast-top toast-end',
-                timeout: 2500
-            ),
-            default => $this->success(
-                $titulo,
-                $descripcion,
-                position: 'toast-top toast-end',
-                timeout: 2500
-            ),
+            'error' => $descripcion === ''
+                ? $this->error($titulo, position: 'toast-top toast-end', timeout: 3500)
+                : $this->error($titulo, $descripcion, position: 'toast-top toast-end', timeout: 3500),
+            'warning' => $descripcion === ''
+                ? $this->warning($titulo, position: 'toast-top toast-end', timeout: 3000)
+                : $this->warning($titulo, $descripcion, position: 'toast-top toast-end', timeout: 3000),
+            'info' => $descripcion === ''
+                ? $this->info($titulo, position: 'toast-top toast-end', timeout: 2500)
+                : $this->info($titulo, $descripcion, position: 'toast-top toast-end', timeout: 2500),
+            default => $descripcion === ''
+                ? $this->success($titulo, position: 'toast-top toast-end', timeout: 2500)
+                : $this->success($titulo, $descripcion, position: 'toast-top toast-end', timeout: 2500),
         };
     }
 };

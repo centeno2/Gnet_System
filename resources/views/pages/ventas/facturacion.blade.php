@@ -360,7 +360,7 @@ new class extends Component
     public function usarConsumidorFinal(): void
     {
         if ($this->tipoVenta === self::TIPO_CREDITO) {
-            $this->mostrarToast('Para crédito debe seleccionar una institución registrada.', 'error');
+            $this->mostrarToast('Seleccione una institución.', 'error');
             return;
         }
 
@@ -690,9 +690,10 @@ new class extends Component
             $this->modalNuevaCopiaRapida = false;
             $this->limpiarNuevaCopiaRapida();
 
-            $this->mostrarToast('Copia rápida guardada y seleccionada. Recuerde ingresar precio unitario al venderla.');
+            $this->mostrarToast('Copia rápida guardada.');
         } catch (\Throwable $e) {
-            $this->mostrarToast('No se pudo guardar la copia rápida: ' . $e->getMessage(), 'error');
+            report($e);
+            $this->mostrarToast('No se pudo guardar la copia rápida.', 'error');
         }
     }
 
@@ -733,7 +734,7 @@ new class extends Component
     public function agregarItem(): void
     {
         if (! $this->itemSeleccionado) {
-            $this->mostrarToast('Seleccione primero un producto o una copia.', 'error');
+            $this->mostrarToast('Seleccione un producto o copia.', 'error');
             return;
         }
 
@@ -779,7 +780,7 @@ new class extends Component
         $areaItem = $this->areaItemNormalizada();
 
         if ($this->tipoVenta === self::TIPO_CREDITO && ! $areaItem) {
-            $this->mostrarToast('Ingrese el área del item antes de agregarlo al detalle.', 'error');
+            $this->mostrarToast('Ingrese el área del item.', 'error');
             return;
         }
 
@@ -817,7 +818,7 @@ new class extends Component
             $this->detalleVenta[$indiceDetalleExistente]['descuento_valor'] = $descuentoActualizado;
             $this->detalleVenta[$indiceDetalleExistente]['subtotal_valor'] = $subtotalBrutoActualizado - $descuentoActualizado;
 
-            $this->mostrarToast('Item sumado al detalle existente.', 'info');
+            $this->mostrarToast('Item actualizado.', 'info');
             $this->limpiarItemSeleccionado();
             return;
         }
@@ -896,7 +897,7 @@ new class extends Component
         $this->cargarTasaCambio();
 
         if (! $this->tasaCambioValida()) {
-            $this->mostrarToast('Debe registrar una tasa de cambio válida desde Arqueo de caja antes de facturar.', 'error');
+            $this->mostrarToast('Registre una tasa de cambio válida.', 'error');
             return;
         }
 
@@ -909,7 +910,7 @@ new class extends Component
         }
 
         if (count($this->detalleVenta) === 0) {
-            $this->mostrarToast('Agregue al menos un item a la venta.', 'error');
+            $this->mostrarToast('Agregue al menos un item.', 'error');
             return;
         }
 
@@ -944,12 +945,12 @@ new class extends Component
         $this->limpiarCotizacionCargada();
 
         if (! $this->tasaCambioValida()) {
-            $this->mostrarToast('Debe registrar una tasa de cambio válida antes de generar la cotización.', 'error');
+            $this->mostrarToast('Registre una tasa de cambio válida.', 'error');
             return null;
         }
 
         if (count($this->detalleVenta) === 0) {
-            $this->mostrarToast('Agregue al menos un item para generar la cotización.', 'error');
+            $this->mostrarToast('Agregue al menos un item.', 'error');
             return null;
         }
 
@@ -1029,9 +1030,10 @@ new class extends Component
             $this->cotizacionPreviewUrl = route('ventas.cotizacion', ['key' => $resultado['token']]);
             $this->modalCotizacionRapida = true;
 
-            $this->mostrarToast('Cotización guardada y PDF generado correctamente.', 'info');
+            $this->mostrarToast('Cotización guardada.', 'info');
         } catch (\Throwable $e) {
-            $this->mostrarToast('No se pudo guardar la cotización: ' . $e->getMessage(), 'error');
+            report($e);
+            $this->mostrarToast('No se pudo guardar la cotización.', 'error');
         }
 
         return null;
@@ -1116,7 +1118,7 @@ new class extends Component
             ->toArray();
 
         $this->limpiarItemSeleccionado();
-        $this->mostrarToast('Cotización cargada con precios congelados.', 'info');
+        $this->mostrarToast('Cotización cargada.', 'info');
     }
 
     public function limpiarCotizacionCargada(): void
@@ -1133,7 +1135,7 @@ new class extends Component
         $this->cargarTasaCambio();
 
         if (! $this->tasaCambioValida()) {
-            $this->mostrarToast('Debe registrar una tasa de cambio válida desde Arqueo de caja antes de guardar la venta.', 'error');
+            $this->mostrarToast('Registre una tasa de cambio válida.', 'error');
             return null;
         }
 
@@ -1347,7 +1349,7 @@ new class extends Component
                             'Saldo_Actual' => $saldoDespuesFavor,
                         ]);
 
-                    $credito = $venta->credito()->create([
+                    $datosCredito = [
                         'Id_Cliente_Credito' => $clienteCredito->Id_Cliente_Credito,
                         'Fecha_Credito' => now()->toDateString(),
                         'Abono_Inicial' => $saldoFavorAplicado,
@@ -1356,7 +1358,13 @@ new class extends Component
                         'Estado' => $saldoPendienteCredito <= 0
                             ? 'CANCELADO'
                             : self::ESTADO_CREDITO_PENDIENTE,
-                    ]);
+                    ];
+
+                    if (Schema::hasColumn('credito', 'Formato')) {
+                        $datosCredito['Formato'] = $this->formatoCreditoNormalizado();
+                    }
+
+                    $credito = $venta->credito()->create($datosCredito);
 
                     if ($saldoFavorAplicado > 0) {
                         DB::table('cliente_credito_movimiento')->insert([
@@ -1397,13 +1405,16 @@ new class extends Component
 
             $this->limpiarVentaActual();
             $this->cerrarModalCobro();
-            $this->prepararVoucherVenta((int) $resultado['id_venta']);
 
-            $mensajeVoucher = $tipoVentaActual === self::TIPO_CREDITO
-                ? 'Crédito guardado. Revise el voucher antes de imprimir. Factura: '
-                : 'Venta guardada. Revise el voucher antes de imprimir. Factura: ';
+            if ($tipoVentaActual === self::TIPO_CONTADO) {
+                $this->prepararVoucherVenta((int) $resultado['id_venta']);
+            }
 
-            $this->mostrarToast($mensajeVoucher . $resultado['numero_factura'], 'info');
+            $mensaje = $tipoVentaActual === self::TIPO_CREDITO
+                ? 'Crédito guardado.'
+                : 'Venta guardada.';
+
+            $this->mostrarToast($mensaje, 'info');
 
             return null;
         } catch (ValidationException $e) {
@@ -1411,7 +1422,8 @@ new class extends Component
             $this->mostrarToast($mensaje, 'error');
             return null;
         } catch (\Throwable $e) {
-            $this->mostrarToast('Error al guardar la venta: ' . $e->getMessage(), 'error');
+            report($e);
+            $this->mostrarToast('No se pudo guardar la venta.', 'error');
             return null;
         }
     }
@@ -1439,7 +1451,7 @@ new class extends Component
     public function generarReciboEntregaCreditoConfirmado(): void
     {
         if (! $this->ultimaEntregaCreditoId) {
-            $this->mostrarToast('Primero confirme una entrega para generar el recibo.', 'warning');
+            $this->mostrarToast('Confirme una entrega primero.', 'warning');
             return;
         }
 
@@ -1457,6 +1469,15 @@ new class extends Component
         $observacion = trim($this->observacionVenta);
 
         return $observacion !== '' ? Str::limit($observacion, 255, '') : null;
+    }
+
+    public function formatoCreditoNormalizado(): ?string
+    {
+        if ($this->tipoVenta !== self::TIPO_CREDITO) {
+            return null;
+        }
+
+        return $this->observacionVentaNormalizada();
     }
 
     public function areaItemNormalizada(): ?string
@@ -1712,8 +1733,8 @@ new class extends Component
     protected function mensajeClienteNoPermitido(): string
     {
         return $this->tipoVenta === self::TIPO_CREDITO
-            ? 'Para crédito solo puede seleccionar clientes institucionales.'
-            : 'Para contado puede seleccionar cliente natural, institución o consumidor final.';
+            ? 'Seleccione una institución.'
+            : 'Seleccione un cliente válido.';
     }
 
     protected function limpiarClienteFacturacion(): void
@@ -2059,7 +2080,7 @@ new class extends Component
         $clienteId = trim($this->entregaClienteId);
 
         if ($municipio === '' && $clienteId === '') {
-            $this->mostrarToast('Seleccione al menos un municipio o una institución para cargar pendientes.', 'error');
+            $this->mostrarToast('Seleccione municipio o institución.', 'error');
             return;
         }
 
@@ -2151,7 +2172,7 @@ new class extends Component
         $this->entregasPendientes = $pendientes;
 
         if (count($this->entregasPendientes) === 0) {
-            $this->mostrarToast('No hay pendientes de entrega para el filtro seleccionado.', 'info');
+            $this->mostrarToast('No hay pendientes.', 'info');
         }
     }
 
@@ -2202,7 +2223,7 @@ new class extends Component
             ->values();
 
         if ($idsSeleccionados->isEmpty()) {
-            $this->mostrarToast('Marque al menos un pendiente para incluirlo en el recibo.', 'error');
+            $this->mostrarToast('Seleccione al menos un pendiente.', 'error');
             return;
         }
 
@@ -2215,7 +2236,7 @@ new class extends Component
             ->values();
 
         if ($lineas->count() !== $idsSeleccionados->count()) {
-            $this->mostrarToast('Ingrese una cantidad mayor a cero para cada pendiente marcado.', 'error');
+            $this->mostrarToast('Revise las cantidades marcadas.', 'error');
             return;
         }
 
@@ -2330,7 +2351,7 @@ new class extends Component
             $this->ultimaEntregaCreditoNumero = (string) $resultado['numero_factura'];
 
             $this->prepararReciboEntregaCredito((int) $resultado['entrega_credito_id']);
-            $this->mostrarToast('Entrega confirmada. Comprobante listo para imprimir.');
+            $this->mostrarToast('Entrega confirmada.');
             $this->buscarPendientesEntregaCredito();
             $this->cargarMunicipiosEntregaCredito();
             $this->cargarInstitucionesEntregaCredito();
@@ -2338,7 +2359,8 @@ new class extends Component
             $mensaje = collect($e->errors())->flatten()->first() ?: 'No se pudo confirmar la entrega.';
             $this->mostrarToast($mensaje, 'error');
         } catch (\Throwable $e) {
-            $this->mostrarToast('No se pudo confirmar la entrega: ' . $e->getMessage(), 'error');
+            report($e);
+            $this->mostrarToast('No se pudo confirmar la entrega.', 'error');
         }
     }
 
@@ -2691,11 +2713,11 @@ new class extends Component
 
                     <div class="mt-4 rounded-2xl border border-[#D7E4F3] bg-white p-3 shadow-sm">
                         <h3 class="mb-2 text-sm font-black uppercase tracking-wide text-[#1A2B42]">
-                            Observación general
+                            {{ $tipoVenta === 'CREDITO' ? 'Formato' : 'Observación general' }}
                         </h3>
 
                         <x-textarea wire:model.live.debounce.300ms="observacionVenta" rows="2" maxlength="255"
-                            placeholder="Ejemplo: entregar por la tarde, nota interna o comentario general"
+                            placeholder="{{ $tipoVenta === 'CREDITO' ? 'Ejemplo: A2-P2' : 'Ejemplo: entregar por la tarde, nota interna o comentario general' }}"
                             class="min-h-20 w-full rounded-xl border-0 bg-[#F0F3F7] text-sm text-[#1A2B42] placeholder:text-[#7B8794]" />
                     </div>
                 </x-card>
@@ -3284,7 +3306,7 @@ new class extends Component
                     Cliente: <strong>{{ $clienteNombre }}</strong><br>
 
                     @if ($this->observacionVentaNormalizada())
-                    Observación: <strong>{{ $this->observacionVentaNormalizada() }}</strong><br>
+                    {{ $tipoVenta === 'CREDITO' ? 'Formato' : 'Observación' }}: <strong>{{ $this->observacionVentaNormalizada() }}</strong><br>
                     @endif
 
                     @if ($tipoVenta === 'CREDITO')

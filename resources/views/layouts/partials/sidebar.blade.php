@@ -17,9 +17,9 @@
      */
     $puede = fn (...$cargos) => in_array($cargo, array_map('intval', $cargos), true);
 
-    $puedeVerVentas = $puede(1, 2, 3);
-    $puedeVerCatalogo = $puede(1, 2, 3);
-    $puedeVerGestionTrabajadores = $puede( 2);
+    $puedeVerVentas = $puede(1, 2, 3, 5);
+    $puedeVerCatalogo = $puede(1, 2, 3, 5);
+    $puedeVerGestionTrabajadores = $puede(1, 5);
 @endphp
 
 <x-menu
@@ -102,8 +102,8 @@
         </x-menu-sub>
     @endif
 
-    {{-- Crédito: cargos 1 y 2 --}}
-    @if ($puede(1, 2))
+    {{-- Crédito: administrador y super usuario --}}
+    @if ($puede(1, 5))
         <x-menu-item
             title="Crédito"
             icon="o-banknotes"
@@ -111,8 +111,8 @@
         />
     @endif
 
-    {{-- Compras: cargos 1 --}}
-    @if ($puede(2))
+    {{-- Compras: administrador, gerente y super usuario --}}
+    @if ($puede(1, 2, 5))
         <x-menu-item
             title="Compras"
             icon="o-shopping-bag"
@@ -121,7 +121,7 @@
     @endif
 
     {{-- Productos: cargos 1, 2 y 3 --}}
-    @if ($puede(1, 2, 3))
+    @if ($puede(1, 2, 3, 5))
         <x-menu-item
             title="Productos"
              icon="o-cube-transparent"
@@ -130,7 +130,7 @@
     @endif
 
     {{-- Salidas de inventario: cargos 1, 2 y 3 --}}
-    @if ($puede(1, 2, 3))
+    @if ($puede(1, 2, 3, 5))
         <x-menu-item
             title="Salidas de inventario"
             icon="o-arrow-up-tray"
@@ -139,7 +139,7 @@
     @endif
 
     {{-- Devoluciones: cargos 1, 2 y 3 --}}
-    @if ($puede(1, 2, 3))
+    @if ($puede(1, 2, 3, 5))
         <x-menu-item
             title="Devoluciones"
             icon="o-arrow-uturn-left"
@@ -147,7 +147,7 @@
         />
     @endif
 
-    {{-- Gestión de trabajadores: cargos 2  --}}
+    {{-- Gestión de trabajadores: administrador y super usuario --}}
     @if ($puedeVerGestionTrabajadores)
         <x-menu-sub title="Gestión de trabajadores" icon="o-identification">
             <x-menu-item
@@ -162,8 +162,8 @@
     @if ($puedeVerCatalogo)
         <x-menu-sub title="Catálogo" icon="o-rectangle-stack">
 
-            {{-- Proveedores: cargos 1 y 2 --}}
-            @if ($puede(2 ))
+            {{-- Proveedores: administrador, gerente y super usuario --}}
+            @if ($puede(1, 2, 5))
                 <x-menu-item
                     title="Proveedores"
                     icon="o-truck"
@@ -172,7 +172,7 @@
             @endif
 
             {{-- Clientes: cargos 1, 2 y 3 --}}
-            @if ($puede(1, 2, 3))
+            @if ($puede(1, 2, 3, 5))
                 <x-menu-item
                     title="Clientes"
                     icon="o-user-group"
@@ -180,8 +180,8 @@
                 />
             @endif
 
-            {{-- Usuario: cargos 1 y 2 --}}
-            @if ($puede(1 ,2 ))
+            {{-- Usuario: administrador y super usuario --}}
+            @if ($puede(1, 5))
                 <x-menu-item
                     title="Usuario"
                     icon="o-user"
@@ -189,8 +189,8 @@
                 />
             @endif
 
-            {{-- Trabajadores: cargos 1 y 2 --}}
-            @if ($puede( 2))
+            {{-- Trabajadores: administrador y super usuario --}}
+            @if ($puede(1, 5))
                 <x-menu-item
                     title="Trabajadores"
                     icon="o-users"
@@ -202,7 +202,7 @@
     @endif
 
     {{-- Arqueo de caja: cargos 1, 2 y 3 --}}
-    @if ($puede(1, 2, 3))
+    @if ($puede(1, 2, 3, 5))
         <x-menu-item
             title="Arqueo de caja"
             icon="o-calculator"
@@ -210,8 +210,8 @@
         />
     @endif
 
-    {{-- Mantenimiento: cargos 1 y 2 --}}
-    @if ($puede(1, 2))
+    {{-- Mantenimiento: administrador y super usuario --}}
+    @if ($puede(1, 5))
         <x-menu-item
             title="Mantenimiento"
             icon="o-cog-6-tooth"
@@ -219,8 +219,8 @@
         />
     @endif
 
-    {{-- Informes: cargos 1 y 2 --}}
-    @if ($puede( 2))
+    {{-- Informes: administrador y super usuario --}}
+    @if ($puede(1, 5))
         <x-menu-item
             title="Informes"
             icon="o-document-text"
@@ -228,8 +228,8 @@
         />
     @endif
 
-    {{-- Acerca de: cargos 1 y 2 --}}
-    @if ($puede(1, 2))
+    {{-- Acerca de: roles con acceso al sistema --}}
+    @if ($puede(1, 2, 3, 5))
         <x-menu-item
             title="Acerca de"
             icon="o-information-circle"

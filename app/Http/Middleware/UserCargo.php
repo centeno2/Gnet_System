@@ -19,9 +19,13 @@ class UserCargo
             abort(403, 'Usuario sin cargo asignado');
         }
 
-        $cargo = $user->trabajador->cargo->Id_Cargo;
+        $cargo = (int) $user->trabajador->cargo->Id_Cargo;
+        $cargosPermitidos = array_map(
+            fn ($cargoPermitido) => (int) trim((string) $cargoPermitido),
+            $cargos
+        );
 
-        if (!in_array($cargo, $cargos)) {
+        if (! in_array($cargo, $cargosPermitidos, true)) {
             abort(403, 'No tienes permisos para acceder a esta ruta');
         }
 

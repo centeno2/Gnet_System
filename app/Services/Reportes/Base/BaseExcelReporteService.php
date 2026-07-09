@@ -251,6 +251,7 @@ class BaseExcelReporteService
             $fillColor = $filaExcel % 2 === 0 ? 'F7F9FC' : 'FFFFFF';
             $fontColor = '1A2B42';
             $bold = false;
+            $estiloFila = $reporte->estiloFila($fila);
 
             if ($esTotalGeneral) {
                 $fillColor = 'BFD9F6';
@@ -259,6 +260,9 @@ class BaseExcelReporteService
             } elseif ($esTotal) {
                 $fillColor = 'EAF2FB';
                 $bold = true;
+            } elseif ($estiloFila) {
+                $fillColor = $estiloFila['fondo'] ?? $fillColor;
+                $fontColor = $estiloFila['texto'] ?? $fontColor;
             }
 
             $sheet->getStyle("A{$filaExcel}:{$ultimaColumna}{$filaExcel}")->applyFromArray([

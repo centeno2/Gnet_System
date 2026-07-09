@@ -26,6 +26,7 @@ class Credito extends Model
         'Abono_Inicial',
         'Saldo_Actual',
         'Firma_Recibido',
+        'Formato',
         'Estado',
     ];
 

@@ -7,15 +7,20 @@ use App\Services\Reportes\Base\BaseReporteService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class CreditosInstitucionalesReporteService extends BaseReporteService
 {
-    private string $desde;
+    protected string $desde;
 
-    private string $hasta;
+    protected string $hasta;
 
-    private ?int $clienteId;
+    protected ?int $clienteId;
+
+    protected bool $soloPendientes;
+
+    protected bool $usarRangoFechas;
 
     public function __construct(private readonly Request $request)
     {
@@ -24,16 +29,26 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
 
         $cliente = trim((string) $this->request->query('clienteId', ''));
         $this->clienteId = $cliente !== '' && ctype_digit($cliente) ? (int) $cliente : null;
+        $this->soloPendientes = $this->resolverSoloPendientes();
+        $this->usarRangoFechas = $this->resolverUsarRangoFechas();
     }
 
     public function titulo(): string
     {
+        if ($this->soloPendientes) {
+            return 'Créditos institucionales pendientes';
+        }
+
         return 'Recepción de créditos institucionales';
     }
 
     public function nombreArchivo(): string
     {
         $institucion = $this->clienteId ? 'institucion-' . $this->clienteId : 'sin-institucion';
+
+        if ($this->soloPendientes) {
+            return 'creditos-institucionales-pendientes-' . $institucion;
+        }
 
         return 'recepcion-creditos-institucionales-' . $this->desde . '-' . $this->hasta . '-' . $institucion;
     }
@@ -44,32 +59,59 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
             return collect();
         }
 
-        return VwReporteCreditosInstitucionales::query()
-            ->where('Id_Cliente', $this->clienteId)
-            ->when($this->desde !== '', fn($query) => $query->whereDate('Fecha_Credito', '>=', $this->desde))
-            ->when($this->hasta !== '', fn($query) => $query->whereDate('Fecha_Credito', '<=', $this->hasta))
-            ->orderBy('Fecha_Credito')
-            ->orderBy('Numero_Factura')
+        $query = $this->queryReporte()
+            ->where('reporte.Id_Cliente', $this->clienteId);
+
+        if ($this->usarRangoFechas) {
+            $query
+                ->when($this->desde !== '', fn($query) => $query->whereDate('reporte.Fecha_Credito', '>=', $this->desde))
+                ->when($this->hasta !== '', fn($query) => $query->whereDate('reporte.Fecha_Credito', '<=', $this->hasta));
+        }
+
+        if ($this->soloPendientes) {
+            $query
+                ->where('reporte.Saldo_Actual', '>', 0)
+                ->where(function ($query) {
+                    $query
+                        ->whereNull('reporte.Estado_Credito')
+                        ->orWhereNotIn('reporte.Estado_Credito', ['CANCELADO', 'PAGADO', 'COMPLETADO']);
+                });
+        }
+
+        return $query
+            ->orderBy('reporte.Fecha_Credito')
+            ->orderBy('reporte.Numero_Factura')
             ->orderByRaw("
-                CASE Tipo_Detalle
+                CASE reporte.Tipo_Detalle
                     WHEN 'COPIA' THEN 1
                     WHEN 'PRODUCTO' THEN 2
                     WHEN 'SERVICIO' THEN 3
                     ELSE 4
                 END
             ")
-            ->orderBy('Formato_Copia')
-            ->orderBy('Item')
+            ->orderBy('reporte.Formato_Copia')
+            ->orderBy('reporte.Item')
             ->get();
     }
 
     public function resumen(Collection $datos): array
     {
-        return [
+        $resumen = [
             'Institución' => $this->texto($datos->first()?->Institucion ?? 'Institución no seleccionada'),
             'Municipio' => $this->texto($datos->first()?->Municipio ?? '—'),
-            'Periodo' => $this->periodoTexto(),
         ];
+
+        if ($this->usarRangoFechas) {
+            $resumen['Periodo'] = $this->periodoTexto();
+        } else {
+            $resumen['Consulta'] = 'Pendientes sin pagar';
+        }
+
+        if ($this->soloPendientes) {
+            $resumen['Saldo pendiente'] = $this->formatearDinero($this->totalSaldoPendiente($datos));
+        }
+
+        return $resumen;
     }
 
     public function columnas(): array
@@ -78,8 +120,8 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
             [
                 'key' => 'fecha',
                 'label' => 'Fecha',
-                'pdf' => 18,
-                'word' => 1000,
+                'pdf' => 17,
+                'word' => 900,
                 'tipo' => 'text',
                 'align_pdf' => 'C',
                 'align_excel' => 'center',
@@ -88,34 +130,42 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
             [
                 'key' => 'factura',
                 'label' => 'Factura',
-                'pdf' => 24,
-                'word' => 1300,
+                'pdf' => 22,
+                'word' => 1150,
                 'tipo' => 'text',
                 'limit' => 18,
             ],
             [
                 'key' => 'item',
-                'label' => 'Nombre del formato / producto / servicio',
-                'pdf' => 62,
-                'word' => 3800,
+                'label' => 'Producto / servicio',
+                'pdf' => 50,
+                'word' => 3000,
                 'tipo' => 'text',
-                'limit' => 55,
+                'limit' => 45,
             ],
             [
                 'key' => 'area',
                 'label' => 'Área',
-                'pdf' => 34,
-                'word' => 1900,
+                'pdf' => 28,
+                'word' => 1600,
                 'tipo' => 'text',
-                'limit' => 28,
+                'limit' => 22,
+            ],
+            [
+                'key' => 'formato',
+                'label' => 'Formato',
+                'pdf' => 30,
+                'word' => 1700,
+                'tipo' => 'text',
+                'limit' => 24,
             ],
             [
                 'key' => 'tamano',
                 'label' => 'Tamaño',
-                'pdf' => 20,
-                'word' => 1100,
+                'pdf' => 18,
+                'word' => 950,
                 'tipo' => 'text',
-                'limit' => 12,
+                'limit' => 10,
                 'align_pdf' => 'C',
                 'align_excel' => 'center',
                 'align_word' => 'center',
@@ -123,8 +173,8 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
             [
                 'key' => 'cantidad',
                 'label' => 'Cant.',
-                'pdf' => 18,
-                'word' => 900,
+                'pdf' => 15,
+                'word' => 800,
                 'tipo' => 'text',
                 'align_pdf' => 'R',
                 'align_excel' => 'right',
@@ -133,8 +183,8 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
             [
                 'key' => 'precio',
                 'label' => 'P/Unit',
-                'pdf' => 24,
-                'word' => 1300,
+                'pdf' => 22,
+                'word' => 1150,
                 'tipo' => 'text',
                 'align_pdf' => 'R',
                 'align_excel' => 'right',
@@ -143,8 +193,8 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
             [
                 'key' => 'monto',
                 'label' => 'Monto',
-                'pdf' => 28,
-                'word' => 1500,
+                'pdf' => 25,
+                'word' => 1250,
                 'tipo' => 'text',
                 'align_pdf' => 'R',
                 'align_excel' => 'right',
@@ -153,10 +203,10 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
             [
                 'key' => 'recibi',
                 'label' => 'Recibí conforme',
-                'pdf' => 28,
-                'word' => 1700,
+                'pdf' => 26,
+                'word' => 1500,
                 'tipo' => 'text',
-                'limit' => 24,
+                'limit' => 22,
             ],
         ];
     }
@@ -171,11 +221,15 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
             'factura' => $this->texto($fila->Numero_Factura ?? ''),
             'item' => $this->nombreItem($fila),
             'area' => $this->texto($fila->Area ?? '—'),
+            'formato' => $this->texto($fila->Formato_Entrega ?? '—'),
             'tamano' => $this->tamanoItem($fila),
             'cantidad' => $this->formatearCantidad((float) ($fila->Cantidad ?? 0)),
             'precio' => $this->formatearDinero((float) ($fila->Precio_Unitario ?? 0)),
             'monto' => $this->formatearDinero((float) ($fila->Total_Linea ?? 0)),
             'recibi' => $this->texto($fila->Recibido_Por ?? ''),
+            '_estado_credito' => (string) ($fila->Estado_Credito ?? ''),
+            '_saldo_actual' => (float) ($fila->Saldo_Actual ?? 0),
+            '_pagado' => $this->creditoPagado($fila),
         ];
     }
 
@@ -246,6 +300,18 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
         return (string) data_get($fila, 'item', '') === 'TOTAL GENERAL';
     }
 
+    public function estiloFila(mixed $fila): ?array
+    {
+        if ($this->filaEsTotal($fila) || ! (bool) data_get($fila, '_pagado', false)) {
+            return null;
+        }
+
+        return [
+            'fondo' => 'DCFCE7',
+            'texto' => '14532D',
+        ];
+    }
+
     public function firmaReporte(): ?array
     {
         return [
@@ -260,12 +326,53 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
             'factura' => '',
             'item' => $label,
             'area' => '',
+            'formato' => '',
             'tamano' => $tamano,
             'cantidad' => $cantidad,
             'precio' => '',
             'monto' => $monto,
             'recibi' => '',
         ];
+    }
+
+    protected function resolverSoloPendientes(): bool
+    {
+        return false;
+    }
+
+    protected function resolverUsarRangoFechas(): bool
+    {
+        return true;
+    }
+
+    private function queryReporte()
+    {
+        $query = VwReporteCreditosInstitucionales::query()
+            ->from('vw_reporte_creditos_institucionales as reporte')
+            ->select('reporte.*');
+
+        if (! Schema::hasColumn('credito', 'Formato')) {
+            return $query->selectRaw("'—' as Formato_Entrega");
+        }
+
+        return $query
+            ->leftJoin('credito as credito_formato', 'credito_formato.Id_Credito', '=', 'reporte.Id_Credito')
+            ->selectRaw("COALESCE(NULLIF(TRIM(credito_formato.Formato), ''), '—') as Formato_Entrega");
+    }
+
+    private function creditoPagado(mixed $fila): bool
+    {
+        $estado = mb_strtoupper(trim((string) ($fila->Estado_Credito ?? '')));
+        $saldo = round((float) ($fila->Saldo_Actual ?? 0), 2);
+
+        return $saldo <= 0 || in_array($estado, ['CANCELADO', 'PAGADO', 'COMPLETADO'], true);
+    }
+
+    private function totalSaldoPendiente(Collection $datos): float
+    {
+        return round((float) $datos
+            ->unique(fn ($fila) => (int) ($fila->Id_Credito ?? 0))
+            ->sum(fn ($fila) => max((float) ($fila->Saldo_Actual ?? 0), 0)), 2);
     }
 
     private function nombreItem(mixed $fila): string
@@ -289,7 +396,30 @@ class CreditosInstitucionalesReporteService extends BaseReporteService
             return '—';
         }
 
-        return $this->texto($fila->Formato_Copia_Nombre ?? '—');
+        $formatoId = (int) ($fila->Formato_Copia ?? 0);
+
+        if ($formatoId > 0 && isset($this->formatosCopia()[$formatoId])) {
+            return $this->formatosCopia()[$formatoId];
+        }
+
+        return $this->tamanoCopiaDesdeTexto(
+            $fila->Item ?? '',
+            $fila->Formato_Copia_Nombre ?? '',
+            $fila->Nombre_Formato ?? ''
+        );
+    }
+
+    private function tamanoCopiaDesdeTexto(mixed ...$valores): string
+    {
+        $texto = Str::lower(Str::ascii(implode(' ', array_map(fn ($valor) => (string) $valor, $valores))));
+
+        return match (true) {
+            str_contains($texto, 'oficio') => 'Oficio',
+            str_contains($texto, 'legal') => 'Legal',
+            str_contains($texto, 'carta') => 'Carta',
+            str_contains($texto, 'a4') => 'A4',
+            default => '—',
+        };
     }
 
     private function formatosCopia(): array

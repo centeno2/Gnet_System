@@ -135,6 +135,7 @@ class BasePdfReporteService
 
             $numeroFila++;
             $fill = $numeroFila % 2 === 0;
+            $estiloFila = $reporte->estiloFila($fila);
 
             if ($esTotalGeneral) {
                 $pdf->SetFillColor(191, 217, 246);
@@ -144,6 +145,13 @@ class BasePdfReporteService
                 $pdf->SetFillColor(234, 242, 251);
                 $pdf->SetTextColor(26, 43, 66);
                 $pdf->SetFont('helvetica', 'B', 6.8);
+            } elseif ($estiloFila) {
+                [$rFondo, $gFondo, $bFondo] = $this->hexToRgb($estiloFila['fondo'] ?? 'FFFFFF');
+                [$rTexto, $gTexto, $bTexto] = $this->hexToRgb($estiloFila['texto'] ?? '1A2B42');
+
+                $pdf->SetFillColor($rFondo, $gFondo, $bFondo);
+                $pdf->SetTextColor($rTexto, $gTexto, $bTexto);
+                $pdf->SetFont('helvetica', '', 6.5);
             } else {
                 $pdf->SetFillColor($fill ? 247 : 255, $fill ? 249 : 255, $fill ? 252 : 255);
                 $pdf->SetTextColor(26, 43, 66);

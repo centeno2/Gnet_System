@@ -156,6 +156,7 @@ new class extends Component
                 'required',
                 'integer',
                 'exists:cargo,Id_Cargo',
+                ...(! $this->puedeAsignarCargoSuperUsuario() ? [Rule::notIn([Cargo::SUPER_USUARIO])] : []),
             ],
 
             'salario' => [
@@ -200,6 +201,7 @@ new class extends Component
 
             'cargoId.required' => 'Debe seleccionar un cargo.',
             'cargoId.exists' => 'El cargo seleccionado no existe.',
+            'cargoId.not_in' => 'No tiene permiso para asignar este cargo.',
 
             'salario.required' => 'Debe ingresar el salario.',
             'salario.regex' => 'El salario solo puede contener números positivos y máximo 2 decimales.',
@@ -233,6 +235,31 @@ new class extends Component
     protected function modoEdicion(): bool
     {
         return $this->trabajadorEditandoId !== null;
+    }
+
+    public function esSuperUsuario(): bool
+    {
+        return $this->cargoActualId() === Cargo::SUPER_USUARIO;
+    }
+
+    protected function cargoActualId(): int
+    {
+        return (int) (auth()->user()?->trabajador?->Id_Cargo ?? auth()->user()?->trabajador?->cargo?->Id_Cargo ?? 0);
+    }
+
+    protected function puedeAsignarCargoSuperUsuario(): bool
+    {
+        if ($this->esSuperUsuario()) {
+            return true;
+        }
+
+        if (! in_array($this->cargoActualId(), [Cargo::ADMINISTRADOR, Cargo::GERENTE], true)) {
+            return false;
+        }
+
+        return ! Trabajador::query()
+            ->where('Id_Cargo', Cargo::SUPER_USUARIO)
+            ->exists();
     }
 
     protected function cedulaCambio(): bool
@@ -287,6 +314,10 @@ new class extends Component
         $this->direccion = preg_replace('/\s+/', ' ', trim($this->direccion));
         $this->salario = str_replace(',', '.', trim($this->salario));
         $this->estado = (string) ((int) $this->estado);
+
+        if ((int) $this->cargoId === Cargo::SUPER_USUARIO) {
+            $this->salario = '0';
+        }
     }
 
     protected function verificarCedulaExistente(): void
@@ -378,6 +409,9 @@ new class extends Component
     public function cargarCargos(): void
     {
         $this->cargos = Cargo::query()
+            ->when(! $this->puedeAsignarCargoSuperUsuario(), function ($query) {
+                $query->where('Id_Cargo', '!=', Cargo::SUPER_USUARIO);
+            })
             ->orderBy('Cargo_Asignado')
             ->get(['Id_Cargo', 'Cargo_Asignado'])
             ->map(fn (Cargo $cargo) => [
@@ -392,6 +426,9 @@ new class extends Component
     {
         return Trabajador::query()
             ->with(['persona', 'cargo'])
+            ->when(! $this->esSuperUsuario(), function ($query) {
+                $query->where('Id_Cargo', '!=', Cargo::SUPER_USUARIO);
+            })
             ->orderByDesc('Id_Trabajador')
             ->paginate(10)
             ->through(function (Trabajador $trabajador) {
@@ -502,7 +539,7 @@ new class extends Component
                 'Estado' => 1,
                 'Id_Cargo' => $this->cargoId,
                 'Cedula' => $this->cedula,
-                'Salario' => $this->salario,
+                'Salario' => (int) $this->cargoId === Cargo::SUPER_USUARIO ? 0 : $this->salario,
             ]);
         });
 
@@ -518,6 +555,10 @@ new class extends Component
         $trabajador = Trabajador::query()
             ->with(['persona', 'cargo'])
             ->findOrFail($trabajadorId);
+
+        if ((int) $trabajador->Id_Cargo === Cargo::SUPER_USUARIO && ! $this->esSuperUsuario()) {
+            abort(403, 'No tiene permiso para editar este trabajador.');
+        }
 
         $persona = $trabajador->persona;
 
@@ -603,7 +644,7 @@ new class extends Component
             $trabajador->Estado = (int) $this->estado;
             $trabajador->Id_Cargo = $this->cargoId;
             $trabajador->Cedula = $this->cedula;
-            $trabajador->Salario = $this->salario;
+            $trabajador->Salario = (int) $this->cargoId === Cargo::SUPER_USUARIO ? 0 : $this->salario;
             $trabajador->save();
         });
 
@@ -619,6 +660,10 @@ new class extends Component
 
     public function guardarCargo(): void
     {
+        if (! $this->esSuperUsuario()) {
+            abort(403, 'No tiene permiso para crear cargos.');
+        }
+
         $this->nuevoCargo = preg_replace('/\s+/', ' ', trim($this->nuevoCargo));
 
         $this->validate([
@@ -862,12 +907,14 @@ new class extends Component
                             />
                         </div>
 
-                        <x-button
-                            icon="o-plus"
-                            type="button"
-                            wire:click="$set('modalCargo', true)"
-                            class="mt-px h-12 min-h-12 rounded-xl border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]"
-                        />
+                        @if ($this->esSuperUsuario())
+                            <x-button
+                                icon="o-plus"
+                                type="button"
+                                wire:click="$set('modalCargo', true)"
+                                class="mt-px h-12 min-h-12 rounded-xl border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]"
+                            />
+                        @endif
                     </div>
 
                     @error('cargoId')
@@ -1028,48 +1075,50 @@ new class extends Component
         </x-slot:actions>
     </x-modal>
 
-    <x-modal
-        wire:model="modalCargo"
-        box-class="rounded-2xl border border-[#D7E4F3] bg-white"
-    >
-        <div class="mb-5">
-            <h2 class="text-2xl font-bold text-[#1A2B42]">Agregar cargo</h2>
-            <p class="text-base text-[#5F6B7A]">
-                Registre un nuevo cargo para los trabajadores.
-            </p>
-        </div>
-
-        <x-form wire:submit="guardarCargo" no-separator>
-            <div>
-                <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
-                    Nombre del cargo
-                </label>
-                <x-input
-                    wire:model="nuevoCargo"
-                    placeholder="Ejemplo: Técnico"
-                    maxlength="100"
-                    class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
-                />
-                @error('nuevoCargo')
-                    <span class="mt-1 block text-sm text-red-600">{{ $message }}</span>
-                @enderror
+    @if ($this->esSuperUsuario())
+        <x-modal
+            wire:model="modalCargo"
+            box-class="rounded-2xl border border-[#D7E4F3] bg-white"
+        >
+            <div class="mb-5">
+                <h2 class="text-2xl font-bold text-[#1A2B42]">Agregar cargo</h2>
+                <p class="text-base text-[#5F6B7A]">
+                    Registre un nuevo cargo para los trabajadores.
+                </p>
             </div>
 
-            <x-slot:actions>
-                <x-button
-                    label="Cancelar"
-                    type="button"
-                    wire:click="$set('modalCargo', false)"
-                    class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB]"
-                />
+            <x-form wire:submit="guardarCargo" no-separator>
+                <div>
+                    <label class="mb-2 block text-sm font-semibold text-[#1A2B42]">
+                        Nombre del cargo
+                    </label>
+                    <x-input
+                        wire:model="nuevoCargo"
+                        placeholder="Ejemplo: Técnico"
+                        maxlength="100"
+                        class="w-full rounded-xl bg-[#F0F3F7] text-[#1A2B42] placeholder:text-[#7B8794]"
+                    />
+                    @error('nuevoCargo')
+                        <span class="mt-1 block text-sm text-red-600">{{ $message }}</span>
+                    @enderror
+                </div>
 
-                <x-button
-                    label="Guardar cargo"
-                    type="submit"
-                    spinner="guardarCargo"
-                    class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]"
-                />
-            </x-slot:actions>
-        </x-form>
-    </x-modal>
+                <x-slot:actions>
+                    <x-button
+                        label="Cancelar"
+                        type="button"
+                        wire:click="$set('modalCargo', false)"
+                        class="border border-[#D7E4F3] bg-white text-[#1A2B42] hover:bg-[#EAF2FB]"
+                    />
+
+                    <x-button
+                        label="Guardar cargo"
+                        type="submit"
+                        spinner="guardarCargo"
+                        class="border-0 bg-[#2E8BC0] text-white hover:bg-[#0B6FE4]"
+                    />
+                </x-slot:actions>
+            </x-form>
+        </x-modal>
+    @endif
 </div>

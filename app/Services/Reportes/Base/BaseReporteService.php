@@ -38,6 +38,11 @@ abstract class BaseReporteService
         return false;
     }
 
+    public function estiloFila(mixed $fila): ?array
+    {
+        return null;
+    }
+
     public function firmaReporte(): ?array
     {
         return null;

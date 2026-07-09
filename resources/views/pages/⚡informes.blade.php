@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
 use Livewire\Component;
 use Mary\Traits\Toast;
+use App\Models\Cargo;
 use App\Models\Proveedor;
 
 new class extends Component
@@ -285,6 +286,11 @@ new class extends Component
 
     public function generarReporte(string $reporte, string $formato = 'pdf')
     {
+        if ($this->reporteEsCredito($reporte) && ! $this->puedeVerReportesCredito()) {
+            $this->mostrarToast('No tienes permiso para reportes de crédito.', 'error');
+            return null;
+        }
+
         return match ($reporte) {
             'ventas' => $this->generarVentas($formato),
             'devoluciones' => $this->generarDevoluciones($formato),
@@ -358,9 +364,24 @@ new class extends Component
         $this->visorUrl = '';
     }
 
+    private function cargoActualId(): int
+    {
+        return (int) (auth()->user()?->trabajador?->Id_Cargo ?? auth()->user()?->trabajador?->cargo?->Id_Cargo ?? 0);
+    }
+
+    private function puedeVerReportesCredito(): bool
+    {
+        return in_array($this->cargoActualId(), [Cargo::ADMINISTRADOR, Cargo::SUPER_USUARIO], true);
+    }
+
+    private function reporteEsCredito(string $reporte): bool
+    {
+        return in_array($reporte, ['creditos', 'credito-factura'], true);
+    }
+
     public function tarjetasReportes(): array
     {
-        return [
+        $reportes = [
             [
                 'id' => 'ventas',
                 'titulo' => 'Ventas',
@@ -659,6 +680,11 @@ new class extends Component
                 ],
             ],
         ];
+
+        return array_values(array_filter($reportes, function (array $reporte) {
+            return ! $this->reporteEsCredito((string) $reporte['id'])
+                || $this->puedeVerReportesCredito();
+        }));
     }
 
     private function generarVentas(string $formato)
